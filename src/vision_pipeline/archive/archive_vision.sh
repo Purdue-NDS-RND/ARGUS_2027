@@ -15,7 +15,7 @@ else
 fi
 
 # 2. Source custom workspace using $HOME
-WORKSPACE_PATH="$HOME/CUASC_2026/install/setup.bash"
+WORKSPACE_PATH="$HOME/ARGUS_2027/install/setup.bash"
 if [ -f "$WORKSPACE_PATH" ]; then
     source "$WORKSPACE_PATH"
 else

@@ -16,7 +16,7 @@ else
 fi
 
 # 2. Navigate to workspace root and rebuild the vision pipeline package
-WORKSPACE_DIR="$HOME/CUASC_2026"
+WORKSPACE_DIR="$HOME/ARGUS_2027"
 if [ -d "$WORKSPACE_DIR" ]; then
     echo "🔨 Building vision_pipeline package..."
     cd "$WORKSPACE_DIR"
