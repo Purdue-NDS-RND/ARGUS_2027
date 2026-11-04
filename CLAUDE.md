@@ -13,7 +13,7 @@ This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC com
 - Do not change these interfaces: the mission API (`on_enter`, `update`, `on_exit`), the 20 Hz executor tick, `fake_drop`, and the failure policies.
 - Do not change existing tuned values (gains, altitudes, deadbands, thresholds, calibration) unless the issue asks for it.
 - Keep logic in plain Python modules with no ROS imports, so it can be tested without ROS. ROS nodes stay thin wrappers around that logic.
-- Every change comes with a test. Add a `run_test` line for each new test file in `scripts/check.sh`, and run `scripts/check.sh` before you open a pull request; it must pass. Break the code once and confirm the new test fails, then restore it.
+- Every change comes with a test. Add a `run_test` line for each new test file in `scripts/check.sh`. Tests that import `cv2`, `numpy` or `yaml` go inside the block in `scripts/check.sh` that checks for those modules, so they print `SKIP` instead of failing on a machine without them. Run `scripts/check.sh` before you open a pull request; it must pass. Break the code once and confirm the new test fails, then restore it.
 - The repo is public. Never commit passwords, tokens, keys, datasets, ROS bags, flight logs, model training runs or TensorRT engines.
 - Measured numbers (accuracy, latency, A/B runs) go in `docs/results/YYYY-MM-DD-<topic>.md`, with the command that produced them.
 - Ask the user before using `sudo`, deleting files, installing system packages, or changing anything outside this repo.

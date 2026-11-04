@@ -29,7 +29,7 @@
 - One issue per branch and per pull request. If you find something else, write it under "Not done" in the pull request, or open a new issue.
 - New behaviour goes behind a flag that defaults to `false`. Mission flags live in the `features:` block of the sequence YAML. Node flags are ROS parameters named `features.<flag>` on the node that uses them. `CLAUDE.md` has the details. With every flag off, the drone must fly exactly as the `comp-2026` code did.
 - Do not change existing tuned values (gains, altitudes, thresholds, calibration) unless your issue says to.
-- Every change has a test, and every test file has a `run_test` line in `scripts/check.sh`. Break your code once and watch the test fail.
+- Every change has a test, and every test file has a `run_test` line in `scripts/check.sh`. Tests that import `cv2`, `numpy` or `yaml` go inside the block in `scripts/check.sh` that checks for those modules, so they print `SKIP` instead of failing on a machine without them. Break your code once and watch the test fail.
 - The repo is public. Never commit passwords, tokens, keys, datasets, ROS bags, flight logs or TensorRT engines. Datasets and photos go on the team Drive.
 - Numbers you measure go in `docs/results/YYYY-MM-DD-<topic>.md`, with the command that produced them.
 
