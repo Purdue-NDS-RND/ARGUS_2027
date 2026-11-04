@@ -10,7 +10,8 @@ Where the gates run is read from the environment:
     GITHUB_EVENT_NAME=pull_request  CI on a pull request. PR_BASE_SHA, PR_HEAD_SHA, PR_TITLE
                                     and PR_BODY must be set. Checks the commits and the diff
                                     from the merge base to the head.
-    GITHUB_EVENT_NAME=push          CI on a push to main. The gates don't apply: prints "n/a".
+    GITHUB_EVENT_NAME=push          CI on a push to main. The gates don't apply: prints
+                                    "pr_checks: n/a (push to main)".
     unset                           Local run. Checks the working tree and the branch's commits
                                     against origin/main. The PR title and description are
                                     checked only if PR_TITLE or PR_BODY is set; otherwise
@@ -506,6 +507,9 @@ def gate_size(ctx: Context, changes: Sequence[Change]) -> GateResult:
 def run_gates(repo: Path, env: Mapping[str, str], out=None) -> int:
     out = out or sys.stdout
     event = env.get("GITHUB_EVENT_NAME", "")
+    if event == "push":
+        print("pr_checks: n/a (push to main)", file=out)
+        return EXIT_OK
     if event and event != "pull_request":
         print(f"pr_checks: n/a ({event} event; the gates apply to pull requests)", file=out)
         return EXIT_OK

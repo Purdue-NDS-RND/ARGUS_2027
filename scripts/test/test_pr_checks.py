@@ -185,7 +185,7 @@ def test_staged_hook(repo):
 def test_push_event_is_not_applicable_and_not_a_skip(repo):
     code, out = run(repo, {"GITHUB_EVENT_NAME": "push"})
     assert code == 0
-    assert "n/a" in out
+    assert out.strip() == "pr_checks: n/a (push to main)"
     assert "SKIP" not in out
 
 

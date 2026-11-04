@@ -45,7 +45,12 @@ Attack each one that the change could touch. Every finding names exactly one inv
 
 **F4 Nothing blocks the tick.** Nothing in `update()` or a 20 Hz callback blocks: no `time.sleep`, no `spin_until_future_complete` or other synchronous service call, no file or network I/O, no heavy compute (image processing, model inference, large loops). Logging every tick at info level counts as a concern.
 
-**F5 Safety limits untouched.** The 25 ft localisation floor, the 6 ft release rule, the geofence and RTL, the maximum recovery altitude (`max_recovery_altitude_m`), and the failure-to-RTL paths. Find where each limit is actually enforced before judging; don't assume a name. Look for: changed thresholds or comparisons (`<` vs `<=`), a limit moved behind a flag, a new path that releases or descends without passing the same checks, a changed unit on a limit.
+**F5 Safety limits untouched.** The localisation floor, the release rules, the geofence and RTL, the maximum recovery altitude (`max_recovery_altitude_m`), and the failure-to-RTL paths. Config altitudes are in metres; check them against these limits:
+- Package drop releases at or above 6 ft (1.83 m). `drop_altitude_m: 6.0` is compliant. Flag a drop altitude, or a drop altitude minus `drop_altitude_tolerance_m`, that allows release below 1.83 m.
+- Package recovery must never release the bucket above 6 ft (1.83 m). Flag any recovery path that can release above 1.83 m.
+- Localisation flies at or above 25 ft (7.62 m). There is no named constant for this floor yet, so flag any search or survey altitude below 7.62 m, in config or code.
+
+Find where each limit is actually enforced before judging; don't assume a name. Look for: changed thresholds or comparisons (`<` vs `<=`), a limit moved behind a flag, a new path that releases or descends without passing the same checks, a changed unit on a limit.
 
 **F6 Lost target never means blind descent or release.** Losing the target leads to hold, climb-and-search or RTL, as today. Look for: descent that continues on a stale or predicted detection; release allowed when the last detection is old; a new estimator or filter whose output is used as if it were a detection; timeouts lengthened or removed.
 
