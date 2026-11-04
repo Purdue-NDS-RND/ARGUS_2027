@@ -318,7 +318,7 @@ class PackageDropMissionTests(unittest.TestCase):
         mission.update(context)
         self.assertEqual(mission._state, PackageDropState.DROP_PAYLOAD)
 
-    def test_real_drop_commands_sprayer_close_when_fake_drop_is_false(self) -> None:
+    def test_real_drop_commands_sprayer_enable_when_fake_drop_is_false(self) -> None:
         mission = make_mission(fake_drop=False)
         context = FakeContext()
         context.local_pose.pose.position.z = 4.0
@@ -327,7 +327,8 @@ class PackageDropMissionTests(unittest.TestCase):
         mission.update(context)
         mission.update(context)
 
-        self.assertEqual(context.sprayer_commands, [False])
+        # enable=True is what flew at competition (183e2f9, tagged comp-2026).
+        self.assertEqual(context.sprayer_commands, [True])
         self.assertTrue(mission._drop_actuated)
 
 
