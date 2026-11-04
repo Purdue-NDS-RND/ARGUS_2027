@@ -1,5 +1,7 @@
 mission_sequence:
   on_failure: abort_and_rtl
+  features:
+    use_frame_time_pose: false
   missions:
     - type: takeoff
       name: takeoff

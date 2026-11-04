@@ -61,6 +61,13 @@ def load_sequence_file(sequence_file: str) -> List[MissionSpec]:
         )
 
     default_policy = MissionFailurePolicy.from_value(root.get("on_failure"))
+
+    features = root.get("features", {})
+    if features is None:
+        features = {}
+    if not isinstance(features, dict):
+        raise ValueError(f"Mission sequence file '{path}' features must be a mapping")
+
     specs: list[MissionSpec] = []
     for index, raw_mission in enumerate(raw_missions):
         if not isinstance(raw_mission, dict):
@@ -91,6 +98,7 @@ def load_sequence_file(sequence_file: str) -> List[MissionSpec]:
                 config=dict(config),
                 base_dir=path.parent,
                 failure_policy=failure_policy,
+                features=dict(features),
             )
         )
     return specs

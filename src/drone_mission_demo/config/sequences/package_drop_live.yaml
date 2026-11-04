@@ -1,5 +1,7 @@
 mission_sequence:
     on_failure: abort_and_rtl # Abort the remaining sequence and request RTL on failure.
+    features: # Mission feature flags; a missing flag means false.
+        use_frame_time_pose: false # Not read by any mission yet.
     missions:
         - type: takeoff # Mission type registered in the mission framework.
           name: takeoff # Human-readable mission instance name for logs.

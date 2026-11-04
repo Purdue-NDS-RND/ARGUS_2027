@@ -67,6 +67,7 @@ if ! has_module pytest; then
 fi
 
 run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projection.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
@@ -76,9 +77,11 @@ for mod in cv2 numpy yaml; do
     has_module "$mod" || missing+=("$mod")
 done
 if ((${#missing[@]})); then
-    skip "bullseye detector tests and tools/bullseye_try.py (missing: ${missing[*]})"
+    skip "bullseye detector, feature-flag config and synth target tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
+    run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
+    run_test "" tools/test/test_synth_targets.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"
