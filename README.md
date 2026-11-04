@@ -1,3 +1,7 @@
+## 2027 team: start here
+
+New to the team? Read [CONTRIBUTING.md](CONTRIBUTING.md) for how we work, then pick up your assignment from the repo's [Issues](https://github.com/Purdue-NDS-RND/ARGUS_2027/issues).
+
 <div align="center">
 
 # CUASC 2026 Autonomous Drone Platform
