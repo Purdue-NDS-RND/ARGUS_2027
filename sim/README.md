@@ -25,7 +25,7 @@ The measured baseline (camera rate, detection, a full mission) is in [docs/resul
 **Camera:** 640x360 at a 30 Hz update rate, with a 1.376 rad (78.9°) horizontal field of view.
 - That FOV matches the mission's calibrated camera: `camera_fx_px` 2335 at `camera_calibration_width_px` 3840.
 - The mission scales fx to whatever width it receives, so the resolution needs no YAML change.
-- 1280x720 gave only 8.6 Hz on a club laptop's Intel Iris Xe. 640x360 gives about 12 Hz.
+- On a club laptop's Intel Iris Xe, with the drone on the ground, 1280x720 gave only 8.6 Hz and 640x360 gives about 12 Hz. In flight Gazebo runs close to real time, and `target_cv` gets about 22 Hz at 640x360.
 - On a faster machine, set `<width>1280</width>` and `<height>720</height>` in `sim/models/iris_downcam/model.sdf`.
 
 **Ports:**
@@ -34,7 +34,7 @@ The measured baseline (camera rate, detection, a full mission) is in [docs/resul
 - ROS and Gazebo traffic stays on this machine (`ROS_LOCALHOST_ONLY=1`, `GZ_IP=127.0.0.1`), so two drives on the same Wi-Fi don't see each other.
 - The catch: ROS 2 Jazzy on the host can't see the container's topics. Use `--shell` instead.
 
-**Speed:** a club laptop runs Gazebo at about half real time (real-time factor 0.4 to 0.6). The unmodified club sim runs at the same speed. The sim is slow, not broken: ArduPilot runs in lockstep with Gazebo, so it flies correctly, just slower than real time.
+**Speed:** a club laptop runs Gazebo at about half real time (real-time factor 0.4 to 0.6) while the drone is on the ground, and close to real time (0.9 to 0.99) in the air. The unmodified club sim runs at the same speed. The sim is slow, not broken: ArduPilot runs in lockstep with Gazebo, so it flies correctly, just slower than real time.
 
 ## Running it from a fresh club drive
 
@@ -127,7 +127,7 @@ On a club laptop the flight takes about 2.5 minutes. ArduPilot then flies home, 
 Watch it in Gazebo, or watch the camera and detections:
 
 ```bash
-ros2 topic hz /camera/image                              # about 12 Hz on a club laptop
+ros2 topic hz /camera/image                              # club laptop: about 12 Hz on the ground, about 22 in flight
 ros2 topic echo /drone_package_drop/target_detection     # x, y in -1..1; -1,-1 means no target
 ```
 
@@ -140,7 +140,7 @@ When it fails:
 - **The drone drifts away from the target while descending:** the camera mount or FOV is wrong. Run the orientation check below and `scripts/check.sh` (its `sim/test/test_sim_camera.py` checks the camera against the mission config).
 - **`process has died`:** the full error is a few lines above it in the launch output. Session logs are in `sim/.state/home/cuasc_logs/`.
 
-To fly again, either relaunch after the drone has landed and disarmed, or restart the sim for a clean start.
+To fly again, either relaunch after the drone has landed and disarmed, or restart the sim for a clean start. Before relaunching, stop the previous launch with Ctrl+C and check that `ros2 node list` no longer shows `target_cv` or `mission_executor`. Otherwise the old nodes keep running next to the new ones under the same names, and two `target_cv` nodes publish on the same detection topic.
 
 ### 7. Stop
 

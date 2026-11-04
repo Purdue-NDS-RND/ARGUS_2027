@@ -5,10 +5,12 @@ The first end-to-end runs of the mission simulator (`sim/run_sim.sh`, see `sim/R
 | Stage | Result |
 | --- | --- |
 | 1. `/mavros/state` connected | Yes, MAVROS on UDP 14551 |
-| 2. `/camera/image` rate | 12.2 Hz at 640x360, not 30 (see below: Gazebo runs at about 0.5x real time on this laptop) |
-| 3. Target detected | Yes: 2120 of 2239 `target_detection` messages in run 3 contained the target |
+| 2. `/camera/image` rate | 640x360, not 30 Hz: 12.5 Hz on the ground (Gazebo at about 0.45x real time), about 22 Hz reaching `target_cv` in flight (Gazebo at 0.98x). See below. |
+| 3. Target detected | Yes: 1931 of 2010 `target_detection` messages in run 3b contained the target |
 | Camera orientation | East and north checks both PASS, with offsets within 0.01 of the pinhole prediction |
-| 4. Full mission | Completed 3 out of 3 runs; touchdown 0.11 m and 0.08 m from the target centre (runs 1, 2); landed and disarmed at home every time |
+| 4. Full mission | Completed 4 of 4 flights (runs 1, 2, 3a on fresh sims; 3b relaunched in the same sim); touchdown 0.11, 0.08, 0.03 and 0.09 m from the target centre; landed and disarmed at home every time |
+
+Run 3 was flown twice. The first run 3 was a relaunch while run 2's launch was still running, so two copies of `target_cv`, `mission_executor` and `simple_takeoff_service` ran side by side under the same names. Its results are discarded. Runs 3a and 3b below replace it.
 
 ## Setup
 
@@ -104,6 +106,25 @@ $ sim/run_sim.sh --exec bash -c 'gz topic -e -t /world/argus_runway/stats -n 1 |
 
 At 1280x720, `top` showed the Gazebo server at 125% CPU, the GUI at 100% and MAVROS at 133%, on 4 cores. The camera publishes 30 Hz of *sim* time, so the wall-clock rate is at most 30 × RTF, about 15 Hz here. The club sim without ROS runs at the same RTF (0.34 to 0.45 above), so the limit is this laptop, not what we added.
 
+The table above was measured with the drone sitting on the ground. Re-measured on the run 3 sim before take-off (640x360, GUI open). `cam_rate.py` is a throwaway raw subscriber, not committed, that counts images without deserialising them and compares their header stamps with wall time:
+
+```
+$ sim/run_sim.sh --exec timeout 25 ros2 topic hz /camera/image
+average rate: 12.572
+$ sim/run_sim.sh --exec python3 cam_rate.py 20
+250 images (640x360) in 20.0 s wall: 12.5 Hz wall-clock
+header stamps span 9.21 s sim over 19.98 s wall: 27.0 Hz sim time, sim/wall ratio 0.46
+```
+
+In flight, Gazebo runs much faster. SITL's `time_boot_ms` against MAVProxy's wall-clock stamps in `mavlink.tlog`, in 20 s windows:
+
+| Run | On the ground (before take-off, after landing) | In the air |
+| --- | --- | --- |
+| 3a | 0.44, 0.55 | 0.90 to 0.98 |
+| 3b | 0.60 | 0.98 to 0.99 (0.68 to 0.80 in windows that include a landing) |
+
+`target_cv` sees that faster rate. Run 3b published 21.8 detection messages per second while detection was on. That's one per image, and most gaps between messages were 30 to 40 ms. There was exactly one `target_cv` node (`ros2 node list` during the run). So in flight the mission gets about 22 Hz at 640x360, against the 12 Hz measured on the ground. 1280x720 was measured only on the ground (8.6 Hz).
+
 The sim ships at 640x360 with the GUI open. `HEADLESS=1` is documented as the faster option. The mission scales `camera_fx_px` to the image width, so no YAML changes.
 
 `/camera/camera_info` matches: at 1280x720, `k[0]` = 778.33 = 2334.99647 × 1280/3840.
@@ -145,24 +166,28 @@ The detection sits right of centre for the east target and above centre for the 
 
 ## Stage 3: target detected
 
-Run 3: the full demo, with detections recorded alongside.
+Run 3b: the relaunch (see stage 4), with detections recorded alongside. Each command runs in its own process group so it can be stopped like Ctrl+C:
 
 ```
-$ sim/run_sim.sh --exec bash -c 'ros2 topic echo --csv /drone_package_drop/target_detection geometry_msgs/msg/PointStamped > sim/.state/run3_detections.csv & ros2 launch drone_mission_demo package_delivery_demo.launch.py'
+$ sim/run_sim.sh --exec bash -c '
+    setsid ros2 topic echo --csv /drone_package_drop/target_detection geometry_msgs/msg/PointStamped > run3b_detections.csv &
+    setsid ros2 launch drone_mission_demo package_delivery_demo.launch.py > run3b_mission.log 2>&1 &
+    ...'
 [target_cv]: Image size: 640x360
-[package_delivery] Arrived at GPS delivery zone
-[package_delivery] Target acquired, holding lock for 1.0 s
+[package_delivery] Freezing touchdown column at (-35.3631263, 149.1653478)
+[package_delivery] Fake delivery complete
+Mission sequence complete
 ```
 
-Summary of `run3_detections.csv` (x/y are normalised, −1 to 1; (−1, −1) means no target):
+Summary of `run3b_detections.csv` (x/y are normalised, −1 to 1; (−1, −1) means no target):
 
 ```
-2239 detection messages: 2120 with the target, 119 'no target' (-1,-1)
-first hit x_norm=-0.016 y_norm=-0.950; target reported over 105 s
-last hit  x_norm=+0.144 y_norm=+0.283
+2010 detection messages over 92 s (21.8 msg/s): 1931 with the target, 79 'no target' (-1,-1)
+first hit x_norm=-0.016 y_norm=-0.972; target reported over 89 s
+last hit  x_norm=+0.159 y_norm=+0.294
 ```
 
-The first hit is at the top edge of the image (y −0.95) as the drone flies north towards the target. The "no target" messages are before arrival and after the drone climbs away.
+The first hit is at the top edge of the image (y −0.97) as the drone flies north towards the target. The "no target" messages are before arrival and after the drone climbs away.
 
 ## Stage 4: full mission
 
@@ -172,7 +197,7 @@ $ sim/run_sim.sh --shell    # terminal 2
 (argus-sim) $ ros2 launch drone_mission_demo package_delivery_demo.launch.py
 ```
 
-Mission log, run 1. Runs 2 and 3 went through the same states:
+Mission log, run 1. Runs 2, 3a and 3b went through the same states:
 
 ```
 [takeoff] State: WAITING_FOR_ALTITUDE -> COMPLETE
@@ -198,11 +223,17 @@ The flight path comes from the MAVProxy telemetry log, `sim/.state/logs/<run>/ma
 | --- | --- | --- | --- | --- |
 | 1 | fresh sim | 150 s, max 15.3 m | N 15.13 E 10.07 m: **0.11 m** from the target centre (N 15.02 E 10.07) | disarmed, 0.00 m from home (Gazebo pose −0.003, −0.003 m) |
 | 2 | fresh sim | 151 s, max 15.3 m | N 15.09 E 10.04 m: **0.08 m** from the centre | disarmed, 0.00 m from home, 45 s after `Mission sequence complete` |
-| 3 | relaunch after run 2, no restart | completed | not measured (run 3's tlog also contains run 2) | disarmed, 0.00 m from home, 38 s after `Mission sequence complete` |
+| 3a | fresh sim | 148 s, max 15.3 m | N 15.03 E 10.04 m: **0.03 m** from the centre | disarmed, 0.00 m from home, 54 s after `Mission sequence complete` |
+| 3b | relaunch after 3a, no restart | 153 s, max 15.3 m | N 15.11 E 10.06 m: **0.09 m** from the centre | disarmed, 0.00 m from home, 61 s after `Mission sequence complete` |
 
-Run 3 shows the mission can be relaunched once the drone has landed and disarmed, without restarting the sim. The launch stays up after `Mission sequence complete` until Ctrl+C.
+Runs 3a and 3b used one sim. Run 3a's tlog numbers come from the part of `mavlink.tlog` up to 3b's start, and 3b's from the rest.
+
+Run 3b shows the mission can be relaunched without restarting the sim, once the drone has landed and disarmed and the previous launch is stopped. The launch stays up after `Mission sequence complete` until Ctrl+C. Between the two runs, 3a's launch got SIGINT on its process group (what Ctrl+C sends). `ros2 node list --no-daemon` then showed only MAVROS, `ros_gz_bridge` and a transform listener. During 3b it showed exactly one each of `target_cv`, `mission_executor` and `simple_takeoff_service`.
+
+On that SIGINT, every mission node logs `process has died ... exit code 1`. That's a shutdown error, not a crash in flight. rclpy's own signal handler has already shut the context down, and then the node's `main()` calls `rclpy.shutdown()` again and gets `RCLError: rcl_shutdown already called`. That's existing node code and is left as is.
 
 ## Not measured
 
 - 30 Hz camera: not reachable on a club laptop (stage 2). Not tried on a faster machine.
+- 1280x720 in flight: measured only on the ground. With the in-flight speed-up it may be usable; not tried.
 - Repeatability beyond 3 runs, wind, or targets at other positions.

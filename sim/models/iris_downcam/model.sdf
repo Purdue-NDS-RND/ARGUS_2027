@@ -11,9 +11,10 @@
     mission scales fx to the image width it receives, so this matches at any
     16:9 resolution.
 
-    640x360, not 1280x720: on a club laptop (Iris Xe) 1280x720 gave 8.6 Hz
-    on /camera/image and 640x360 gave 12.2 Hz, both at a real-time factor
-    near 0.5. See docs/results/2026-11-04-sim-baseline.md. On a faster
+    640x360, not 1280x720: on a club laptop (Iris Xe), with the drone on the
+    ground, 1280x720 gave 8.6 Hz on /camera/image and 640x360 gave 12.2 Hz,
+    both at a real-time factor near 0.5. In flight Gazebo runs near real time
+    and target_cv gets about 22 Hz at 640x360. See docs/results/2026-11-04-sim-baseline.md. On a faster
     machine 1280x720 works without any other change.
 
     Orientation: tracking_projection.py assumes the top of the image points
