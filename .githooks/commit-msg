@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Check the commit message for AI attribution and local machine details.
+# Turn on with: git config core.hooksPath .githooks
+# Fails open: if the check itself breaks, it says why and lets the commit through.
+
+root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [[ -z $root || ! -f $root/scripts/pr_checks.py ]]; then
+    echo "commit-msg: scripts/pr_checks.py not found, hygiene check skipped" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "commit-msg: python3 not found, hygiene check skipped" >&2
+    exit 0
+fi
+
+python3 "$root/scripts/pr_checks.py" commit-msg "$1"
+rc=$?
+case $rc in
+    0) exit 0 ;;
+    4) exit 1 ;; # a real violation
+    *)
+        echo "commit-msg: hygiene check failed to run (exit $rc), not blocking" >&2
+        exit 0
+        ;;
+esac

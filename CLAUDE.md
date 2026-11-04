@@ -5,6 +5,8 @@ This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC com
 ## Rules
 
 - Never commit to `main` or push to it. Work on a branch named `<area>/<short-name>`, where the area is one of centring, localisation, recovery, sim or platform, and open a pull request.
+- Pull requests go through `/ship`, which runs the checks and the flight-guardian, commits, pushes and opens the PR. Don't open one any other way: if the user asks for a PR, ask them to run `/ship`. Never merge or approve a pull request. The lead reviews with `/review-pr <number>`.
+- CI runs four PR gates from `scripts/pr_checks.py`: hygiene (no AI attribution or local machine details in commits, the PR title, the description or added lines), tests, tuning and size. Each has one escape marker that goes in the PR description with a reason: `[hygiene: waived <reason>]`, `[tests: n/a <reason>]`, `[tuning: <reason>]`, `[large-file: <reason>]`. Never add a marker yourself; ask the user for the reason.
 - Work only on the issue you were given. If you notice anything else, write it under "Not done" in the pull request instead of fixing it.
 - Put new behaviour behind a flag that defaults to `false`. There are two kinds:
   - Mission flags go in the `features:` block under `mission_sequence:` in the sequence YAML (`src/drone_mission_demo/config/sequences/`). Missions read them with `get_feature_flag` from `src/drone_mission_core/drone_mission_core/features.py`, never with a bare dictionary lookup.
@@ -31,6 +33,10 @@ This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC com
 | `src/drone_utils` | Logging, SDF models for the sim (`sdf_objects.py`) |
 | `tools/` | ROS-free tools: `bullseye_try.py`, `synth_targets.py` |
 | `scripts/check.sh` | The one check: CI runs it, and so should you |
+| `scripts/pr_checks.py` | The PR gates; `scripts/check.sh` runs them |
+| `.claude/` | Shared Claude Code settings, the `/ship` and `/review-pr` skills, the `flight-guardian` reviewer |
+| `.githooks/` | Git hooks (no commits on `main`, hygiene checks); a session-start hook turns them on |
+| `docs/review-checklist.md` | The rules `/review-pr` checks, by id |
 | `AGENTS.md` | Last year's notes on the mission framework |
 
 ## Running tests

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Refuse commits on main, then check staged changes for local machine paths.
+# Turn on with: git config core.hooksPath .githooks
+# Fails open: if the check itself breaks, it says why and lets the commit through.
+
+branch=$(git symbolic-ref --short -q HEAD)
+if [[ $branch == main ]]; then
+    echo "pre-commit: refusing to commit on main. Start a branch: git switch -c <area>/<short-name>" >&2
+    exit 1
+fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [[ -z $root || ! -f $root/scripts/pr_checks.py ]]; then
+    echo "pre-commit: scripts/pr_checks.py not found, hygiene check skipped" >&2
+    exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "pre-commit: python3 not found, hygiene check skipped" >&2
+    exit 0
+fi
+
+python3 "$root/scripts/pr_checks.py" staged
+rc=$?
+case $rc in
+    0) exit 0 ;;
+    4) exit 1 ;; # a real violation
+    *)
+        echo "pre-commit: hygiene check failed to run (exit $rc), not blocking" >&2
+        exit 0
+        ;;
+esac
