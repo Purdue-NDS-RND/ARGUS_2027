@@ -1,3 +1,5 @@
+> **2027 team:** this guide describes last year's full install; the club-drive simulator will replace it.
+
 # CUASC 2026 Setup Guide
 
 > **Note:** Any installation instructions online that use a directory ending in `_ws` should now use `CUASC_2026` instead.
