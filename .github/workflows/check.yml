@@ -1,7 +1,9 @@
 name: check
 
 on:
+  # edited: changing the PR title or description re-runs the PR gates.
   pull_request:
+    types: [opened, edited, synchronize, reopened]
   push:
     branches: [main]
 
@@ -21,6 +23,9 @@ jobs:
       # with no .gitmodules entry, and checkout's in-step credential cleanup
       # (persist-credentials: false) dies on it. The token is read-only here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so scripts/pr_checks.py can find the merge base and the PR's commits.
+          fetch-depth: 0
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -30,6 +35,13 @@ jobs:
         run: python -m pip install pytest numpy opencv-python-headless pyyaml
 
       - name: Run scripts/check.sh
+        # The PR title and description reach scripts/pr_checks.py only through env,
+        # never interpolated into the shell. On a push to main they are empty and
+        # the PR gates print "n/a".
         env:
           CHECK_STRICT: "1"
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/check.sh

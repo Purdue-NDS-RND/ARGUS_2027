@@ -61,6 +61,16 @@ if ! command -v "$PY" >/dev/null 2>&1; then
     finish
 fi
 
+# The PR gates (hygiene, tests, tuning, size) need only git. See scripts/pr_checks.py.
+echo "== scripts/pr_checks.py"
+py "" scripts/pr_checks.py
+case $? in
+    0) ;;
+    3) skips=$((skips + 1)) ;;
+    *) failures+=("scripts/pr_checks.py") ;;
+esac
+echo
+
 if ! has_module pytest; then
     skip "pytest not installed, no tests ran"
     finish
@@ -71,17 +81,20 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
+run_test scripts scripts/test/test_pr_checks.py
+run_test "" scripts/test/test_guardian_read_guard.py
 
 missing=()
 for mod in cv2 numpy yaml; do
     has_module "$mod" || missing+=("$mod")
 done
 if ((${#missing[@]})); then
-    skip "bullseye detector, feature-flag config and synth target tests, tools/bullseye_try.py (missing: ${missing[*]})"
+    skip "bullseye detector, feature-flag config, synth target and PR tuning-gate tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test "" tools/test/test_synth_targets.py
+    run_test scripts scripts/test/test_pr_checks_tuning.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"
