@@ -95,6 +95,8 @@ The executor expects a YAML file with a structure like:
 ```yaml
 mission_sequence:
   on_failure: abort_and_rtl
+  features:
+    use_frame_time_pose: false
   missions:
     - type: takeoff
       name: takeoff
@@ -116,6 +118,18 @@ mission_sequence:
 Supported failure policies:
 - `abort_and_rtl`
 - `continue_to_next`
+
+### Feature flags
+
+Mission flags live in the optional `features:` block above. The loader copies it into
+every mission's `spec.features`; read a flag with
+`drone_mission_core.features.get_feature_flag(self.spec.features, "use_frame_time_pose")`,
+which returns `False` when the flag or the block is missing. Shipped YAML keeps every
+flag `false` (`src/drone_mission_demo/test/test_feature_flags_config.py` enforces it).
+
+Node flags are not set here. They are ROS parameters named `features.<flag>` on the node
+that uses them, declared with default `false`. Never put `features:` at the top level of a
+params file: rcl will not parse it and no node in that launch will start.
 
 ## Running
 

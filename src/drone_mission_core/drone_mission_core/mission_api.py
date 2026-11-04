@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict
@@ -48,6 +48,8 @@ class MissionSpec:
     config: Dict[str, Any]
     base_dir: Path
     failure_policy: MissionFailurePolicy = MissionFailurePolicy.ABORT_AND_RTL
+    # Sequence-wide feature flags; read them with features.get_feature_flag.
+    features: Dict[str, Any] = field(default_factory=dict)
 
     def resolve_path(self, raw_path: str) -> Path:
         candidate = Path(raw_path)
