@@ -1,4 +1,4 @@
-> **2027 team:** this guide describes last year's full install; the club-drive simulator will replace it.
+> **2027 team:** to run the mission simulator on a club drive, follow [sim/README.md](sim/README.md) (one command: `sim/run_sim.sh`). The rest of this guide describes last year's full install.
 
 # CUASC 2026 Setup Guide
 
@@ -89,13 +89,14 @@ sudo bash install_geographiclib_datasets.sh
 
 ## 🚀 Boot Simulation
 
-```bash
-# Launch simulation
-ros2 launch ardupilot_gz_bringup iris_runway.launch.py
+On a club drive, `sim/run_sim.sh` starts Gazebo, ArduPilot SITL, the camera bridge and MAVROS in one container. See [sim/README.md](sim/README.md).
 
-# Connect MAVROS (in a new terminal)
-ros2 launch mavros apm.launch.py fcu_url:=udp://:14550@
+```bash
+sim/run_sim.sh            # Terminal 1: the whole sim; Ctrl+C stops it
+sim/run_sim.sh --shell    # Terminal 2: a shell with ROS 2 Humble and our code sourced
 ```
+
+MAVROS connects to SITL on UDP 14551 (`./mavros_boot.sh sim`), so QGroundControl keeps 14550.
 
 ---
 

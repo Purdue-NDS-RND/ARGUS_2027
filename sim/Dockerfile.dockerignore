@@ -1,0 +1,4 @@
+# Build context is the repo root. Send only what sim/Dockerfile copies:
+# the package.xml files rosdep reads.
+*
+!src/*/package.xml

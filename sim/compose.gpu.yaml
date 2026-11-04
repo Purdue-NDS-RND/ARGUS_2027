@@ -1,0 +1,4 @@
+services:
+  sim:
+    devices:
+      - /dev/dri:/dev/dri

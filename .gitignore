@@ -45,3 +45,7 @@ src/ardupilot_gz/
 # Datasets
 dataset/
 datasets/
+
+# Mission simulator (sim/run_sim.sh): runtime state and the container colcon build
+sim/.state/
+sim/.ws/

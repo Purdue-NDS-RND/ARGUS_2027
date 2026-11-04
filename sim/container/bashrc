@@ -1,0 +1,8 @@
+# Interactive shell for `sim/run_sim.sh --shell`.
+# shellcheck shell=bash
+# shellcheck disable=SC1091
+source "$(dirname -- "${BASH_SOURCE[0]}")/env.sh"
+PS1='(argus-sim) \w\$ '
+echo "ROS 2 Humble + our workspace are sourced. Try:"
+echo "  ros2 launch drone_mission_demo package_delivery_demo.launch.py"
+echo "  sim/container/build_ws.sh      # rebuild after changing code"

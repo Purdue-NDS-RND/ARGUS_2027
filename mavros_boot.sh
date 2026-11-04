@@ -8,7 +8,7 @@ set -e
 
 print_usage() {
 	echo "Usage: $0 <sim|device>"
-	echo "  sim  - ros2 launch mavros apm.launch fcu_url:=udp://:14550@"
+	echo "  sim  - ros2 launch mavros apm.launch fcu_url:=udp://:14551@  (SITL API port; QGC keeps 14550)"
 	echo "  device - ros2 launch mavros apm.launch fcu_url:=/dev/ttyACM0:115200"
 }
 
@@ -22,7 +22,7 @@ mode="$1"
 
 case "$mode" in
 	sim)
-		ros2 launch mavros apm.launch fcu_url:=udp://:14550@
+		ros2 launch mavros apm.launch fcu_url:=udp://:14551@
 		;;
 	device)
 		ros2 launch mavros apm.launch fcu_url:=/dev/ttyACM0:115200
