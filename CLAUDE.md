@@ -42,3 +42,11 @@ This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC com
 ## Running tests
 
 `scripts/check.sh` runs the ROS-free tests with plain `pytest`. The mission tests stub `rclpy`, so they run without ROS installed. Tests that need ROS are listed as not run. If a tool the script needs is missing, it prints `SKIP: <what>`. CI runs it with `CHECK_STRICT=1`, which turns any SKIP into a failure.
+
+## End-of-task report (always)
+1. Problem solved, in one sentence; root cause or symptom.
+2. Architecture: new or moved modules, nodes, topics, dependencies. Or "none".
+3. Flow: one concrete path (frame, message or mission state) before vs after.
+4. Code: the 3 most important logic changes, in plain words, with file:line.
+5. How to see it: the exact commands to run it, and what output to look for.
+6. Not done or not verified.
