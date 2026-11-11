@@ -1,0 +1,50 @@
+# Started by sim/run_sim.sh, which fills in the variables below.
+name: argus-sim
+
+services:
+  sim:
+    image: ${ARGUS_SIM_IMAGE:-argus-sim:humble}
+    container_name: argus-sim
+    build:
+      context: ..
+      dockerfile: sim/Dockerfile
+      args:
+        BASE_IMAGE: ${ARGUS_BASE_IMAGE:-ardupilot-gz:4.6.3}
+    network_mode: host
+    shm_size: 1gb
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-109}"
+    working_dir: ${ARGUS_REPO:?run this through sim/run_sim.sh}
+    entrypoint: ["/usr/bin/tini", "--", "${ARGUS_REPO}/sim/container/start.sh"]
+    environment:
+      ARGUS_REPO: ${ARGUS_REPO}
+      USER: ${USER:-argus}
+      LOGNAME: ${USER:-argus}
+      DISPLAY: ${DISPLAY:-}
+      XAUTHORITY: /tmp/argus-sim.xauth
+      QT_X11_NO_MITSHM: "1"
+      SOFTWARE_RENDERING: ${SOFTWARE_RENDERING:-0}
+      LIBGL_ALWAYS_SOFTWARE: ${LIBGL_ALWAYS_SOFTWARE:-0}
+      HEADLESS: ${HEADLESS:-0}
+      SKIP_BUILD: ${SKIP_BUILD:-0}
+      SPAWN_TARGET: ${SPAWN_TARGET:-1}
+      WIPE_PARAMS: ${WIPE_PARAMS:-0}
+      GAZEBO_STARTUP_TIMEOUT: ${GAZEBO_STARTUP_TIMEOUT:-90}
+    volumes:
+      - type: bind
+        source: ${XAUTH_FILE:-/dev/null}
+        target: /tmp/argus-sim.xauth
+        read_only: true
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+        read_only: true
+      - type: bind
+        source: ${ARGUS_REPO}
+        target: ${ARGUS_REPO}
+    stdin_open: true
+    tty: true
+    stop_grace_period: 20s
+    restart: "no"
