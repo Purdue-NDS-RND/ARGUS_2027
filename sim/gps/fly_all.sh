@@ -37,6 +37,10 @@ for arg in "$@"; do
 done
 ((${#sequences[@]})) || sequences=("${DEFAULT_SEQUENCES[@]}")
 
+# Hold off suspend (idle, sleep keys and the lid) until every flight is done;
+# run_mission.sh sees the lock and does not take a second one.
+inhibit_sleep "$0" "$@"
+
 if ! is_running "$CLUB_CONTAINER"; then
     echo "ERROR: the club sim is not running. In another terminal: cd ~/Drone_Sim_Docker && make run" >&2
     exit 1

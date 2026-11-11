@@ -2,9 +2,11 @@
 """Log MAVROS arm/mode/landed changes and exit when the flight is over.
 
 Run inside the argus-gps container by sim/gps/run_mission.sh. Writes
-"<epoch> armed=<0|1> mode=<mode> landed=<n>" lines to stdout. Exit codes:
-0 flight over (armed, then disarmed on the ground), 2 timed out, 3 never armed.
-The decision logic is FlightTracker in flight_log.py.
+"<epoch> armed=<0|1> mode=<mode> landed=<n> mono=<s>" lines to stdout. Exit
+codes: 0 flight over (armed, then disarmed on the ground), 2 timed out,
+3 never armed. The decisions are FlightTracker and FlightWatch in
+flight_log.py, timed on the monotonic clock so a laptop suspend does not fire
+the timeouts. The epoch stamp is only there to line up with rtf.log.
 
 Usage: flight_monitor.py [--timeout S] [--arm-timeout S]
 """
@@ -21,13 +23,19 @@ from mavros_msgs.msg import ExtendedState, State
 from rclpy.node import Node
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from flight_log import FlightTracker  # noqa: E402
+from flight_log import (  # noqa: E402
+    ARM_TIMEOUT_S,
+    FLIGHT_TIMEOUT_S,
+    FlightTracker,
+    FlightWatch,
+)
 
 
 class FlightMonitor(Node):
-    def __init__(self) -> None:
+    def __init__(self, watch: FlightWatch) -> None:
         super().__init__("argus_gps_flight_monitor")
-        self.tracker = FlightTracker()
+        self.watch = watch
+        self.tracker = watch.tracker
         self._mode = ""
         self._last_line = ""
         self.create_subscription(State, "/mavros/state", self._on_state, 10)
@@ -37,14 +45,14 @@ class FlightMonitor(Node):
         if not msg.connected:
             # MAVROS publishes armed=false and an empty mode while it thinks
             # the link is down; that says nothing about the vehicle.
-            print(f"{time.time():.3f} link-down (ignored)", flush=True)
+            print(f"{time.time():.3f} link-down (ignored) mono={self.watch.now():.3f}", flush=True)
             return
         self._mode = msg.mode
-        self.tracker.update(time.time(), armed=msg.armed)
+        self.tracker.update(self.watch.now(), armed=msg.armed)
         self._log()
 
     def _on_extended(self, msg: ExtendedState) -> None:
-        self.tracker.update(time.time(), landed_state=msg.landed_state)
+        self.tracker.update(self.watch.now(), landed_state=msg.landed_state)
         self._log()
 
     def _log(self) -> None:
@@ -53,31 +61,26 @@ class FlightMonitor(Node):
             f"landed={self.tracker.landed_state}"
         )
         if line != self._last_line:
-            print(f"{time.time():.3f} {line}", flush=True)
+            print(f"{time.time():.3f} {line} mono={self.watch.now():.3f}", flush=True)
             self._last_line = line
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--timeout", type=float, default=1800.0)
-    parser.add_argument("--arm-timeout", type=float, default=300.0)
+    parser.add_argument("--timeout", type=float, default=FLIGHT_TIMEOUT_S)
+    parser.add_argument("--arm-timeout", type=float, default=ARM_TIMEOUT_S)
     args = parser.parse_args()
 
     rclpy.init()
-    node = FlightMonitor()
-    start = time.time()
+    watch = FlightWatch(FlightTracker(), timeout_s=args.timeout, arm_timeout_s=args.arm_timeout)
+    node = FlightMonitor(watch)
     code = 0
     try:
         while rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.5)
-            elapsed = time.time() - start
-            if node.tracker.finished(time.time()):
-                break
-            if node.tracker.arm_time is None and elapsed > args.arm_timeout:
-                code = 3
-                break
-            if elapsed > args.timeout:
-                code = 2
+            result = watch.check()
+            if result is not None:
+                code = result
                 break
     except KeyboardInterrupt:
         code = 130

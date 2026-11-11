@@ -90,6 +90,9 @@ case $action in
     check) preflight; echo "Pre-flight checks passed."; exit 0 ;;
 esac
 
+# Hold off suspend (idle, sleep keys and the lid) until this run exits.
+inhibit_sleep "$0" "$@"
+
 seq_file="src/drone_mission_demo/config/sequences/$sequence.yaml"
 if [[ ! -f "$ARGUS_REPO/$seq_file" ]]; then
     echo "ERROR: no sequence $seq_file" >&2

@@ -12,14 +12,37 @@ container. Each script's header comment explains its usage.
 - `flight_monitor.py`, `flight_log.py`: watch and judge a flight
   (tests: `sim/test/test_gps_flight_log.py`)
 
-## Status (parked, 2026-11-11)
+## Flying
 
-Work in progress, not ready for review.
+Start the club sim and QGroundControl yourself, then:
 
-- Flights 1 and 2 passed.
-- Flight 3 (`circuit_time_trial_live`) was cut off by a laptop suspend and
-  has not been re-flown.
-- `fly_all.sh` is untested.
-- `flight_monitor.py` needs the suspend-safe clock fix: it times flights with
-  the wall clock (`time.time()`), which jumps across a suspend.
-- SITL home was restored to the CMAC defaults on 2026-11-11.
+    sim/gps/fly_all.sh --restore-home       # asks for the QGC check first
+
+or one at a time:
+
+    sim/gps/start_mavros.sh                  # its own terminal
+    sim/gps/set_home.sh                      # saves the current home first
+    sim/gps/run_mission.sh --check
+    sim/gps/run_mission.sh circuit_time_trial_live
+    sim/gps/set_home.sh --restore
+
+`run_mission.sh` (when it flies) and `fly_all.sh` hold a
+`systemd-inhibit --what=sleep:idle:handle-lid-switch` lock until they exit, so
+idle, the sleep key and closing the lid do not suspend the laptop mid-flight.
+No sudo and no system settings change; if the lock can't be taken they warn
+and fly anyway. The lid lock matters: logind ignores sleep locks when the lid
+closes, and a lid close is what cut off the first time-trial attempt.
+
+`flight_monitor.py` times flights on the monotonic clock (`FlightWatch` in
+`flight_log.py`), so a suspend no longer fires its timeouts, and the reported
+flight time leaves out suspended time.
+
+## Status (2026-11-11)
+
+All three missions flown in the sim and passed: `circuit_time_trial_live` on
+its own, then `fly_all.sh --yes` (square, waypoint navigation, time trial).
+Results: `docs/results/2026-11-11-gps-missions.md`. SITL home was restored
+to CMAC afterwards.
+
+SITL GPS is ideal (no noise), so the waypoint distances are far tighter than
+real GPS would give.

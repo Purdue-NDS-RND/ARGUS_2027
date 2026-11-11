@@ -6,8 +6,13 @@ only the text files a run leaves in its folder:
 
   expected.txt  mission names from the sequence YAML, one per line
   launch.log    output of the mission launch (executor and takeoff service)
-  state.log     "<epoch> armed=<0|1> mode=<mode> landed=<n>" from flight_monitor.py
+  state.log     "<epoch> armed=<0|1> mode=<mode> landed=<n> mono=<s>" from
+                flight_monitor.py (runs before mono= was added have no mono=)
   rtf.log       "<epoch> <real_time_factor>" samples of Gazebo's world stats
+
+Flight time comes from the monotonic stamps (mono=), not the epoch ones: the
+wall clock jumps forward across a laptop suspend, while the monotonic clock
+stops, as SITL and Gazebo do. The epoch stamps line state.log up with rtf.log.
 
 Usage: python3 sim/gps/flight_log.py <run folder>
 """
@@ -16,19 +21,26 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 LANDED_ON_GROUND = 1  # mavros_msgs/ExtendedState.LANDED_STATE_ON_GROUND
 AIRBORNE_STATES = {2, 3, 4}  # IN_AIR, TAKEOFF, LANDING
 DISARM_HOLD_S = 3.0  # a disarm counts only once it has lasted this long
+ARM_TIMEOUT_S = 300.0  # flight_monitor.py gives up if nothing arms by then
+FLIGHT_TIMEOUT_S = 1800.0  # ...or if the flight is not over by then
+
+# flight_monitor.py exit codes
+DONE, TIMED_OUT, NEVER_ARMED = 0, 2, 3
 
 _COMPLETED = re.compile(r"Mission '([^']+)' completed")
 _SEQUENCE_DONE = "Mission sequence complete"
 _CLOSEST = re.compile(r"\[([^\]]+)\]\s+(\S+): closest ([0-9.]+) m")
 _CIRCUIT = re.compile(r"\[([^\]]+)\]\s+circuit elapsed: ([0-9.]+) s")
 _PROBLEM = re.compile(r"\[(ERROR|FATAL)\]|\bfail(ed|ure)\b|\babort", re.IGNORECASE)
-_STATE = re.compile(r"^([0-9.]+) armed=([01]) mode=(\S*) landed=(-?\d+)")
+_STATE = re.compile(r"^([0-9.]+) armed=([01]) mode=(\S*) landed=(-?\d+)(?: mono=([0-9.]+))?")
 
 
 class FlightTracker:
@@ -75,6 +87,45 @@ class FlightTracker:
         )
 
 
+class FlightWatch:
+    """Decide when flight_monitor.py stops: flight over, or a timeout.
+
+    Elapsed time is measured on time.monotonic(), never time.time(). The wall
+    clock jumps forward by however long the laptop was suspended, so on resume
+    every timeout fired at once and the launch was stopped mid-flight. The
+    monotonic clock stops during a suspend, as SITL and Gazebo do. The tracker
+    must be fed now() stamps, so DISARM_HOLD_S is on the same clock.
+    """
+
+    def __init__(
+        self,
+        tracker: FlightTracker,
+        timeout_s: float = FLIGHT_TIMEOUT_S,
+        arm_timeout_s: float = ARM_TIMEOUT_S,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        self.tracker = tracker
+        self.timeout_s = timeout_s
+        self.arm_timeout_s = arm_timeout_s
+        self.clock = clock if clock is not None else time.monotonic
+        self.start = self.clock()
+
+    def now(self) -> float:
+        return self.clock()
+
+    def check(self) -> int | None:
+        """None while the monitor should keep waiting, else its exit code."""
+        now = self.clock()
+        if self.tracker.finished(now):
+            return DONE
+        elapsed = now - self.start
+        if self.tracker.arm_time is None and elapsed > self.arm_timeout_s:
+            return NEVER_ARMED
+        if elapsed > self.timeout_s:
+            return TIMED_OUT
+        return None
+
+
 @dataclass
 class RunSummary:
     expected: list[str]
@@ -83,16 +134,24 @@ class RunSummary:
     closest_m: list[tuple[str, float]] = field(default_factory=list)
     circuit_s: float | None = None
     problems: list[str] = field(default_factory=list)
-    arm_time: float | None = None
+    arm_time: float | None = None  # epoch, to line up with rtf.log
     disarm_time: float | None = None
+    arm_mono: float | None = None  # monotonic, for the flight time
+    disarm_mono: float | None = None
     final_landed: int | None = None
     airborne: bool = False
     rtf_samples: list[float] = field(default_factory=list)
 
     @property
+    def flight_clock(self) -> str:
+        return "monotonic" if self.arm_mono is not None else "wall-clock"
+
+    @property
     def flight_s(self) -> float | None:
         if self.arm_time is None or self.disarm_time is None:
             return None
+        if self.arm_mono is not None and self.disarm_mono is not None:
+            return self.disarm_mono - self.arm_mono
         return self.disarm_time - self.arm_time
 
     @property
@@ -132,15 +191,28 @@ def parse_launch_log(text: str, summary: RunSummary) -> None:
 
 
 def parse_state_log(text: str, summary: RunSummary) -> None:
+    """Replay the state lines twice: on epoch stamps and on monotonic ones.
+
+    The monotonic replay counts only if every state line has a mono= stamp.
+    """
     tracker = FlightTracker()
+    mono_tracker: FlightTracker | None = FlightTracker()
     for line in text.splitlines():
         if match := _STATE.match(line.strip()):
+            armed = match.group(2) == "1"
             landed = int(match.group(4))
-            tracker.update(float(match.group(1)), armed=match.group(2) == "1", landed_state=landed)
+            tracker.update(float(match.group(1)), armed=armed, landed_state=landed)
+            if match.group(5) is None:
+                mono_tracker = None
+            elif mono_tracker is not None:
+                mono_tracker.update(float(match.group(5)), armed=armed, landed_state=landed)
             summary.final_landed = landed
     summary.arm_time = tracker.arm_time
     summary.disarm_time = tracker.disarm_time
     summary.airborne = tracker.airborne
+    if mono_tracker is not None:
+        summary.arm_mono = mono_tracker.arm_time
+        summary.disarm_mono = mono_tracker.disarm_time
 
 
 def parse_rtf_log(text: str, summary: RunSummary) -> None:
@@ -186,7 +258,7 @@ def format_summary(summary: RunSummary) -> str:
     if summary.flight_s is not None and not summary.airborne:
         lines.append("left the ground: NO (armed and disarmed without taking off)")
     if summary.flight_s is not None:
-        lines.append(f"flight time, arm to disarm (wall-clock): {summary.flight_s:.1f} s")
+        lines.append(f"flight time, arm to disarm ({summary.flight_clock}): {summary.flight_s:.1f} s")
     if summary.rtf_mean is not None:
         lines.append(
             f"Gazebo real-time factor while armed: mean {summary.rtf_mean:.2f}, "
