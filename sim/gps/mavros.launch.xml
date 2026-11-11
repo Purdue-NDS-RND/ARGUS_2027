@@ -1,0 +1,18 @@
+<launch>
+	<!-- MAVROS's apm.launch, with our plugin list (see mavros_pluginlists.yaml).
+	     Started by sim/gps/start_mavros.sh. -->
+	<arg name="fcu_url" default="tcp://127.0.0.1:5762" />
+	<arg name="pluginlists_yaml" />
+
+	<include file="$(find-pkg-share mavros)/launch/node.launch">
+		<arg name="pluginlists_yaml" value="$(var pluginlists_yaml)" />
+		<arg name="config_yaml" value="$(find-pkg-share mavros)/launch/apm_config.yaml" />
+		<arg name="fcu_url" value="$(var fcu_url)" />
+		<arg name="gcs_url" value="" />
+		<arg name="tgt_system" value="1" />
+		<arg name="tgt_component" value="1" />
+		<arg name="fcu_protocol" value="v2.0" />
+		<arg name="respawn_mavros" value="false" />
+		<arg name="namespace" value="" />
+	</include>
+</launch>

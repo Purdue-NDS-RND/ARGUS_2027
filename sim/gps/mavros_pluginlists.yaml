@@ -1,0 +1,26 @@
+# MAVROS plugin list for the GPS missions in the sim (sim/gps/start_mavros.sh).
+# MAVROS's own apm_pluginlists.yaml denylist, plus four plugins our code never
+# uses. On the sim link they re-request full parameter, mission, fence and
+# rally downloads every few seconds without finishing. Those bursts delayed
+# SITL's heartbeat past MAVROS's 10 s timeout (23 "lost connection" events in
+# 30 minutes), and a spurious disconnect once ended a flight early.
+/**:
+  ros__parameters:
+    plugin_denylist:
+      # MAVROS defaults (apm_pluginlists.yaml), common
+      - actuator_control
+      - ftp
+      - hil
+      # MAVROS defaults, extras
+      - altitude
+      - debug_value
+      - image_pub
+      - px4flow
+      - vibration
+      - vision_speed_estimate
+      - wheel_odometry
+      # added for the sim: not used by drone_utils, drone_mission_core or drone_mission_demo
+      - param
+      - waypoint
+      - geofence
+      - rallypoint
