@@ -1,0 +1,1687 @@
+{
+  "_about": "Status ledger for the ARGUS 2027 build. Change it only with tools/build_ledger.py (set, gate); everything except status, attempts, evidence, blocked_reason and gate status/result belongs to the lead.",
+  "features": [
+    {
+      "id": "SIM-08",
+      "title": "Judges that score like the organisers",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [],
+      "land": "L01",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-02",
+      "title": "Competition-site world, home and geofence",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [],
+      "land": "L01",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-01",
+      "title": "Scenario files, world builder, object models",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-02"
+      ],
+      "land": "L01",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-07",
+      "title": "Headless scenario runner",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-01",
+        "SIM-08"
+      ],
+      "land": "L02",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-11",
+      "title": "Acceptance gates G0 to G8",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-07",
+        "SIM-08"
+      ],
+      "land": "L02",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-10",
+      "title": "CI tiers and nightly runs",
+      "wave": "0",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-07"
+      ],
+      "land": "L02",
+      "proven_in": "Unit",
+      "note": "Wave 0 builds tier A only. Tier B to D scripts may be written, but the nightly machine and its token are person steps",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-08",
+      "title": "Feature-flag plumbing and profiles",
+      "wave": "0",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [],
+      "land": "L03",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-09",
+      "title": "Safety limits module",
+      "wave": "0",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [],
+      "land": "L03",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SETUP-1",
+      "title": "argus_interfaces package skeleton (MarkerTrack, MarkerTrackArray, GetCrops, StageTiming)",
+      "wave": "0",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [],
+      "land": "L03",
+      "proven_in": "Unit",
+      "note": "Spec in FEATURES.md, section SETUP-1. Later features may add fields; record that under Decisions, it is not a stop",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-03",
+      "title": "Time base: MAVROS timesync, sim clock, stale-data guard",
+      "wave": "1",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [],
+      "land": "L04",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-06",
+      "title": "MAVROS config and stream keeper",
+      "wave": "1",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "FND-03"
+      ],
+      "land": "L04",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-03",
+      "title": "Unified camera driver argus_camera",
+      "wave": "1",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [],
+      "land": "L05",
+      "proven_in": "Sim, Bench",
+      "note": "Build FND-01 straight after this; they share the capture-clock code",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-01",
+      "title": "Capture timestamps on every frame",
+      "wave": "1",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "PLT-03"
+      ],
+      "land": "L05",
+      "proven_in": "Sim, Bench",
+      "note": "PLT-05 supplies the measured camera offset later (default 0 until then). Overlaps teammate issue #4: check main and open PRs first",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-02",
+      "title": "One detection message contract",
+      "wave": "1",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "FND-01"
+      ],
+      "land": "L05",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-04",
+      "title": "Pose history buffer",
+      "wave": "1",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "FND-03"
+      ],
+      "land": "L06",
+      "proven_in": "Unit",
+      "note": "Overlaps teammate issue #4: check main and open PRs first",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-05",
+      "title": "Projection v2 (pixel to ground)",
+      "wave": "1",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "FND-04",
+        "PLT-03"
+      ],
+      "land": "L06",
+      "proven_in": "Unit, Sim",
+      "note": "New module beside tracking_projection.py, which stays unchanged for the flags-off path. Overlaps teammate issue #4",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-06",
+      "title": "Target estimator (Kalman per target)",
+      "wave": "2",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "FND-02",
+        "FND-05"
+      ],
+      "land": "L07",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "FND-07",
+      "title": "MissionContext additions",
+      "wave": "2",
+      "lane": "FND",
+      "priority": "P0",
+      "deps": [
+        "FND-04",
+        "FND-06"
+      ],
+      "land": "L07",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-09",
+      "title": "Replay harness (record on aircraft, replay anywhere)",
+      "wave": "2",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "FND-01"
+      ],
+      "land": "L08",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-03",
+      "title": "Wind through applied drag force",
+      "wave": "2",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-01"
+      ],
+      "land": "L08",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-06",
+      "title": "Payload, gripper and release physics",
+      "wave": "2",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-01"
+      ],
+      "land": "L08",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-05",
+      "title": "Sensors: camera profiles, rangefinder, flow camera, true pose",
+      "wave": "2",
+      "lane": "SIM",
+      "priority": "P0 / P1",
+      "deps": [
+        "SIM-01",
+        "PLT-03"
+      ],
+      "land": "L08",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-04",
+      "title": "GPS faults and wrong target coordinates",
+      "wave": "2",
+      "lane": "SIM",
+      "priority": "P0",
+      "deps": [
+        "SIM-02"
+      ],
+      "land": "L08",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-11",
+      "title": "Sim copies of the live configs",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [],
+      "land": "L09",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-03",
+      "title": "Rangefinder and height estimator",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [],
+      "land": "L09",
+      "proven_in": "Sim, Field",
+      "note": "Sim part (SITL rangefinder type 100) and the height estimator. The real sensor is a person step",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-01",
+      "title": "Centring reads the estimator, aims the payload",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "FND-06",
+        "FND-07"
+      ],
+      "land": "L09",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-02",
+      "title": "Controller retune and offline loop simulator",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "CEN-01"
+      ],
+      "land": "L09",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-13",
+      "title": "Near-field bullseye centre finder",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "FND-02"
+      ],
+      "land": "L10",
+      "proven_in": "Sim, Bench",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-04",
+      "title": "Drop: camera to release with gates",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "CEN-01",
+        "CEN-02",
+        "CEN-03",
+        "FND-09"
+      ],
+      "land": "L10",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-05",
+      "title": "Delivery: soft set-down on the estimator",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "CEN-01",
+        "CEN-02",
+        "CEN-03"
+      ],
+      "land": "L10",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-06",
+      "title": "Smart re-acquisition",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "FND-06"
+      ],
+      "land": "L10",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-10",
+      "title": "2027 sequences for drop and delivery",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "CEN-04",
+        "CEN-05"
+      ],
+      "land": "L11",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-12",
+      "title": "A/B harness (flags off vs on)",
+      "wave": "3",
+      "lane": "CEN",
+      "priority": "P0",
+      "deps": [
+        "SIM-03",
+        "SIM-06",
+        "SIM-07"
+      ],
+      "land": "L11",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-1",
+      "title": "Survey height floor and guard",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "FND-09",
+        "CEN-03"
+      ],
+      "land": "L12",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-2",
+      "title": "Coverage planner",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [],
+      "land": "L12",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-3",
+      "title": "search_pattern mission",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "LOC-1",
+        "LOC-2"
+      ],
+      "land": "L12",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-5",
+      "title": "argus_localisation package and loc_node",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "PLT-03",
+        "FND-02",
+        "FND-05",
+        "SIM-05"
+      ],
+      "land": "L13",
+      "proven_in": "Sim, Bench",
+      "note": "Owns shrink_for_detector() and the sim-only oracle detector (data hold). Does not wait for PLT-04; the Jetson keeps the 2026 engine path",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-7",
+      "title": "Marker tracker",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "FND-05",
+        "FND-06"
+      ],
+      "land": "L13",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-9",
+      "title": "Final position by weighted median",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "LOC-7"
+      ],
+      "land": "L13",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-11",
+      "title": "Frame logging policy",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "PLT-03"
+      ],
+      "land": "L13",
+      "proven_in": "Bench",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-6",
+      "title": "Digit reader",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "LOC-5"
+      ],
+      "land": "L14",
+      "proven_in": "Unit, Bench",
+      "note": "Overlaps teammate issue #5. Build with the template stand-in classifier; the trained CNN comes after the data hold",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-8",
+      "title": "Weighted digit vote and global ID assignment",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "LOC-6",
+        "LOC-7"
+      ],
+      "land": "L14",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-10",
+      "title": "Judges' list output",
+      "wave": "3",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [
+        "LOC-8",
+        "LOC-9"
+      ],
+      "land": "L14",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-8",
+      "title": "Recovery simulation",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "SIM-01",
+        "SIM-02",
+        "SIM-03",
+        "SIM-04",
+        "SIM-06"
+      ],
+      "land": "L15",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-9",
+      "title": "Flight-controller profile and mechanical interface",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [],
+      "land": "L15",
+      "proven_in": "Field",
+      "note": "Code part only: parameter profile and checker. The mechanism is a person step",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-1",
+      "title": "Green X and bucket detector",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "FND-02",
+        "PLT-03"
+      ],
+      "land": "L16",
+      "proven_in": "Unit, Sim",
+      "note": "Overlaps teammate issue #6: check main and open PRs first",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-3",
+      "title": "Cone descent with stall abort",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "REC-1",
+        "FND-06"
+      ],
+      "land": "L16",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-4",
+      "title": "Engage, lift, attach check, swing shaping, release guard",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "REC-9"
+      ],
+      "land": "L16",
+      "proven_in": "Unit, Sim",
+      "note": "Mechanism numbers are parameters until the mechanical team supplies them",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-7",
+      "title": "Return and set-down (GPS path)",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "FND-07"
+      ],
+      "land": "L17",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-2",
+      "title": "package_recovery mission",
+      "wave": "3",
+      "lane": "REC",
+      "priority": "P0",
+      "deps": [
+        "REC-1",
+        "REC-3",
+        "REC-4",
+        "REC-7"
+      ],
+      "land": "L17",
+      "proven_in": "Unit, Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-13",
+      "title": "GPS missions: waypoint and time trial",
+      "wave": "3",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [],
+      "land": "L18",
+      "proven_in": "Sim",
+      "note": "Harness is on main (PR #10). Left: per-waypoint timeout and hold, AUTO upload, route optimiser and flying start behind flags. Fly it through sim/run_scenarios.sh, not the club sim",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-01",
+      "title": "Jetson bring-up script",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [],
+      "land": "L19",
+      "proven_in": "Bench",
+      "note": "Write and unit-test; running it on the Jetson is a person step",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-02",
+      "title": "Boot services and time sync",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "PLT-01"
+      ],
+      "land": "L19",
+      "proven_in": "Bench",
+      "note": "Write and unit-test; running it on the Jetson is a person step",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-05",
+      "title": "Latency probe (LED)",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "PLT-03"
+      ],
+      "land": "L19",
+      "proven_in": "Bench",
+      "note": "Write the probe and its analysis; wiring the LED and running it are person steps",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-08",
+      "title": "Flight-controller baseline: fence, failsafes, gripper",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [],
+      "land": "L20",
+      "proven_in": "Sim, Field",
+      "note": "Read the 2026 values from the dataflash logs in the repo; mav.parm is not needed to start",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-09",
+      "title": "Takeover latch, actuation lock, Lua watchdog",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "PLT-08"
+      ],
+      "land": "L20",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-10",
+      "title": "Preflight go/no-go",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "PLT-06",
+        "PLT-08"
+      ],
+      "land": "L20",
+      "proven_in": "Sim, Bench",
+      "note": "The engine-manifest check waits for DAT-04 (data hold); build the rest",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-07",
+      "title": "Launch, profiles and GO launcher",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "FND-08"
+      ],
+      "land": "L21",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-12",
+      "title": "Logging and attempt bundle",
+      "wave": "4",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "PLT-03"
+      ],
+      "land": "L21",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-01",
+      "title": "Field setup tool",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "PLT-08",
+        "SIM-02"
+      ],
+      "land": "L22",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-02",
+      "title": "Readiness kit (May 5 video and logs)",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "PLT-08",
+        "PLT-12"
+      ],
+      "land": "L22",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-03",
+      "title": "Post-flight report and autonomy audit",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "PLT-12",
+        "SIM-08"
+      ],
+      "land": "L22",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-04",
+      "title": "Scoring model and slot planner",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "SIM-08"
+      ],
+      "land": "L23",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-06",
+      "title": "Code freeze, field tuning and rollback",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "PLT-07"
+      ],
+      "land": "L23",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-09",
+      "title": "Required documents: SOP, emergency procedures, checklists",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [
+        "PLT-10"
+      ],
+      "land": "L23",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-13",
+      "title": "Surveyed-field validation",
+      "wave": "4",
+      "lane": "LOC",
+      "priority": "P0",
+      "deps": [],
+      "land": null,
+      "proven_in": "Field",
+      "note": "Field test",
+      "status": "HUMAN",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-08",
+      "title": "Full site rehearsal",
+      "wave": "4",
+      "lane": "OPS",
+      "priority": "P0",
+      "deps": [],
+      "land": null,
+      "proven_in": "Field",
+      "note": "Field rehearsal",
+      "status": "HUMAN",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-14",
+      "title": "Release confirmation",
+      "wave": "5",
+      "lane": "CEN",
+      "priority": "P1",
+      "deps": [
+        "CEN-04"
+      ],
+      "land": "CEN-14",
+      "proven_in": "Sim, Field",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-4",
+      "title": "Re-visit uncertain markers",
+      "wave": "5",
+      "lane": "LOC",
+      "priority": "P1",
+      "deps": [
+        "LOC-3",
+        "LOC-8"
+      ],
+      "land": "LOC-4",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-5",
+      "title": "Optical-flow odometry on the OV9782",
+      "wave": "5",
+      "lane": "REC",
+      "priority": "P1 (P0 if GPS faults confirmed)",
+      "deps": [
+        "PLT-03",
+        "FND-04"
+      ],
+      "land": "REC-5",
+      "proven_in": "Sim, Field",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-6",
+      "title": "GPS health monitor and EKF source switching",
+      "wave": "5",
+      "lane": "REC",
+      "priority": "P1",
+      "deps": [
+        "REC-5"
+      ],
+      "land": "REC-6",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "REC-7b",
+      "title": "Visual homing: marker (P1), keyframes (P2)",
+      "wave": "5",
+      "lane": "REC",
+      "priority": "P1/P2",
+      "deps": [
+        "REC-7"
+      ],
+      "land": "REC-7b",
+      "proven_in": "Sim",
+      "note": "Spec is in REC-7's section",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-12",
+      "title": "Post-landing second pass",
+      "wave": "5",
+      "lane": "LOC",
+      "priority": "P1",
+      "deps": [
+        "LOC-11"
+      ],
+      "land": "LOC-12",
+      "proven_in": "Bench",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-11",
+      "title": "Health monitor and status to the ground station",
+      "wave": "5",
+      "lane": "PLT",
+      "priority": "P1",
+      "deps": [
+        "PLT-06"
+      ],
+      "land": "PLT-11",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-14",
+      "title": "Ground station tools",
+      "wave": "5",
+      "lane": "PLT",
+      "priority": "P1",
+      "deps": [
+        "PLT-12"
+      ],
+      "land": "PLT-14",
+      "proven_in": "Bench",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-05",
+      "title": "Slot time budget and clock",
+      "wave": "5",
+      "lane": "OPS",
+      "priority": "P1",
+      "deps": [
+        "PLT-07"
+      ],
+      "land": "OPS-05",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "OPS-07",
+      "title": "Impulse rig (delivery)",
+      "wave": "5",
+      "lane": "OPS",
+      "priority": "P1",
+      "deps": [],
+      "land": "OPS-07",
+      "proven_in": "Unit",
+      "note": "Code part only: the impulse analysis script",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "LOC-14",
+      "title": "Retire 2026 localisation pieces",
+      "wave": "5",
+      "lane": "LOC",
+      "priority": "P1",
+      "deps": [],
+      "land": "LOC-14",
+      "proven_in": "none",
+      "note": "Needs the lead's approval before anything is removed",
+      "status": "LEAD",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-07",
+      "title": "Wind compensation (PI plus disturbance observer)",
+      "wave": "5",
+      "lane": "CEN",
+      "priority": "P2",
+      "deps": [
+        "CEN-02"
+      ],
+      "land": "CEN-07",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-08",
+      "title": "Release offset model",
+      "wave": "5",
+      "lane": "CEN",
+      "priority": "P2",
+      "deps": [
+        "CEN-04",
+        "OPS-07"
+      ],
+      "land": "CEN-08",
+      "proven_in": "Sim, Field",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "CEN-09",
+      "title": "ArduPilot precision-loiter bridge (benchmark only)",
+      "wave": "5",
+      "lane": "CEN",
+      "priority": "P2",
+      "deps": [
+        "FND-06"
+      ],
+      "land": "CEN-09",
+      "proven_in": "Sim",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "SIM-12",
+      "title": "Gaussian-splat twin of the test field",
+      "wave": "5",
+      "lane": "SIM",
+      "priority": "P2",
+      "deps": [
+        "SIM-09"
+      ],
+      "land": "SIM-12",
+      "proven_in": "Unit",
+      "note": "",
+      "status": "TODO",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "PLT-04",
+      "title": "Model deployment and engine builder",
+      "wave": "hold",
+      "lane": "PLT",
+      "priority": "P0",
+      "deps": [
+        "DAT-03",
+        "DAT-04"
+      ],
+      "land": null,
+      "proven_in": "Bench",
+      "note": "Needs an ONNX from DAT-03. The 2026 engine path keeps working meanwhile",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-01",
+      "title": "Dataset specification and label schema",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "FND-02"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "shrink_for_detector() is built under LOC-5, not here",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-02",
+      "title": "Convert the 2026 data",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "DAT-01"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-03",
+      "title": "Training script in the repo, with FP16 export",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "DAT-01"
+      ],
+      "land": null,
+      "proven_in": "Unit, Bench",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-04",
+      "title": "Model registry",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "DAT-03"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-05",
+      "title": "Evaluation protocol (including the tiled pass)",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "DAT-01",
+        "DAT-02",
+        "DAT-03",
+        "DAT-04",
+        "SIM-09"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-06",
+      "title": "Synthetic data, phase 1 (composites at flight scale)",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P1",
+      "deps": [
+        "DAT-01"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "Teammate issue #7 (synthetic data v0)",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-07",
+      "title": "Synthetic data, phase 2 (BlenderProc renders)",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P2",
+      "deps": [
+        "DAT-06"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-08",
+      "title": "Digit-reader dataset",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "LOC-6",
+        "DAT-10"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-09",
+      "title": "SAM 3 auto-labelling, off the aircraft",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P1",
+      "deps": [
+        "DAT-01"
+      ],
+      "land": null,
+      "proven_in": "Unit",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    },
+    {
+      "id": "DAT-10",
+      "title": "Field data day protocol",
+      "wave": "hold",
+      "lane": "DAT",
+      "priority": "P0",
+      "deps": [
+        "PLT-12"
+      ],
+      "land": null,
+      "proven_in": "Field",
+      "note": "",
+      "status": "HOLD-DATA",
+      "attempts": 0,
+      "evidence": "",
+      "blocked_reason": ""
+    }
+  ],
+  "gates": {
+    "G0": {
+      "title": "Sim baseline, flags off",
+      "after_ids": [
+        "SIM-11"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G1": {
+      "title": "Estimator and centring",
+      "after_ids": [
+        "CEN-02"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G2": {
+      "title": "Drop",
+      "after_ids": [
+        "CEN-04",
+        "CEN-10",
+        "CEN-12"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G3": {
+      "title": "Delivery",
+      "after_ids": [
+        "CEN-05",
+        "CEN-10"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G4": {
+      "title": "Localisation (oracle detector until a trained model exists)",
+      "after_ids": [
+        "LOC-3",
+        "LOC-10",
+        "LOC-11"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G5": {
+      "title": "Recovery",
+      "after_ids": [
+        "REC-2",
+        "REC-8"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G6": {
+      "title": "GPS missions",
+      "after_ids": [
+        "PLT-13"
+      ],
+      "status": "not run",
+      "result": ""
+    },
+    "G0-W2": {
+      "title": "Flags-off baseline re-check after wave 2",
+      "after_wave": "2",
+      "status": "not run",
+      "result": ""
+    },
+    "G0-W3": {
+      "title": "Flags-off baseline re-check after wave 3",
+      "after_wave": "3",
+      "status": "not run",
+      "result": ""
+    },
+    "G0-W4": {
+      "title": "Flags-off baseline re-check after wave 4",
+      "after_wave": "4",
+      "status": "not run",
+      "result": ""
+    },
+    "G7": {
+      "title": "Field replay",
+      "status": "WAITING",
+      "result": "needs a field-day bag"
+    },
+    "G8": {
+      "title": "Readiness, 5 May 2027",
+      "status": "WAITING",
+      "result": "needs a real flight"
+    }
+  }
+}

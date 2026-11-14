@@ -10,6 +10,7 @@ Severity: **blocking** findings make the verdict BLOCKED. **Suggestion** finding
 
 - The diff does what the description says, and nothing it doesn't say. Read the diff before the description; a mismatch in either direction is a blocking finding.
 - One issue per pull request. Drive-by refactors, renames or fixes elsewhere are blocking; they belong under "Not done" or in a new issue.
+- A landing pull request from the 2027 build (`/land`, branch `<area>/land-<group>`) carries one landing group from `docs/build/features.json`. The group counts as one issue; check that the diff holds only that group's features, its late fixes and gate results.
 - The branch is named `<area>/<short-name>` (centring, localisation, recovery, sim, platform). Suggestion.
 - Nothing that must not be in a public repo: passwords, tokens, keys, datasets, ROS bags, flight logs, training runs, TensorRT engines. Blocking.
 - Every template section is filled in, with "Not done" listing what was noticed but left. Suggestion.

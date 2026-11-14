@@ -49,3 +49,10 @@ datasets/
 # Mission simulator (sim/run_sim.sh): runtime state and the container colcon build
 sim/.state/
 sim/.ws/
+
+# Machine-local Claude Code settings (see docs/build/settings.local.example.json)
+.claude/settings.local.json
+
+# The 2027 build plan and the /build skill (the build/ rule above is for colcon output)
+!docs/build/
+!.claude/skills/build/

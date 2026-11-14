@@ -2,6 +2,12 @@
 
 This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC competition: ROS 2 Humble, MAVROS and ArduPilot, with Python missions run by a 20 Hz executor. The tag `comp-2026` is the code that flew at the June 2026 competition. It is the fallback, so with every new flag off, the drone must behave exactly as it did then.
 
+## Build session
+
+The 2027 features are specified in `docs/build/FEATURES.md` and their status is kept in `docs/build/features.json`, changed only with `tools/build_ledger.py`. They are built in long sessions started with `/build` and launched as `docs/build/RUN.md` describes; the procedure is `docs/build/SESSION.md`. Inside a `/build` session, SESSION.md replaces four things below: "work only on the issue you were given", "propose a plan and wait", "pull requests go through `/ship`" (the session commits to the integration branch `platform/build-2027`; `/land` and `/ship` take finished work to `main` later), and the end-of-task report (`/build` has its own). Every other rule here still applies. Outside `/build`, these rules apply as written and SESSION.md does not.
+
+When the context is compacted during a `/build` session, keep the current feature ID, the files changed for it, and any failing test names, then re-read `docs/build/SESSION.md`.
+
 ## Rules
 
 - Never commit to `main` or push to it. Work on a branch named `<area>/<short-name>`, where the area is one of centring, localisation, recovery, sim or platform, and open a pull request.
@@ -35,6 +41,9 @@ This repo is Purdue's autonomy and computer-vision stack for the 2027 C-UASC com
 | `scripts/check.sh` | The one check: CI runs it, and so should you |
 | `scripts/pr_checks.py` | The PR gates; `scripts/check.sh` runs them |
 | `.claude/` | Shared Claude Code settings, the `/ship` and `/review-pr` skills, the `flight-guardian` reviewer |
+| `.claude/skills/{build,gate,land}`, `.claude/agents/spec-auditor.md`, `.claude/hooks/build-context.sh` | The 2027 build session's skills, its spec reviewer and its context hook |
+| `docs/build/` | The 2027 build: `FEATURES.md` (specs), `features.json` (status), `PROGRESS.md` (log), `SESSION.md` (procedure), `RUN.md` (how to launch it), `notes/` (one explanation per finished feature) |
+| `sim/` | The mission simulator (`sim/run_sim.sh`, see `sim/README.md`) and the GPS mission harness (`sim/gps/`) |
 | `.githooks/` | Git hooks (no commits on `main`, hygiene checks); a session-start hook turns them on |
 | `docs/review-checklist.md` | The rules `/review-pr` checks, by id |
 | `AGENTS.md` | Last year's notes on the mission framework |

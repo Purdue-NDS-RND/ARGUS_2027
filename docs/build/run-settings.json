@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_FORK_SUBAGENT": "0"
+  },
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *:refs/heads/main*)",
+      "Bash(git add -A*)",
+      "Bash(git add --all*)",
+      "Bash(git add .)",
+      "Bash(git add . *)",
+      "Bash(git * --no-verify*)",
+      "Bash(git commit -n*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git checkout -- *)",
+      "Bash(git checkout .)",
+      "Bash(git restore*)",
+      "Bash(git stash*)",
+      "Bash(rm -r*)",
+      "Bash(rm -R*)",
+      "Bash(rm -f*r*)",
+      "Bash(rm -f*R*)",
+      "Bash(rm * -r*)",
+      "Bash(rm * -R*)",
+      "Bash(rm --recursive*)",
+      "Bash(rm * --recursive*)",
+      "Bash(sudo *)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr review*)",
+      "Bash(gh pr comment*)",
+      "Bash(gh pr edit*)",
+      "Bash(gh api*)",
+      "Edit(docs/build/FEATURES.md)",
+      "Edit(docs/build/SESSION.md)",
+      "Edit(docs/build/RUN.md)",
+      "Edit(docs/build/features.json)",
+      "Edit(docs/build/run-settings.json)",
+      "Edit(CLAUDE.md)",
+      "Edit(.claude/**)",
+      "Edit(.githooks/**)",
+      "Edit(.github/**)",
+      "Edit(scripts/pr_checks.py)",
+      "Edit(docs/review-checklist.md)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/build-context.sh"
+            ],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": [
+              "-c",
+              "command -v notify-send >/dev/null && notify-send 'ARGUS build' 'Claude Code is waiting for input' || true"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
