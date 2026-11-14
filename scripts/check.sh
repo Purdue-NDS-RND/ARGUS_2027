@@ -84,6 +84,13 @@ run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
 run_test scripts scripts/test/test_pr_checks.py
 run_test "" scripts/test/test_guardian_read_guard.py
 run_test "" sim/test/test_target_placement.py
+run_test "" tools/test/test_build_ledger.py
+
+# The 2027 build ledger must stay valid (see docs/build/SESSION.md).
+echo "== docs/build/features.json"
+if ! py "" tools/build_ledger.py check; then
+    failures+=("docs/build/features.json")
+fi
 
 missing=()
 for mod in cv2 numpy yaml; do

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Skill(gate)",
+      "Skill(gate *)",
+      "Bash(scripts/check.sh*)",
+      "Bash(CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh*)",
+      "Bash(python3 -m pytest *)",
+      "Bash(python3 tools/*)",
+      "Bash(python3 scripts/pr_checks.py*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git fetch*)",
+      "Bash(git merge *)",
+      "Bash(git switch platform/build-2027*)",
+      "Bash(git switch -c *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git checkout origin/main -- docs/build/*)",
+      "Bash(git checkout --ours docs/build/*)",
+      "Bash(git push origin platform/build-2027)",
+      "Bash(git push -u origin platform/build-2027)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr view*)",
+      "Bash(sim/run_sim.sh *)",
+      "Bash(HEADLESS=1 sim/run_sim.sh*)",
+      "Bash(SPAWN_TARGET=0 sim/run_sim.sh*)",
+      "Bash(HEADLESS=1 SPAWN_TARGET=0 sim/run_sim.sh*)",
+      "Bash(sim/run_scenarios.sh *)",
+      "Bash(sim/container/build_ws.sh*)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(git mv *)",
+      "Bash(chmod +x *)",
+      "Bash(sleep *)"
+    ]
+  }
+}
