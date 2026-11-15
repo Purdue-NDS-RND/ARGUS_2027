@@ -22,7 +22,7 @@ python3 sim/judge/cli.py <run folder>      # writes <run folder>/score.json, pri
 | --- | --- |
 | `origin: {latitude_deg, longitude_deg}` | localisation (list coordinates to metres) |
 | `takeoff: {e, n}` | all (the takeoff zone); defaults to where the vehicle armed |
-| `fence: {polygon: [[e, n], ...], max_height_m}` | all (breach report) |
+| `fence: {polygon: [[e, n], ...], max_height_m}` | all (breach report); geofence |
 | `waypoints: [{name, e, n, u}]` | waypoint navigation, time trial |
 | `markers: [{name, id, e, n}]`, `survey_area: [[e, n], ...]` | localisation |
 | `target: {e, n}`, `payload: {name, mass_kg}` | drop, delivery |
@@ -38,6 +38,7 @@ python3 sim/judge/cli.py <run folder>      # writes <run folder>/score.json, pri
 | `drop` | 14 − distance of the payload at rest (or of the vehicle at a fake release) from the target; −6 released below 1.83 m; −6 if the vehicle is below 1.83 m outside the takeoff zone | `max_points` 14 |
 | `delivery` | 13 − distance; 0 if released above 1.83 m; +0.25 per 500 g; the largest `contact` impulse is reported against `impulse_limit_ns` and not scored | `impulse_limit_ns` none |
 | `recovery` | 16 − distance of the bucket at rest from the return point; 0 unless it rose more than 0.5 m; 0 if released above 1.83 m | `return_point` `takeoff` |
+| `geofence` | Not a competition mission: 1 if the fence held. The autopilot must report the breach and switch to a mode that flies home or stops within `max_response_s` of the true position crossing the fence, and the true position must stay within `max_excursion_m` of it. No autonomy bonus | `max_response_s` 2.0, `max_excursion_m` 10.0 |
 
 Every mission: only the first flight (arm to disarm, having left the ground) is scored, and `common.flights` says how many there were; fence breaches are measured from true positions with their worst excursion; failsafes are listed; and the points gain 25% (`autonomy_bonus_fraction`) when the scored flight has no `gcs_command` or `rc_override` event.
 

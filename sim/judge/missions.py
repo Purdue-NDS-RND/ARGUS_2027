@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .fence import fence_breaches
 from .geometry import point_in_polygon
 from .hungarian import assign
 from .record import AIRBORNE_HEIGHT_M, VEHICLE, Flight, Pose, Record
@@ -31,6 +32,7 @@ TWENTY_FEET_M = 6.10
 TWENTY_FIVE_FEET_M = 7.62
 
 LIST_HEADER = "ID,Latitude,Longitude"
+STATE_MESSAGE_PERIOD_S = 1.0  # the autopilot's heartbeat, which carries the flight mode
 
 
 @dataclass
@@ -389,3 +391,61 @@ def judge_recovery(run: Run) -> tuple[float, dict]:
         run.notes.append(f"recovery: the bucket was released at {release_height:.2f} m, above {s['max_release_height_m']} m, scored 0")
         return 0.0, details
     return max(0.0, s["max_points"] - distance * s["points_per_metre"]), details
+
+
+# --- geofence ---------------------------------------------------------------
+
+
+def judge_geofence(run: Run) -> tuple[float, dict]:
+    """The fence must stop a vehicle that flies at it: 1 point if it does.
+
+    The autopilot's response is its report of the breach (a `fence_breach`
+    event) followed by a mode it flies home or stops in. The response must
+    come within `max_response_s` of the true position crossing the fence, and
+    the true position must stay within `max_excursion_m` of it. A vehicle
+    stopped before the line passes with no excursion.
+    """
+
+    s = run.settings
+    fence = run.need("fence")
+    t0, t1 = run.flight.t_arm, run.flight.t_disarm
+    spans = fence_breaches(run.record, fence, t0, t1)
+    t_cross = spans[0]["t_start"] if spans else None
+    max_excursion = max((span["max_excursion_m"] for span in spans), default=0.0)
+    reports = run.record.events_of("fence_breach", t0=t0, t1=t1)
+    t_reported = reports[0]["t"] if reports else None
+    # The mode comes from a 1 Hz state message, so it can read up to a second
+    # late; the report is prompt. A response is a report with such a mode after it.
+    after = t_reported if t_reported is not None else (t_cross if t_cross is not None else t0)
+    # The mode itself must still come in time: within the limit, plus the one
+    # second its message can lag, of the crossing (or of the report, if the
+    # vehicle was stopped before the line).
+    latest = (t_cross if t_cross is not None else after) + s["max_response_s"] + STATE_MESSAGE_PERIOD_S
+    modes = [item for item in run.record.events_of("mode", t0=after - 1.5, t1=min(t1, latest)) if item.get("mode") in s["response_modes"]]
+    t_mode = modes[0]["t"] if modes else None
+    t_response = None
+    if t_mode is not None:
+        t_response = t_mode if t_reported is None else min(t_mode, t_reported)
+    delay = None if t_response is None or t_cross is None else t_response - t_cross
+
+    problem = ""
+    if t_cross is None and t_reported is None:
+        problem = "the vehicle never reached the fence"
+    elif t_response is None:
+        problem = "the autopilot did not leave the commanded flight after the breach"
+    elif delay is not None and delay > s["max_response_s"]:
+        problem = f"the response came {delay:.2f} s after the fence line (limit {s['max_response_s']} s)"
+    elif max_excursion > s["max_excursion_m"]:
+        problem = f"the vehicle went {max_excursion:.2f} m outside the fence (limit {s['max_excursion_m']} m)"
+    if problem:
+        run.notes.append(f"geofence: {problem}")
+    details = {
+        "passed": not problem,
+        "t_cross": t_cross,
+        "t_reported": t_reported,
+        "t_mode": t_mode,
+        "response_mode": modes[0]["mode"] if modes else None,
+        "response_delay_s": delay,  # negative: the autopilot responded before the true position crossed the line
+        "max_excursion_m": max_excursion,
+    }
+    return (0.0 if problem else 1.0), details

@@ -768,3 +768,101 @@ def test_recovery_release_limit_is_six_feet(height, high):
 @pytest.mark.parametrize("lift, lifted", [(0.45, False), (0.55, True)])
 def test_recovery_lift_threshold_is_half_a_metre(lift, lifted):
     assert recover(recovery_flight(lift=lift))["details"]["lifted"] is lifted
+
+
+# --- geofence (the SIM-02 pass line, from true positions) ----------------------------------
+
+FENCE = {"polygon": SQUARE, "max_height_m": 100.0}
+
+
+def fence_flight(furthest=52.0, report_at=None, mode_at=None, mode="RTL", speed=2.0):
+    """Fly east from the origin at `speed` to `furthest`, then home. The fence is at 50 m east."""
+    t_out = 10.0 + furthest / speed
+    knots = [(0, 0, 0, 0), (10, 0, 0, 15), (t_out, furthest, 0, 15), (t_out + furthest / speed, 0, 0, 15), (t_out + furthest / speed + 10, 0, 0, 0)]
+    parts = [flight(knots), event(1.0, "mode", mode="GUIDED")]
+    if report_at is not None:
+        parts.append(event(report_at, "fence_breach", what="Polygon fence breached"))
+    if mode_at is not None:
+        parts.append(event(mode_at, "mode", mode=mode))
+    return record(*parts), 10.0 + 50.0 / speed  # the record, and when the true position crosses the line
+
+
+def geofence(rec, settings=None):
+    return judge_run("geofence", rec, truth(fence=FENCE), settings)
+
+
+def test_geofence_passes_when_the_autopilot_reports_and_turns_back_in_time():
+    rec, t_cross = fence_flight(furthest=52.0, report_at=35.1, mode_at=35.8)
+    score = geofence(rec)
+    details = score["details"]
+    assert details["passed"] is True and score["base_points"] == 1.0
+    assert details["t_cross"] == pytest.approx(t_cross, abs=0.11)
+    assert details["response_delay_s"] == pytest.approx(0.1, abs=0.11)  # the report, not the 1 Hz mode message
+    assert details["max_excursion_m"] == pytest.approx(2.0, abs=0.05)
+    assert details["response_mode"] == "RTL"
+
+
+def test_geofence_response_before_the_line_is_a_negative_delay():
+    rec, _ = fence_flight(furthest=51.0, report_at=34.0, mode_at=34.5)
+    details = geofence(rec)["details"]
+    assert details["passed"] is True and details["response_delay_s"] == pytest.approx(-1.0, abs=0.11)
+
+
+def test_geofence_vehicle_stopped_before_the_line_passes_with_no_excursion():
+    rec, _ = fence_flight(furthest=49.0, report_at=33.0, mode_at=33.5)
+    details = geofence(rec)["details"]
+    assert details["passed"] is True
+    assert details["t_cross"] is None and details["response_delay_s"] is None and details["max_excursion_m"] == 0.0
+
+
+@pytest.mark.parametrize("mode_at, passed", [(36.8, True), (37.3, False)])
+def test_geofence_response_must_come_within_two_seconds(mode_at, passed):
+    rec, t_cross = fence_flight(furthest=58.0, mode_at=mode_at)  # no report: only the mode change shows the response
+    score = geofence(rec)
+    assert score["details"]["passed"] is passed
+    assert score["details"]["response_delay_s"] == pytest.approx(mode_at - t_cross, abs=0.11)
+    assert score["base_points"] == (1.0 if passed else 0.0)
+
+
+@pytest.mark.parametrize("furthest, passed", [(59.5, True), (60.5, False)])
+def test_geofence_excursion_must_stay_within_ten_metres(furthest, passed):
+    rec, _ = fence_flight(furthest=furthest, report_at=35.0, mode_at=35.5)
+    assert geofence(rec)["details"]["passed"] is passed
+
+
+def test_geofence_prompt_report_does_not_excuse_a_late_turn_back():
+    """The report alone is not a response: the mode must follow within the limit plus one state message."""
+    rec, t_cross = fence_flight(furthest=58.0, report_at=35.1, mode_at=37.9)  # 2.9 s after the line: just in time
+    assert geofence(rec)["details"]["passed"] is True
+    rec, _ = fence_flight(furthest=58.0, report_at=35.1, mode_at=38.5)  # 3.5 s after it
+    score = geofence(rec)
+    assert score["details"]["passed"] is False
+    assert any("did not leave the commanded flight" in note for note in score["notes"])
+
+
+def test_geofence_fails_when_the_autopilot_reports_but_keeps_flying():
+    rec, _ = fence_flight(furthest=55.0, report_at=35.0)
+    score = geofence(rec)
+    assert score["details"]["passed"] is False
+    assert any("did not leave the commanded flight" in note for note in score["notes"])
+
+
+def test_geofence_fails_when_the_vehicle_never_reaches_the_fence():
+    rec, _ = fence_flight(furthest=30.0)
+    score = geofence(rec)
+    assert score["details"]["passed"] is False and score["base_points"] == 0.0
+    assert any("never reached the fence" in note for note in score["notes"])
+
+
+def test_geofence_ignores_the_rtl_that_ends_any_flight():
+    """Going home at the end of a flight that never neared the fence is not a fence response."""
+    rec, _ = fence_flight(furthest=30.0, mode_at=60.0)
+    assert geofence(rec)["details"]["passed"] is False
+
+
+def test_geofence_limits_are_the_pass_lines():
+    from judge import default_settings
+
+    defaults = default_settings("geofence")
+    assert (defaults["max_response_s"], defaults["max_excursion_m"]) == (2.0, 10.0)
+    assert "RTL" in defaults["response_modes"] and "GUIDED" not in defaults["response_modes"]

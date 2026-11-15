@@ -19,8 +19,10 @@ Events the judges read:
   failsafe               "what" the flight controller reported
   fence_breach           the flight controller reported a breach
   gcs_command, rc_override   human input; "what" says which command
+  mode                   the flight mode changed, with "mode" (geofence judge)
 
-Any other event is kept and ignored.
+Any other event is kept and ignored. The runner also writes `clock` (sim
+time against "wall" time, for the real-time factor), `launch` and `end`.
 """
 
 from __future__ import annotations
