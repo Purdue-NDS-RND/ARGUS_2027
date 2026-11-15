@@ -19,8 +19,6 @@ nightly:
   seeds: [1, 2, 3]
   variants: ["off", "on"]
 
-# The acceptance gates' flights. G0: the 2026 delivery, flags off, five times.
-gates:
-  scenarios: [delivery/baseline]
-  seeds: [1, 2, 3, 4, 5]
-  variants: ["off"]
+# The acceptance gates are suites too: `sim/run_scenarios.sh G0` flies one gate
+# and `sim/run_scenarios.sh gates` flies every gate that has scenarios. They are
+# defined with their pass rules in gates.yaml, not here.

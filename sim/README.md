@@ -214,6 +214,22 @@ How a flight is recorded and ended:
 - The flight ends when the vehicle has been disarmed on the ground for 5 s, or at the timeout. Both are sim time, so a slow laptop does not cut a flight short.
 - `sim/runner/gcs_audit.py` then reads MAVProxy's MAVLink log: a command from a ground station (system id 255) or an RC override during the flight is human input, and the judge takes the autonomy bonus away.
 
+## Acceptance gates
+
+The gates G0 to G8 from the build plan are data in `sim/scenarios/gates.yaml`: what each flies, and the rules its runs must meet. A gate is also a suite, so flying and checking one is two commands:
+
+```bash
+python3 sim/gate.py list                       # every gate, its pass line, and whether it can fly yet
+sim/run_scenarios.sh G0                        # fly it: the 2026 delivery, flags off, five times
+python3 sim/gate.py check G0 sim/.state/suites/G0-<time>     # PASS, FAIL or INVALID, rule by rule
+```
+
+- **PASS:** every flight of the gate was flown and every rule holds. **FAIL:** a flight is missing or did not finish, or a rule does not hold. **INVALID:** a flight has only runs the sim was too slow to count; fly the gate again and give `check` both folders.
+- The first run of a flight that counts is the one judged. Flying again helps only a run that was INVALID, never one the vehicle lost.
+- `--write docs/results/<date>-gate-G0.md` writes the result file: commit, command, every run, each rule and what was found.
+- A gate's seeds and variants are fixed in `gates.yaml`; `--seeds` and `--variants` are refused for a gate. To compare flags off with on, fly its scenario by name.
+- G0-W2, G0-W3 and G0-W4 are G0 again after a later wave. G1 to G6 have their rules but no scenarios yet; the lane that builds a gate's scenarios adds them to `gates.yaml`. G7 and G8 need field data and a real flight.
+
 ## Competition sites
 
 `sim/sites/<name>.yaml` holds a field's coordinates: origin, ground elevation, runway, flight boundary, maximum height, takeoff point, compass rose and survey area. `sim/sites/apollo_xi.yaml` is the 2027 site; its coordinates are placeholders until someone checks them against the organisers' field map.

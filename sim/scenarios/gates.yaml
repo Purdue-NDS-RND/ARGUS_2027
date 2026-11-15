@@ -1,0 +1,176 @@
+# The acceptance gates (FEATURES.md, SIM-11): what each flies and the rule its runs must meet.
+# Checked by sim/gate.py; flown with `sim/run_scenarios.sh <gate>`.
+#
+# proves, pass   the gate's row in the SIM-11 table, word for word
+# scenarios, seeds, variants   its flights ("off" is the 2026 behaviour; quote off and on)
+# needs          why it has no flights yet: the lane that builds its scenarios adds them
+# waiting        a gate the sim cannot run at all
+# rules          each must hold over the gate's runs (kinds are in sim/gate.py). A metric is
+#                a path into a run's score.json; `where` picks runs by their scenario.json.
+
+G0:
+  proves: Sim baseline, flags off
+  pass: Delivery touchdown ≤ 0.3 m in 5/5
+  scenarios: [delivery/baseline]
+  seeds: [1, 2, 3, 4, 5]
+  variants: ["off"]
+  rules:
+    - name: every touchdown within 0.3 m of the target
+      metric: details.distance_m
+      each: {max: 0.3}
+
+G1:
+  proves: Estimator and centring
+  pass: "Hold at 6 m and 2 m: p95 true error ≤ 0.20 m in moderate wind, ≤ 0.30 m in strong"
+  needs: hold scenarios at 6 m and 2 m and a judge that reports details.hold_error_p95_m (CEN-01, CEN-02); wind (SIM-03)
+  variants: ["on"]
+  rules:
+    - name: p95 hold error within 0.20 m in moderate wind
+      metric: details.hold_error_p95_m
+      where: {wind.level: moderate}
+      each: {max: 0.20}
+    - name: p95 hold error within 0.30 m in strong wind
+      metric: details.hold_error_p95_m
+      where: {wind.level: strong}
+      each: {max: 0.30}
+    - name: flown in moderate wind
+      where: {wind.level: moderate}
+      flown: {at_least: 1}
+    - name: flown in strong wind
+      where: {wind.level: strong}
+      flown: {at_least: 1}
+
+G2:
+  proves: Drop
+  pass: Median ≤ 0.15 m calm and ≤ 0.30 m strong, max ≤ 1.0 m; no release or descent below 1.83 m
+  needs: drop scenarios in calm and strong wind with a real payload (CEN-04, CEN-10, CEN-12; SIM-03, SIM-06)
+  variants: ["on"]
+  rules:
+    - name: median drop distance within 0.15 m in calm
+      metric: details.distance_m
+      where: {wind.level: calm}
+      median: {max: 0.15}
+    - name: median drop distance within 0.30 m in strong wind
+      metric: details.distance_m
+      where: {wind.level: strong}
+      median: {max: 0.30}
+    - name: no drop further than 1.0 m
+      metric: details.distance_m
+      maximum: {max: 1.0}
+    - name: no release below 1.83 m
+      metric: details.released_low
+      each: {equals: false}
+    - name: no descent below 1.83 m
+      metric: details.flew_low
+      each: {equals: false}
+    - name: the judge's height limit is 1.83 m
+      metric: settings.min_height_m
+      each: {equals: 1.83}
+    - name: flown in calm
+      where: {wind.level: calm}
+      flown: {at_least: 1}
+    - name: flown in strong wind
+      where: {wind.level: strong}
+      flown: {at_least: 1}
+
+G3:
+  proves: Delivery
+  pass: Median ≤ 0.5 m; release ≤ 1.83 m; impulse under the limit
+  needs: delivery scenarios with a real package and a contact impulse (CEN-05, CEN-10; SIM-06)
+  variants: ["on"]
+  rules:
+    - name: median delivery distance within 0.5 m
+      metric: details.distance_m
+      median: {max: 0.5}
+    - name: no release above 1.83 m
+      metric: details.released_high
+      each: {equals: false}
+    - name: contact impulse under the limit
+      metric: details.impulse_ok
+      each: {equals: true}
+    - name: the judge's release limit is 1.83 m
+      metric: settings.max_release_height_m
+      each: {equals: 1.83}
+
+G4:
+  proves: Localisation
+  pass: ≥ 95% listed and IDs correct; error median ≤ 1.0 m, p95 ≤ 2.0 m; never below 7.62 m; CSV before landing
+  needs: survey scenarios and the localisation pipeline on the oracle detector (LOC-3, LOC-10, LOC-11)
+  variants: ["on"]
+  rules:
+    - name: at least 95% of the markers listed with the right ID
+      ratio: {of: details.correct, over: details.markers, min: 0.95}
+    - name: median position error within 1.0 m
+      metric: details.errors_m
+      pooled: true
+      median: {max: 1.0}
+    - name: p95 position error within 2.0 m
+      metric: details.errors_m
+      pooled: true
+      p95: {max: 2.0}
+    - name: never below 7.62 m over the survey area
+      metric: details.min_height_m
+      minimum: {min: 7.62}
+    - name: the list is written before landing
+      metric: details.list_before_landing
+      each: {equals: true}
+    - name: the judge's height floor is 7.62 m
+      metric: settings.height_penalty_below_m
+      each: {equals: 7.62}
+
+G5:
+  proves: Recovery
+  pass: ≥ 8/10 with up to 8 m coordinate error and a 5 m glitch mid-descent; no release above 1.83 m; every failure ends in a climb and RTL
+  needs: recovery scenarios with coordinate error and a GPS glitch, and a judge that reports details.ended_safely (REC-2, REC-8; SIM-04, SIM-06)
+  variants: ["on"]
+  rules:
+    - name: at least ten flights
+      flown: {at_least: 10}
+    - name: the bucket is brought back in at least 8 of every 10
+      metric: base_points
+      count: {min: 0.5, fraction: 0.8}
+    - name: no release above 1.83 m
+      metric: details.released_high
+      each: {equals: false}
+    - name: the judge's release limit is 1.83 m
+      metric: settings.max_release_height_m
+      each: {equals: 1.83}
+    - name: every flight ends safely (a failure climbs and returns)
+      metric: details.ended_safely
+      each: {equals: true}
+
+G6:
+  proves: GPS missions
+  pass: Waypoint within 1 m and time trial within 4 m, 5/5 including moderate wind
+  needs: waypoint and time-trial scenarios at the site in calm and moderate wind (PLT-13; SIM-03)
+  variants: ["on"]
+  rules:
+    - name: every waypoint of every flight passed within tolerance
+      ratio: {of: details.hit, over: details.of, min: 1.0}
+    - name: five waypoint navigation flights
+      where: {mission: waypoint_navigation}
+      flown: {at_least: 5}
+    - name: five time trial flights
+      where: {mission: time_trial}
+      flown: {at_least: 5}
+    - name: flown in moderate wind
+      where: {wind.level: moderate}
+      flown: {at_least: 1}
+    - name: waypoint navigation judged at 1 m or tighter
+      metric: settings.tolerance_m
+      where: {mission: waypoint_navigation}
+      each: {max: 1.0}
+    - name: time trial judged at 4 m or tighter
+      metric: settings.tolerance_m
+      where: {mission: time_trial}
+      each: {max: 4.0}
+
+G7:
+  proves: Field replay
+  pass: Deterministic `core` replay; detector meets the DAT-05 promotion rule
+  waiting: needs a field-day bag
+
+G8:
+  proves: Readiness (May 5)
+  pass: G0 to G6 green on main within 7 days of the deadline, plus one real flight
+  waiting: needs a real flight

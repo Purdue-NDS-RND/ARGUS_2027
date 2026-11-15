@@ -79,9 +79,9 @@
       "land": "L02",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_gates.py test_runner.py -> 122 passed; check.sh -> OK; spec-auditor COMPLETE (round 2). Sim: trial sim/run_scenarios.sh G0 -> 5 of 5 OK, 0.015 to 0.045 m, gate.py check G0 -> PASS; the recorded G0 run is the /gate step. Owed by the lanes: scenarios for G1 to G6, judges for details.hold_error_p95_m and details.ended_safely, contact events for G3 (SIM-06)",
       "blocked_reason": ""
     },
     {

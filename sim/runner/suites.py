@@ -24,11 +24,33 @@ def load_suites(path: Path = SUITES_FILE) -> dict:
     return suites
 
 
-def _scenario_path(name: str) -> Path | None:
+def scenario_path(name: str) -> Path | None:
+    """The scenario file for a name like delivery/baseline, or for a path to one."""
     for candidate in (Path(name), SCENARIOS_DIR / f"{name}.yaml", SCENARIOS_DIR / name):
-        if candidate.is_file() and candidate.suffix == ".yaml" and candidate.name != SUITES_FILE.name:
-            return candidate.resolve()
+        if candidate.is_file() and candidate.suffix == ".yaml":
+            resolved = candidate.resolve()
+            # Any scenario file, but not suites.yaml or gates.yaml, which sit beside the mission folders.
+            if resolved.parent != SCENARIOS_DIR.resolve():
+                return resolved
     return None
+
+
+def _gate_flights(name: str) -> list[dict] | None:
+    """The flights of an acceptance gate (sim/gate.py), or of all of them for "gates"; None if not a gate."""
+    sys.path.insert(0, str(SIM_DIR))
+    import gate
+
+    gates = gate.load_gates()
+    if name == "gates":
+        return [flight for gate_name in gates for flight in gate.flights(gate_name)]
+    if gate.resolve(name) not in gates:
+        return None
+    found = gate.flights(name)
+    if not found:
+        definition = gates[gate.resolve(name)]
+        why = definition.get("waiting") or f"needs {definition.get('needs', 'scenarios')}"
+        raise ValueError(f"gate {name} has nothing to fly in the sim yet: it {why}")
+    return found
 
 
 def expand(name: str, seeds=None, variants=None, suites_file: Path = SUITES_FILE) -> list[dict]:
@@ -40,18 +62,24 @@ def expand(name: str, seeds=None, variants=None, suites_file: Path = SUITES_FILE
     """
 
     suites = load_suites(suites_file)
+    gate_flights = _gate_flights(name)
+    if gate_flights is not None:
+        # A gate fixes its own seeds and variants: they are part of its pass rule.
+        if seeds or variants:
+            raise ValueError(f"'{name}' is a gate: its seeds and variants are fixed in sim/scenarios/gates.yaml")
+        return gate_flights
     if name in suites:
         suite = suites[name]
-        scenarios = [_scenario_path(item) for item in suite["scenarios"]]
+        scenarios = [scenario_path(item) for item in suite["scenarios"]]
         if None in scenarios:
             missing = suite["scenarios"][scenarios.index(None)]
             raise ValueError(f"suite '{name}' names scenario '{missing}', which does not exist")
         seeds = list(seeds or suite["seeds"])
         variants = list(variants or suite["variants"])
     else:
-        path = _scenario_path(name)
+        path = scenario_path(name)
         if path is None:
-            raise ValueError(f"no suite or scenario named '{name}' (suites: {', '.join(suites)})")
+            raise ValueError(f"no suite or scenario named '{name}' (suites: {', '.join(suites)}, gates, G0 to G6)")
         scenarios = [path]
         if not seeds:
             sys.path.insert(0, str(SIM_DIR))

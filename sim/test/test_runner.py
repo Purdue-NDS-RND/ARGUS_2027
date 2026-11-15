@@ -332,7 +332,8 @@ def test_suite_table_puts_flags_off_beside_flags_on(tmp_path):
 
 def test_shipped_suites_name_scenarios_that_exist():
     loaded = suites.load_suites()
-    assert {"smoke", "nightly", "gates"} <= set(loaded)
+    assert {"smoke", "nightly"} <= set(loaded)
+    assert suites.expand("gates")  # the gates come from sim/scenarios/gates.yaml
     for name, suite in loaded.items():
         assert suite["scenarios"], name
         for scenario in suite["scenarios"]:
@@ -360,18 +361,29 @@ def test_seeds_and_variants_can_be_overridden_and_a_scenario_can_be_named_direct
     assert (by_path[0]["seed"], by_path[0]["variant"]) == (1, "off")
 
 
+def test_scenario_can_be_named_by_a_relative_file_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(SIM.parent)
+    assert suites.expand("sim/scenarios/drop/baseline.yaml")[0]["scenario"] == SIM / "scenarios" / "drop" / "baseline.yaml"
+    monkeypatch.chdir(SIM / "scenarios")
+    assert suites.expand("drop/baseline.yaml")[0]["scenario"] == SIM / "scenarios" / "drop" / "baseline.yaml"
+    with pytest.raises(ValueError, match="no suite or scenario"):
+        suites.expand("suites.yaml")  # the suites file is not a scenario
+    with pytest.raises(ValueError, match="no suite or scenario"):
+        suites.expand(str(SIM / "scenarios" / "gates.yaml"))
+
+
 def test_unknown_suite_or_scenario_is_an_error():
     with pytest.raises(ValueError, match="no suite or scenario"):
         suites.expand("juggling")
 
 
-def test_gates_suite_has_g0_as_five_flags_off_delivery_flights():
-    g0 = suites.load_suites()["gates"]
+def test_gates_suite_is_the_flights_of_the_acceptance_gates():
     runs = suites.expand("gates")
-    assert g0["variants"] == ["off"]
-    baseline = [r for r in runs if r["scenario"].as_posix().endswith("delivery/baseline.yaml")]
-    assert sorted(r["seed"] for r in baseline) == [1, 2, 3, 4, 5]
+    baseline = [r for r in runs if r["scenario"].as_posix().endswith("delivery/baseline.yaml") and r["variant"] == "off"]
+    assert sorted(r["seed"] for r in baseline) == [1, 2, 3, 4, 5]  # G0
     assert yaml.safe_load((SIM / "scenarios" / "suites.yaml").read_text())  # plain YAML
+    with pytest.raises(ValueError, match="fixed"):
+        suites.expand("G0", seeds=[1])  # a gate's flights are part of its rule
 
 
 # --- sim time for a wall-clock time, and the ground-station audit ------------------------------
