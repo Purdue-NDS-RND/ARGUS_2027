@@ -97,7 +97,7 @@ for mod in cv2 numpy yaml; do
     has_module "$mod" || missing+=("$mod")
 done
 if ((${#missing[@]})); then
-    skip "bullseye detector, feature-flag config, synth target, PR tuning-gate, sim camera, orientation-check and GPS flight-log tests, tools/bullseye_try.py (missing: ${missing[*]})"
+    skip "bullseye detector, feature-flag config, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log and sim judge tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
@@ -106,6 +106,8 @@ else
     run_test "" sim/test/test_sim_camera.py
     run_test "" sim/test/test_orientation_check.py
     run_test "" sim/test/test_gps_flight_log.py
+    run_test "" sim/test/test_judge.py
+    run_test "" sim/test/test_judge_cli.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

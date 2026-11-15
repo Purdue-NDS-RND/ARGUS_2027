@@ -11,9 +11,9 @@
       "land": "L01",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_judge.py sim/test/test_judge_cli.py -> 84 passed; CHECK_STRICT=1 scripts/check.sh -> OK; spec-auditor COMPLETE (round 2); no sim run needed (Unit). SIM-07 owes the recorder that writes trace.jsonl",
       "blocked_reason": ""
     },
     {
