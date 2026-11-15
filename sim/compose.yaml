@@ -31,6 +31,7 @@ services:
       SKIP_BUILD: ${SKIP_BUILD:-0}
       SPAWN_TARGET: ${SPAWN_TARGET:-1}
       WIPE_PARAMS: ${WIPE_PARAMS:-0}
+      ARGUS_SITE_FILE: ${ARGUS_SITE_FILE:-}
       GAZEBO_STARTUP_TIMEOUT: ${GAZEBO_STARTUP_TIMEOUT:-90}
     volumes:
       - type: bind

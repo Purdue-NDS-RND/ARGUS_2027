@@ -7,6 +7,12 @@
 #   5. ArduCopter SITL + MAVProxy: QGC on UDP 14550, MAVROS on UDP 14551
 #   6. MAVROS (mavros_boot.sh sim)
 # then checks that MAVROS connects and that SITL home is the world origin.
+#
+# With a site (ARGUS_SITE_FILE, set by `SITE=<name> sim/run_sim.sh`) the world
+# is the base world moved to that site (sim/site_file.py), SITL's stored
+# parameters are wiped, the 2026 delivery target is not spawned, MAVProxy gets
+# a tools port (UDP 14552) and the site's geofence is uploaded before READY.
+# With no site, none of that happens and the sim starts as it always has.
 # If any of them stops, everything stops. Logs: sim/.state/logs/<run id>/.
 set -Eeuo pipefail
 
@@ -16,8 +22,12 @@ set -Eeuo pipefail
 
 # shellcheck disable=SC1091
 source "$(dirname -- "${BASH_SOURCE[0]}")/env.sh"
+# shellcheck disable=SC1091
+source "$ARGUS_SIM/container/sitl_storage.sh"
 
 WORLD_FILE="$ARGUS_SIM/worlds/argus_runway.sdf"
+SITE_FILE=${ARGUS_SITE_FILE:-}
+TOOLS_PORT=14552
 GAZEBO_STARTUP_TIMEOUT=${GAZEBO_STARTUP_TIMEOUT:-90}
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
 LOG_DIR="$ARGUS_STATE/logs/$RUN_ID"
@@ -95,6 +105,15 @@ else
     set -u
 fi
 
+# The site's world: the base world with its origin and runway moved.
+if [[ -n $SITE_FILE ]]; then
+    echo "== Site: $SITE_FILE"
+    python3 "$ARGUS_SIM/site_file.py" check "$SITE_FILE" || exit 1
+    site_world="$ARGUS_STATE/worlds/$(basename "${SITE_FILE%.*}").sdf"
+    python3 "$ARGUS_SIM/site_file.py" world "$SITE_FILE" --base "$WORLD_FILE" --out "$site_world" || exit 1
+    WORLD_FILE=$site_world
+fi
+
 # 2. Gazebo
 echo "== Starting Gazebo: $(basename "$WORLD_FILE")"
 gz_args=(-v 3 -r)
@@ -120,7 +139,9 @@ fi
 echo "   Gazebo is up."
 
 # 3. Target
-if [[ ${SPAWN_TARGET:-1} == 1 ]]; then
+if [[ -n $SITE_FILE ]]; then
+    echo "== Not spawning the 2026 delivery target (its coordinates belong to the base world, not to a site)"
+elif [[ ${SPAWN_TARGET:-1} == 1 ]]; then
     echo "== Spawning the delivery target"
     python3 "$ARGUS_SIM/spawn_target.py" --world-file "$WORLD_FILE" 2>&1 | tee "$LOG_DIR/spawn_target.log"
     [[ ${PIPESTATUS[0]} == 0 ]] || exit 1
@@ -135,8 +156,8 @@ start bridge ros2 run ros_gz_bridge parameter_bridge \
 
 # 5. SITL. Home goes at the world origin so GPS and Gazebo positions agree.
 location=$(python3 - "$WORLD_FILE" <<'EOF'
-import sys
-sys.path.insert(0, sys.argv[1].rsplit("/worlds/", 1)[0])
+import os, sys
+sys.path.insert(0, os.environ["ARGUS_SIM"])  # the world may be a generated one outside sim/worlds
 from target_placement import read_world, sitl_location_arg
 print(sitl_location_arg(read_world(open(sys.argv[1]).read())[1]))
 EOF
@@ -153,9 +174,19 @@ sitl_args=(
     --out udp:127.0.0.1:14551
     --mavproxy-args "--non-interactive --logfile=$LOG_DIR/mavlink.tlog"
 )
-case "${WIPE_PARAMS:-0}" in
-    1|true|yes|on) sitl_args+=(--wipe-eeprom) ;;
-esac
+# A site run, and the first plain run after one, start from wiped storage
+# (sitl_storage.sh says why).
+wipe=$(sitl_wipe_needed "$SITL_DIR" "$SITE_FILE" "${WIPE_PARAMS:-0}")
+if ((wipe)); then
+    sitl_args+=(--wipe-eeprom)
+fi
+if [[ -n $SITE_FILE ]]; then
+    sitl_mark_storage "$SITL_DIR" "$SITE_FILE"
+    # Flat ground at the site's elevation instead of SITL's terrain database,
+    # so the SITL rangefinder reads 0 on the ground whatever the real terrain is.
+    printf 'SIM_TERRAIN 0\n' >"$SITL_DIR/site.parm"
+    sitl_args+=(--add-param-file "$SITL_DIR/site.parm" --out "udp:127.0.0.1:$TOOLS_PORT")
+fi
 echo "== Starting ArduCopter SITL (home $location; QGC on 14550, MAVROS on 14551)"
 export SITL_RITW_TERMINAL=/usr/local/bin/sitl-process-wrapper.sh
 export SITL_PROCESS_LOG="$LOG_DIR/arducopter.log"
@@ -186,6 +217,9 @@ if ((connected == 0)); then
     exit 1
 fi
 echo "   MAVROS connected."
+if [[ -z $SITE_FILE ]]; then
+    sitl_mark_storage "$SITL_DIR" ""  # SITL is up, so any wipe has happened
+fi
 
 # Home: ArduPilot sets it once the EKF has GPS. Check it is the world origin,
 # where spawn_target.py assumed it would be.
@@ -193,8 +227,8 @@ echo "   waiting up to 300s for home (EKF using GPS)..."
 home=$(timeout 300 ros2 topic echo --once --field geo /mavros/home_position/home 2>/dev/null || true)
 check_alive
 python3 - "$WORLD_FILE" "$home" <<'EOF' | tee "$LOG_DIR/home_check.log"
-import re, sys
-sys.path.insert(0, sys.argv[1].rsplit("/worlds/", 1)[0])
+import os, re, sys
+sys.path.insert(0, os.environ["ARGUS_SIM"])
 from target_placement import offset_ne_m, read_world
 _, origin = read_world(open(sys.argv[1]).read())
 # `--field geo` prints a Python repr: GeoPoint(latitude=..., longitude=...)
@@ -209,6 +243,18 @@ tag = "OK" if d <= 0.5 else "WARNING"
 print(f"   {tag}: SITL home {float(lat.group(1)):.7f}, {float(lon.group(1)):.7f} is {d:.2f} m from the world origin")
 EOF
 echo "   home set after ${SECONDS}s."
+
+# The site's geofence, uploaded and switched on before the pre-arm wait, so
+# READY also means ArduPilot accepts the fence with the vehicle inside it.
+if [[ -n $SITE_FILE ]]; then
+    echo "== Uploading the geofence (MAVLink tools port, UDP $TOOLS_PORT)"
+    env -u PYTHONNOUSERSITE python3 "$ARGUS_SIM/fence_upload.py" --site "$SITE_FILE" --allow-unverified \
+        --url "udpin:127.0.0.1:$TOOLS_PORT" 2>&1 | tee "$LOG_DIR/fence_upload.log"
+    if [[ ${PIPESTATUS[0]} != 0 ]]; then
+        echo "ERROR: the geofence was not uploaded. Log: sim/.state/logs/$RUN_ID/fence_upload.log" >&2
+        exit 1
+    fi
+fi
 
 # Pre-arm checks. Right after start-up SITL fails them for a few minutes
 # ("Arm: Gyros inconsistent"), longer than simple_takeoff_service's arm

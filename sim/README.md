@@ -175,6 +175,34 @@ Start-up options (environment variables):
 | `SPAWN_TARGET=0` | Don't spawn the delivery target. |
 | `SKIP_BUILD=1` | Don't run colcon at start-up. |
 | `WIPE_PARAMS=1` | Reset SITL's saved parameters once. |
+| `SITE=apollo_xi` | Start at a competition site with its geofence on (below). |
+
+## Competition sites
+
+`sim/sites/<name>.yaml` holds a field's coordinates: origin, ground elevation, runway, flight boundary, maximum height, takeoff point, compass rose and survey area. `sim/sites/apollo_xi.yaml` is the 2027 site; its coordinates are placeholders until someone checks them against the organisers' field map.
+
+```bash
+python3 sim/site_file.py check sim/sites/apollo_xi.yaml      # check the file and print a summary
+python3 sim/fence_upload.py --site sim/sites/apollo_xi.yaml --dry-run   # the fence as ArduPilot gets it
+SITE=apollo_xi HEADLESS=1 sim/run_sim.sh                     # start the sim there
+```
+
+With `SITE` set, start-up differs from the plain sim in five ways:
+- The world is the 2026 runway world with its origin and runway strip moved to the site, written to `sim/.state/worlds/<name>.sdf`. SITL's home is that origin.
+- SITL's stored parameters are wiped, and wiped again on the first plain start afterwards, so a site's fence never follows the vehicle to another world.
+- SITL's terrain database is off (`SIM_TERRAIN 0`), so the ground is flat at the site's elevation.
+- The 2026 delivery target is not spawned; its coordinates belong to the plain world.
+- MAVProxy gets a tools port, UDP 14552, and `sim/fence_upload.py` uploads the flight boundary as an inclusion polygon and sets `FENCE_TYPE`, `FENCE_ALT_MAX`, `FENCE_MARGIN`, `FENCE_ACTION` and `FENCE_ENABLE` before `READY`.
+
+`fence_upload.py --url <pymavlink connection>` sends the same file to a real flight controller. It refuses a site that says `verified: false`; only the sim's start-up passes `--allow-unverified`.
+
+To check the fence does its job, with the sim at `READY` at a site:
+
+```bash
+sim/run_sim.sh --exec env -u PYTHONNOUSERSITE python3 sim/fence_check.py --site sim/sites/apollo_xi.yaml
+```
+
+It takes off, flies to a point inside the fence, sends a waypoint 20 m outside it (ArduPilot refuses that in GUIDED), then flies east through the fence at 5 m/s (`--speed`). It ends with `RESULT: PASS` if RTL began within 2 s of the fence line and the vehicle went no more than 10 m outside, and waits for the vehicle to come home and disarm. Measured results: [docs/results/2026-11-15-site-fence.md](../docs/results/2026-11-15-site-fence.md).
 
 ## Camera orientation check
 

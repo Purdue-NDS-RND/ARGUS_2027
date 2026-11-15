@@ -24,7 +24,8 @@ Usage: sim/run_sim.sh [option]
 
 Environment: SOFTWARE_RENDERING=1, HEADLESS=1 (no Gazebo window),
 SKIP_BUILD=1 (no colcon build), SPAWN_TARGET=0, WIPE_PARAMS=1 (reset SITL
-parameters once).
+parameters once), SITE=<name in sim/sites, or a site file in the repo> (start
+at that site with its geofence on; default: the 2026 runway world, no fence).
 EOF
 }
 
@@ -132,6 +133,24 @@ if [[ $(docker inspect -f '{{.State.Running}}' ardupilot-gz-sim 2>/dev/null) == 
     echo "ERROR: the club simulator (ardupilot-gz-sim) is running and uses the same ports." >&2
     echo "Stop it first: cd ~/Drone_Sim_Docker && make down" >&2
     exit 1
+fi
+
+# SITE: a name in sim/sites or a path to a site file inside the repo (the
+# container sees the repo at the same path, and nothing else of the host).
+export ARGUS_SITE_FILE=
+if [[ -n ${SITE:-} ]]; then
+    site_file=$SITE
+    [[ -f $site_file ]] || site_file="$SIM_DIR/sites/$SITE.yaml"
+    if [[ ! -f $site_file ]]; then
+        echo "ERROR: SITE=$SITE is neither a file nor a name in sim/sites/." >&2
+        exit 2
+    fi
+    site_file=$(realpath -- "$site_file")
+    if [[ $site_file != "$ARGUS_REPO"/* ]]; then
+        echo "ERROR: the site file must be inside the repo: $site_file" >&2
+        exit 2
+    fi
+    export ARGUS_SITE_FILE=$site_file
 fi
 
 software=${SOFTWARE_RENDERING:-0}

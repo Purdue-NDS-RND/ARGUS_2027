@@ -1,0 +1,57 @@
+# Apollo XI Field, Encino: the C-UASC 2027 site (4 to 6 June 2027).
+#
+# NOT VERIFIED. Every coordinate here is a placeholder laid out in metres
+# around an approximate origin, so the sim has a site to fly. Before any
+# flight uses this file, check each value against the organisers' field map
+# and set `verified: true` (docs/build/PROGRESS.md, "Needs a person").
+#
+# This is the one place the field's coordinates live. The sim world, SITL's
+# home, the geofence uploaded by sim/fence_upload.py (the real flight
+# controller gets the same polygon) and the judges' truth all come from it.
+# Loaded and checked by sim/site_file.py. Decimal degrees, WGS 84.
+name: apollo_xi
+verified: false
+
+# World origin and SITL home. The vehicle spawns here.
+origin:
+  latitude_deg: 34.1750000
+  longitude_deg: -118.4825000
+# Ground height above mean sea level at the origin. The sim turns SITL's
+# terrain database off for a site run, so a wrong value cannot make the SITL
+# rangefinder read above the ground (it once read 18.5 m on the ground).
+terrain_elevation_m: 215.0
+
+runway:
+  centre:
+    latitude_deg: 34.1750000
+    longitude_deg: -118.4825000
+  heading_deg: 90.0        # compass heading of the runway's long axis
+  length_m: 150.0
+  width_m: 12.0
+
+takeoff_point:             # "close to the centre of the runway" (organiser question 14)
+  latitude_deg: 34.1750000
+  longitude_deg: -118.4825000
+compass_rose:              # placeholder: 20 m east of the takeoff point
+  latitude_deg: 34.1750000
+  longitude_deg: -118.4822828
+
+# The flight boundary, which is the geofence polygon. Placeholder: 300 m east
+# to west, from 60 m south to 180 m north of the origin.
+flight_boundary:
+  - {latitude_deg: 34.1744610, longitude_deg: -118.4841287}
+  - {latitude_deg: 34.1744610, longitude_deg: -118.4808713}
+  - {latitude_deg: 34.1766170, longitude_deg: -118.4808713}
+  - {latitude_deg: 34.1766170, longitude_deg: -118.4841287}
+max_altitude_agl_m: 120.0
+
+# Placeholder survey area for localisation: 70 m square, north-east of the runway.
+survey_area:
+  - {latitude_deg: 34.1755390, longitude_deg: -118.4820656}
+  - {latitude_deg: 34.1755390, longitude_deg: -118.4813056}
+  - {latitude_deg: 34.1761678, longitude_deg: -118.4813056}
+  - {latitude_deg: 34.1761678, longitude_deg: -118.4820656}
+
+fence:
+  action: 1                # ArduPilot FENCE_ACTION: 1 = RTL, or land if RTL is not possible
+  margin_m: 2.0            # ArduPilot FENCE_MARGIN

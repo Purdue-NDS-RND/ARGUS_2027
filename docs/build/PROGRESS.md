@@ -16,6 +16,8 @@ Steps the session cannot do. The session adds a row whenever a feature leaves on
 | Wave 4 | Jetson on the bench, camera calibration per sensor mode, flight-controller parameters loaded, failsafes tested with the safety pilot | Lead |
 | PLT-13, G6 | Any flight in the club simulator (`sim/gps/`), which a person starts | Lead |
 | All | The organiser questions in FEATURES.md, "Open questions" | Lead |
+| SIM-02, PLT-08, OPS-01 | Check every coordinate in `sim/sites/apollo_xi.yaml` against the organisers' field map (origin, ground elevation, runway, flight boundary, maximum height, takeoff point, compass rose, survey area), then set `verified: true`. They are placeholders | Lead |
+| SIM-02 | Reword the SIM-02 pass line in FEATURES.md: a GUIDED waypoint outside the fence is refused by ArduPilot and causes no breach (see Decisions) | Lead |
 
 ## Decisions made during the build
 
@@ -23,6 +25,14 @@ Choices the specs did not settle, with the reason. Newest first.
 
 | Date | Feature | Decision | Why |
 | --- | --- | --- | --- |
+| 2026-11-15 | SIM-02 | `fence_upload.py` refuses a site that says `verified: false` unless `--allow-unverified` is given; only the sim's `start.sh` gives it | The Apollo XI file is a placeholder, and the same tool will upload to the aircraft (PLT-08) |
+| 2026-11-15 | SIM-02 | The site's runway `length_m` and `width_m` are recorded but not drawn: the site world keeps the base runway model (1500 × 100 m strip, which also carries the ground plane), turned to the site's heading | Visual only; nothing reads the strip's size. SIM-01 can draw the real strip when it builds scenario worlds |
+| 2026-11-15 | SIM-02 | Added `sim/fence_check.py`, which the spec does not name: it flies the pass line (inside target, the outside waypoint, then a velocity breach) and exits 0 only inside the limits | The pass line needs a command that reruns; no 2026 mission flies through a fence |
+| 2026-11-15 | SIM-02 | `sim/sites/apollo_xi.yaml` holds placeholder coordinates: origin 34.1750, −118.4825 at 215 m, a 300 × 240 m flight boundary, 120 m maximum height, the takeoff point at the origin, the compass rose 20 m east, a 70 m survey square. The file says `verified: false` and every tool that reads it prints that | The spec says the exact coordinates are still to verify from the field map; the sim needs a site to fly meanwhile |
+| 2026-11-15 | SIM-02 | The SIM-02 pass line cannot be met as written for the way our missions fly: in GUIDED, ArduCopter 4.6.3 did not fly to a position target 20 m outside the fence (a target inside it was followed just before), so that waypoint causes no breach. `sim/fence_check.py` sends that waypoint, and when it is refused flies a velocity command through the fence and applies the pass line's own limits: RTL 0.04 to 0.06 s after the line, 0.99 to 4.46 m outside (`docs/results/2026-11-15-site-fence.md`). An AUTO mission with a waypoint outside the fence is untested | Measured in the sim. The limits (RTL within 2 s, at most 10 m) are kept; only the trigger changes |
+| 2026-11-15 | SIM-02 | A site run is chosen with `SITE=<name>` on `sim/run_sim.sh`. Only then: the world is moved to the site, SITL storage is wiped (and once more on the next plain start), `SIM_TERRAIN 0`, a MAVProxy tools port on UDP 14552, the fence upload, and no 2026 delivery target. With no `SITE` the start-up is unchanged | The plain sim is the 2026 baseline that G0 measures; a fence left in SITL's storage would stop it arming at the old origin |
+| 2026-11-15 | SIM-02 | The site module is `sim/site_file.py`, not `site.py` | `site` is a Python standard-library module; a file of that name on `sys.path` breaks interpreter start-up |
+| 2026-11-15 | SIM-02 | `fence_upload.py` reads the polygon back and only then sets the `FENCE_*` parameters, `FENCE_ENABLE` last; `FENCE_TYPE` is 5 (maximum height and polygon, no circle); a site whose `fence.action` is 0 (report only) is refused | A fence switched on without its polygon, or one that only reports, is worse than none |
 | 2026-11-15 | SIM-08 | The autonomy bonus (+25%) is applied to all six missions, as the SIM-08 text says. The rules table in FEATURES.md lists only localisation, drop, delivery and recovery; `autonomy_bonus_fraction: 0` in a scenario's judge settings turns it off for the GPS missions | SIM-08 says "every mission"; the lead can flip the default in one place (`sim/judge/score.py`) |
 | 2026-11-15 | SIM-08 | Localisation points: +1 per correct marker; a wrong ID, a wrong location or both score −0.5, −0.5, −1 outright (not deducted from a +1); an extra row is −1, a missed marker 0; the total never goes below 0 | The spec gives only the penalties. Outright penalties match decision 18 (a wrong ID must cost more than abstaining). All are settings |
 | 2026-11-15 | SIM-08 | Time trial: with several reference times, middle ranks are interpolated between 12 and 8; with none, the run scores 8. Tolerance is 3D | "12 or 8 by rank" is exact for one reference time; no reference means fastest is unproven, so the lower score |
@@ -37,5 +47,6 @@ Choices the specs did not settle, with the reason. Newest first.
 
 One line per finished feature, gate run or stop, newest first: `- YYYY-MM-DD <ID> DONE: <one line>`, `- YYYY-MM-DD G0: PASS ...`, `- STOP YYYY-MM-DD: <what is needed>`.
 
+- 2026-11-15 SIM-02 DONE: site file `sim/sites/apollo_xi.yaml` (placeholder coordinates), `sim/site_file.py`, fence upload and `SITE=<name>` start-up; live fence check PASS (RTL 0.04 to 0.06 s after the line, at most 4.46 m out). Pass-line trigger deviates (GUIDED refuses the outside waypoint); the true-pose scored run is owed to SIM-07.
 - 2026-11-15 SIM-08 DONE: six ROS-free judges in `sim/judge/` score a run folder from true poses (`python3 sim/judge/cli.py <run>` writes `score.json`); 84 tests. SIM-07 owes the recorder that writes `trace.jsonl` and the copy of the list at landing.
 

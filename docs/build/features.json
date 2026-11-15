@@ -26,9 +26,9 @@
       "land": "L01",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_site.py test_fence_upload.py test_fence_check.py -> 63 passed; check.sh -> OK; live: SITE=apollo_xi sim/run_sim.sh READY with fence uploaded, sim/fence_check.py PASS x3 (RTL 0.04-0.06 s after the line, max 4.46 m out), plain start after it unchanged; docs/results/2026-11-15-site-fence.md. Deviation: in GUIDED the waypoint 20 m outside is refused, limits met on a velocity breach, AUTO untested. Owed: true-pose scored run via SIM-07; site coordinates are placeholders (person step)",
       "blocked_reason": ""
     },
     {
