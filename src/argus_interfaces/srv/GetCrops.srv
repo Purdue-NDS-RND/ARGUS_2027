@@ -1,0 +1,14 @@
+# Ask the camera process for full-resolution crops of one frame (digit reader, LOC-5 and LOC-6).
+# The 4K frame stays in the camera process; only the crops cross the ROS boundary.
+
+# Capture stamp of the frame to crop.
+builtin_interfaces/Time stamp
+# Regions of that frame, in full-resolution pixels.
+sensor_msgs/RegionOfInterest[] rois
+---
+# One image per region, in the order asked.
+sensor_msgs/Image[] crops
+# False when the frame is no longer held or a region is outside it.
+bool ok
+# Why not, when ok is false.
+string message

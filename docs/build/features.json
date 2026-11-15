@@ -141,9 +141,9 @@
       "land": "L03",
       "proven_in": "Unit",
       "note": "Spec in FEATURES.md, section SETUP-1. Later features may add fields; record that under Decisions, it is not a stop",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_interfaces/test/test_interface_files.py -> 12 passed; check.sh -> OK; spec-auditor COMPLETE (round 1); built in the ROS 2 Humble sim image: 7 packages finished, ros2 interface list shows the four types (sim/.state/setup1_build.log); sim smoke with the package in the workspace -> OK 0.08 m. Owed: first users LOC-5, LOC-7, PLT-05 (may add fields)",
       "blocked_reason": ""
     },
     {

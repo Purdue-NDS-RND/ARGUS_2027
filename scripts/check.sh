@@ -90,6 +90,7 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projec
 run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
+run_test "" src/argus_interfaces/test/test_interface_files.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
 run_test scripts scripts/test/test_pr_checks.py
