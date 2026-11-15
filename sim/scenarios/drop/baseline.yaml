@@ -1,0 +1,17 @@
+# The 2026 package drop, as flown, at the 2027 site: take off, find the
+# bullseye, descend to the drop height, fake the release and return.
+description: 2026 drop mission, bullseye 18 m from the takeoff point, calm.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

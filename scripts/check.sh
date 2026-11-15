@@ -79,6 +79,7 @@ fi
 run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projection.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
+run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
 run_test scripts scripts/test/test_pr_checks.py
@@ -97,7 +98,7 @@ for mod in cv2 numpy yaml; do
     has_module "$mod" || missing+=("$mod")
 done
 if ((${#missing[@]})); then
-    skip "bullseye detector, feature-flag config, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log, sim judge and sim site tests, tools/bullseye_try.py (missing: ${missing[*]})"
+    skip "bullseye detector, feature-flag config, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log, sim judge, sim site and sim scenario tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
@@ -111,6 +112,7 @@ else
     run_test "" sim/test/test_site.py
     run_test "" sim/test/test_fence_upload.py
     run_test "" sim/test/test_fence_check.py
+    run_test "" sim/test/test_scenario.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

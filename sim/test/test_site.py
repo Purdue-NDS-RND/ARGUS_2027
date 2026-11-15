@@ -275,7 +275,10 @@ def test_start_up_only_touches_the_fence_and_the_world_when_a_site_is_set():
     for start in [i for i in range(len(text)) if text.startswith("if [[ -n $SITE_FILE", i)]:
         blocks.append(text[start : text.index("\nfi\n", start)])
     guarded = "\n".join(blocks)
-    for site_only in ("fence_upload.py", "site_file.py", "SIM_TERRAIN", "$TOOLS_PORT\"", "--add-param-file"):
+    assert 'BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"' in text
+    run_only = "\n".join(text[i : text.index("fi\n", i)] for i in range(len(text)) if text.startswith("if [[ -n $RUN_DIR", i))
+    assert text.count('BRIDGE_FILE="') == 2 and 'BRIDGE_FILE="$RUN_DIR/bridge.yaml"' in run_only
+    for site_only in ("fence_upload.py", "site_file.py", "SIM_TERRAIN", "$TOOLS_PORT\"", "--add-param-file", "$RUN_DIR/world.sdf", "$RUN_DIR/sitl.parm"):
         assert site_only in guarded, site_only
         assert text.count(site_only) == guarded.count(site_only), f"{site_only} is used outside a site check"
     assert 'WORLD_FILE="$ARGUS_SIM/worlds/argus_runway.sdf"' in text

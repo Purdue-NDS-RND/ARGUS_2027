@@ -13,6 +13,10 @@
 # parameters are wiped, the 2026 delivery target is not spawned, MAVProxy gets
 # a tools port (UDP 14552) and the site's geofence is uploaded before READY.
 # With no site, none of that happens and the sim starts as it always has.
+#
+# With a run folder (ARGUS_RUN_DIR, set by `RUN_DIR=<folder> sim/run_sim.sh`;
+# built by sim/scenario/build.py) the site is the scenario's, and the world,
+# the bridge file and the SITL parameters are the ones in that folder.
 # If any of them stops, everything stops. Logs: sim/.state/logs/<run id>/.
 set -Eeuo pipefail
 
@@ -27,7 +31,13 @@ source "$ARGUS_SIM/container/sitl_storage.sh"
 
 WORLD_FILE="$ARGUS_SIM/worlds/argus_runway.sdf"
 SITE_FILE=${ARGUS_SITE_FILE:-}
+RUN_DIR=${ARGUS_RUN_DIR:-}
+BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"
 TOOLS_PORT=14552
+if [[ -n $RUN_DIR ]]; then
+    SITE_FILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["site_file"])' "$RUN_DIR/scenario.json")
+    BRIDGE_FILE="$RUN_DIR/bridge.yaml"
+fi
 GAZEBO_STARTUP_TIMEOUT=${GAZEBO_STARTUP_TIMEOUT:-90}
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
 LOG_DIR="$ARGUS_STATE/logs/$RUN_ID"
@@ -109,9 +119,14 @@ fi
 if [[ -n $SITE_FILE ]]; then
     echo "== Site: $SITE_FILE"
     python3 "$ARGUS_SIM/site_file.py" check "$SITE_FILE" || exit 1
-    site_world="$ARGUS_STATE/worlds/$(basename "${SITE_FILE%.*}").sdf"
-    python3 "$ARGUS_SIM/site_file.py" world "$SITE_FILE" --base "$WORLD_FILE" --out "$site_world" || exit 1
-    WORLD_FILE=$site_world
+    if [[ -n $RUN_DIR ]]; then
+        echo "== Scenario run folder: $RUN_DIR"
+        WORLD_FILE="$RUN_DIR/world.sdf"
+    else
+        site_world="$ARGUS_STATE/worlds/$(basename "${SITE_FILE%.*}").sdf"
+        python3 "$ARGUS_SIM/site_file.py" world "$SITE_FILE" --base "$WORLD_FILE" --out "$site_world" || exit 1
+        WORLD_FILE=$site_world
+    fi
 fi
 
 # 2. Gazebo
@@ -152,7 +167,7 @@ fi
 # 4. Camera bridge
 echo "== Starting the camera bridge"
 start bridge ros2 run ros_gz_bridge parameter_bridge \
-    --ros-args -p "config_file:=$ARGUS_SIM/config/bridge.yaml"
+    --ros-args -p "config_file:=$BRIDGE_FILE"
 
 # 5. SITL. Home goes at the world origin so GPS and Gazebo positions agree.
 location=$(python3 - "$WORLD_FILE" <<'EOF'
@@ -184,8 +199,12 @@ if [[ -n $SITE_FILE ]]; then
     sitl_mark_storage "$SITL_DIR" "$SITE_FILE"
     # Flat ground at the site's elevation instead of SITL's terrain database,
     # so the SITL rangefinder reads 0 on the ground whatever the real terrain is.
-    printf 'SIM_TERRAIN 0\n' >"$SITL_DIR/site.parm"
-    sitl_args+=(--add-param-file "$SITL_DIR/site.parm" --out "udp:127.0.0.1:$TOOLS_PORT")
+    site_parm="$SITL_DIR/site.parm"
+    printf 'SIM_TERRAIN 0\n' >"$site_parm"
+    if [[ -n $RUN_DIR ]]; then
+        site_parm="$RUN_DIR/sitl.parm"  # the scenario's own, which also has SIM_TERRAIN 0
+    fi
+    sitl_args+=(--add-param-file "$site_parm" --out "udp:127.0.0.1:$TOOLS_PORT")
 fi
 echo "== Starting ArduCopter SITL (home $location; QGC on 14550, MAVROS on 14551)"
 export SITL_RITW_TERMINAL=/usr/local/bin/sitl-process-wrapper.sh

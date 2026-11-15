@@ -25,7 +25,9 @@ Usage: sim/run_sim.sh [option]
 Environment: SOFTWARE_RENDERING=1, HEADLESS=1 (no Gazebo window),
 SKIP_BUILD=1 (no colcon build), SPAWN_TARGET=0, WIPE_PARAMS=1 (reset SITL
 parameters once), SITE=<name in sim/sites, or a site file in the repo> (start
-at that site with its geofence on; default: the 2026 runway world, no fence).
+at that site with its geofence on; default: the 2026 runway world, no fence),
+RUN_DIR=<run folder built by sim/scenario/build.py> (start that scenario's
+world at its site).
 EOF
 }
 
@@ -151,6 +153,22 @@ if [[ -n ${SITE:-} ]]; then
         exit 2
     fi
     export ARGUS_SITE_FILE=$site_file
+fi
+
+# RUN_DIR: a scenario run folder inside the repo (sim/scenario/build.py makes
+# them under sim/.state/runs). Its scenario names the site.
+export ARGUS_RUN_DIR=
+if [[ -n ${RUN_DIR:-} ]]; then
+    if [[ ! -f $RUN_DIR/scenario.json || ! -f $RUN_DIR/world.sdf ]]; then
+        echo "ERROR: RUN_DIR=$RUN_DIR is not a run folder (build one with sim/scenario/build.py)." >&2
+        exit 2
+    fi
+    run_dir=$(realpath -- "$RUN_DIR")
+    if [[ $run_dir != "$ARGUS_REPO"/* ]]; then
+        echo "ERROR: the run folder must be inside the repo: $run_dir" >&2
+        exit 2
+    fi
+    export ARGUS_RUN_DIR=$run_dir
 fi
 
 software=${SOFTWARE_RENDERING:-0}

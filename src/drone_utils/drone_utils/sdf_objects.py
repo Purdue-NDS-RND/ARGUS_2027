@@ -388,6 +388,240 @@ def spawn_sdf(
         _logger.error("'gz' command not found - is Gazebo installed?")
         return False
 
+# --- 2027 sim objects -------------------------------------------------------
+# Used by the scenario builder (sim/scenario/build.py), which embeds them in
+# the world file. The 2026 builders above are left exactly as they flew.
+
+_WHITE = "0.95 0.95 0.95 1"
+_PLATE_BLACK = "0.05 0.05 0.05 1"
+_X_GREEN = "0 0.627 0 1"          # tools/synth_targets.py XMat.color (0, 160, 0)
+_BUCKET_ORANGE = "0.922 0.431 0.078 1"  # tools/synth_targets.py bucket_color (235, 110, 20)
+
+
+def _material(rgba: str) -> str:
+    return f"<material><ambient>{rgba}</ambient><diffuse>{rgba}</diffuse></material>"
+
+
+def _flat_link(name: str, x: float, y: float, z: float, yaw: float, sx: float, sy: float, rgba: str) -> str:
+    """A 2 mm thick coloured rectangle lying flat: a visual only, no collision."""
+    return (
+        f"<link name='{name}'>"
+        f"<pose>{x:.4f} {y:.4f} {z:.4f} 0 0 {yaw:.6f}</pose>"
+        f"<visual name='visual'>"
+        f"<geometry><box><size>{sx:.4f} {sy:.4f} 0.002</size></box></geometry>"
+        f"{_material(rgba)}"
+        f"</visual>"
+        f"</link>"
+    )
+
+
+def build_marker_sdf(model_name: str, size: float = 0.6, digit=None) -> str:
+    """Build SDF for a 2027 localisation marker: a black-and-white X plate with
+    its digit centred on the X.
+
+    Numbered markers are 0.6 m; the four boundary markers are 1.2 m and carry
+    no digit (``digit=None``). The digit is the same seven-segment style as
+    ``build_bw_target_sdf``, on a white field over the crossing point, with
+    no underline. The model's +y is the top of the digit; the scenario gives
+    the marker its heading through the model pose.
+
+    Args:
+        model_name: Name for the model.
+        size:       Side length in metres.
+        digit:      0-9, or None for a boundary marker.
+    """
+    if size <= 0.0:
+        raise ValueError(f"marker size must be positive, got {size}")
+    if digit is not None and digit not in range(10):
+        raise ValueError(f"marker digit must be 0-9 or None, got {digit!r}")
+
+    half = size / 2.0
+    thickness = 0.01
+    strips_z = thickness + 0.001
+    field_z = thickness + 0.003
+    digit_z = thickness + 0.005
+
+    # The X: black triangles above and below the centre, white ones either side,
+    # drawn as strips that narrow toward the centre.
+    num_strips = 10
+    strip_height = half / num_strips
+    strips = ""
+    for side, sign in (("top", 1.0), ("bottom", -1.0)):
+        for i in range(num_strips):
+            y_pos = (i + 0.5) * strip_height
+            width = size * (0.05 + 0.95 * y_pos / half)
+            strips += _flat_link(f"{side}_strip_{i}", 0.0, sign * y_pos, strips_z, 0.0, width, strip_height, _PLATE_BLACK)
+
+    number = ""
+    if digit is not None:
+        digit_size = size * 0.5
+        number = _flat_link("digit_field", 0.0, 0.0, field_z, 0.0, digit_size * 0.6, digit_size, _WHITE)
+        number += _build_digit_sdf(digit, 0.0, 0.0, digit_size, digit_z)
+
+    return (
+        f"<sdf version='1.7'>"
+        f"<model name='{model_name}'>"
+        f"<static>true</static>"
+        f"<link name='base'>"
+        f"<pose>0 0 {thickness / 2:.4f} 0 0 0</pose>"
+        f"<collision name='collision'>"
+        f"<geometry><box><size>{size:.4f} {size:.4f} {thickness:.4f}</size></box></geometry>"
+        f"</collision>"
+        f"<visual name='visual'>"
+        f"<geometry><box><size>{size:.4f} {size:.4f} {thickness:.4f}</size></box></geometry>"
+        f"{_material(_WHITE)}"
+        f"</visual>"
+        f"</link>"
+        f"{strips}"
+        f"{number}"
+        f"</model>"
+        f"</sdf>"
+    )
+
+
+def build_x_mat_sdf(
+    model_name: str,
+    size: float = 5.0,
+    arm_width: float = 0.5,
+    arm_inset: float = 0.25,
+) -> str:
+    """Build SDF for the recovery mat: a green X on a white square.
+
+    The arms run along the diagonals and stop ``arm_inset`` short of the
+    corners, as ``tools/synth_targets.py`` draws them.
+
+    Args:
+        model_name: Name for the model.
+        size:       Side length of the mat in metres.
+        arm_width:  Width of each arm of the X in metres.
+        arm_inset:  Gap between an arm's tip and the mat corner in metres.
+    """
+    half = size / 2.0
+    arm_length = 2.0 * (half * (2.0 ** 0.5) - arm_inset)
+    if size <= 0.0 or arm_width <= 0.0 or arm_length <= 0.0:
+        raise ValueError("x mat needs positive size, arm width and arm length")
+    thickness = 0.02
+    quarter_turn = 0.7853981633974483  # 45 degrees
+    return (
+        f"<sdf version='1.7'>"
+        f"<model name='{model_name}'>"
+        f"<static>true</static>"
+        f"<link name='base'>"
+        f"<pose>0 0 {thickness / 2:.4f} 0 0 0</pose>"
+        f"<collision name='collision'>"
+        f"<geometry><box><size>{size:.4f} {size:.4f} {thickness:.4f}</size></box></geometry>"
+        f"</collision>"
+        f"<visual name='visual'>"
+        f"<geometry><box><size>{size:.4f} {size:.4f} {thickness:.4f}</size></box></geometry>"
+        f"{_material(_WHITE)}"
+        f"</visual>"
+        f"</link>"
+        f"{_flat_link('arm_0', 0.0, 0.0, thickness + 0.002, quarter_turn, arm_length, arm_width, _X_GREEN)}"
+        f"{_flat_link('arm_1', 0.0, 0.0, thickness + 0.004, -quarter_turn, arm_length, arm_width, _X_GREEN)}"
+        f"</model>"
+        f"</sdf>"
+    )
+
+
+def build_bucket_sdf(
+    model_name: str,
+    mass_kg: float = 1.5,
+    diameter: float = 0.19,
+    height: float = 0.20,
+    handle_rise: float = 0.12,
+) -> str:
+    """Build SDF for the recovery bucket: a dynamic body with an upright handle.
+
+    The model origin is on the ground at the centre of the bucket. The handle
+    is two posts at the rim and a bar across them ``handle_rise`` above it, so
+    a hook can pass under the bar. Body and handle are one rigid link with the
+    mass and inertia of a solid cylinder of ``mass_kg``.
+
+    Args:
+        model_name:  Name for the model.
+        mass_kg:     Total mass (the rules allow 1 to 2 kg).
+        diameter:    Bucket diameter in metres.
+        height:      Bucket height in metres.
+        handle_rise: Height of the handle bar above the rim in metres.
+    """
+    if mass_kg <= 0.0:
+        raise ValueError(f"bucket mass must be positive, got {mass_kg}")
+    if diameter <= 0.0 or height <= 0.0 or handle_rise <= 0.0:
+        raise ValueError("bucket diameter, height and handle rise must be positive")
+    radius = diameter / 2.0
+    rod = 0.004  # handle rod radius
+    ixx = mass_kg * (3.0 * radius ** 2 + height ** 2) / 12.0
+    izz = mass_kg * radius ** 2 / 2.0
+    half_turn = 1.5707963267948966  # lays a cylinder along x
+
+    def shape(kind: str, name: str, pose: str, geometry: str, extra: str = "") -> str:
+        return f"<{kind} name='{name}'><pose>{pose}</pose><geometry>{geometry}</geometry>{extra}</{kind}>"
+
+    parts = [
+        ("body", f"0 0 {height / 2:.4f} 0 0 0", f"<cylinder><radius>{radius:.4f}</radius><length>{height:.4f}</length></cylinder>"),
+        ("handle_post_left", f"{-radius:.4f} 0 {height + handle_rise / 2:.4f} 0 0 0", f"<cylinder><radius>{rod}</radius><length>{handle_rise:.4f}</length></cylinder>"),
+        ("handle_post_right", f"{radius:.4f} 0 {height + handle_rise / 2:.4f} 0 0 0", f"<cylinder><radius>{rod}</radius><length>{handle_rise:.4f}</length></cylinder>"),
+        ("handle_bar", f"0 0 {height + handle_rise:.4f} 0 {half_turn} 0", f"<cylinder><radius>{rod}</radius><length>{diameter:.4f}</length></cylinder>"),
+    ]
+    collisions = "".join(shape("collision", name, pose, geometry) for name, pose, geometry in parts)
+    visuals = "".join(
+        shape("visual", name, pose, geometry, _material(_BUCKET_ORANGE if name == "body" else _PLATE_BLACK))
+        for name, pose, geometry in parts
+    )
+    return (
+        f"<sdf version='1.7'>"
+        f"<model name='{model_name}'>"
+        f"<static>false</static>"
+        f"<link name='link'>"
+        f"<pose>0 0 0 0 0 0</pose>"
+        f"<inertial>"
+        f"<pose>0 0 {height / 2:.4f} 0 0 0</pose>"
+        f"<mass>{mass_kg}</mass>"
+        f"<inertia><ixx>{ixx:.10g}</ixx><iyy>{ixx:.10g}</iyy><izz>{izz:.10g}</izz>"
+        f"<ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>"
+        f"</inertial>"
+        f"{collisions}"
+        f"{visuals}"
+        f"</link>"
+        f"</model>"
+        f"</sdf>"
+    )
+
+
+def build_payload_sdf(model_name: str, mass_kg: float = 0.5, size=(0.15, 0.15, 0.10)) -> str:
+    """Build SDF for a drop or delivery package: a dynamic box resting on the ground.
+
+    Args:
+        model_name: Name for the model.
+        mass_kg:    Package mass.
+        size:       (x, y, z) side lengths in metres.
+    """
+    sx, sy, sz = (float(v) for v in size)
+    if mass_kg <= 0.0 or min(sx, sy, sz) <= 0.0:
+        raise ValueError("payload mass and size must be positive")
+    ixx = mass_kg * (sy ** 2 + sz ** 2) / 12.0
+    iyy = mass_kg * (sx ** 2 + sz ** 2) / 12.0
+    izz = mass_kg * (sx ** 2 + sy ** 2) / 12.0
+    box = f"<geometry><box><size>{sx:.4f} {sy:.4f} {sz:.4f}</size></box></geometry>"
+    return (
+        f"<sdf version='1.7'>"
+        f"<model name='{model_name}'>"
+        f"<static>false</static>"
+        f"<link name='link'>"
+        f"<pose>0 0 {sz / 2:.4f} 0 0 0</pose>"
+        f"<inertial>"
+        f"<mass>{mass_kg}</mass>"
+        f"<inertia><ixx>{ixx:.10g}</ixx><iyy>{iyy:.10g}</iyy><izz>{izz:.10g}</izz>"
+        f"<ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>"
+        f"</inertial>"
+        f"<collision name='collision'>{box}</collision>"
+        f"<visual name='visual'>{box}{_material('0.55 0.4 0.25 1')}</visual>"
+        f"</link>"
+        f"</model>"
+        f"</sdf>"
+    )
+
+
 if __name__ == "__main__":
     # Example usage: spawn a target at the origin
     sdf = build_red_white_target_sdf("test_target", size=5.0)

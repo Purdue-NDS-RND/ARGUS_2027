@@ -32,6 +32,7 @@ services:
       SPAWN_TARGET: ${SPAWN_TARGET:-1}
       WIPE_PARAMS: ${WIPE_PARAMS:-0}
       ARGUS_SITE_FILE: ${ARGUS_SITE_FILE:-}
+      ARGUS_RUN_DIR: ${ARGUS_RUN_DIR:-}
       GAZEBO_STARTUP_TIMEOUT: ${GAZEBO_STARTUP_TIMEOUT:-90}
     volumes:
       - type: bind

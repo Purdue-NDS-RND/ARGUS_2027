@@ -19,6 +19,15 @@ TARGET_LON = 149.1653479
 
 
 class OffsetTest(unittest.TestCase):
+    def test_latlon_for_is_the_inverse_of_offset_ne_m(self):
+        for home_lat, home_lon in ((HOME_LAT, HOME_LON), (34.175, -118.4825), (0.0, 179.9999)):
+            for north, east in ((0.0, 0.0), (15.02, 10.07), (-60.0, 150.0), (180.0, -150.0), (1234.5, -987.6)):
+                lat, lon = tp.latlon_for(home_lat, home_lon, north, east)
+                back_north, back_east = tp.offset_ne_m(home_lat, home_lon, lat, lon)
+                self.assertAlmostEqual(back_north, north, delta=0.012)
+                self.assertAlmostEqual(back_east, east, delta=0.012)
+                self.assertEqual((lat, lon), (round(lat, 7), round(lon, 7)))
+
     def test_north_matches_ardupilot_scaling(self):
         # ArduPilot: 1e-7 deg of latitude is 0.011131884502145034 m.
         north, east = tp.offset_ne_m(HOME_LAT, HOME_LON, HOME_LAT + 1.0e-4, HOME_LON)

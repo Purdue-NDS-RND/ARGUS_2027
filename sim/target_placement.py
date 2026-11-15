@@ -66,6 +66,22 @@ def offset_ne_m(
     return north, east
 
 
+def latlon_for(home_lat_deg: float, home_lon_deg: float, north_m: float, east_m: float) -> tuple[float, float]:
+    """The GPS point north_m and east_m from home: the inverse of offset_ne_m.
+
+    Rounded to 1e-7 degree, the resolution ArduPilot stores, so offset_ne_m of
+    the result is within about a centimetre of what was asked for.
+    """
+
+    lat = home_lat_deg + north_m / (LOCATION_SCALING_FACTOR * 1.0e7)
+    lon = home_lon_deg
+    for _ in range(4):
+        _, east = offset_ne_m(home_lat_deg, home_lon_deg, lat, lon)
+        scale = longitude_scale(int((_to_e7(home_lat_deg) + _to_e7(lat)) / 2))
+        lon += (east_m - east) / (LOCATION_SCALING_FACTOR * 1.0e7 * scale)
+    return round(lat, 7), round(lon, 7)
+
+
 def world_xy_for(origin: GeoOrigin, lat_deg: float, lon_deg: float) -> tuple[float, float]:
     """Gazebo world x (east) and y (north) for a GPS point."""
 

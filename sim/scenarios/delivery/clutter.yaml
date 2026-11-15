@@ -1,0 +1,48 @@
+# The 2026 delivery with every other 2027 object on the field: numbered
+# markers and the four boundary markers in the survey area, the recovery X
+# mat with its bucket, and a loose package. It checks that the red bullseye
+# detector is not drawn to them, and it puts every object model in one world.
+description: 2026 delivery mission with markers, the X mat, a bucket and a package on the field.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+targets:
+  package_delivery: delivery_target
+objects:
+  - name: delivery_target
+    kind: bullseye
+    at: {east_m: 10.0, north_m: 15.0}
+  - {name: boundary_sw, kind: marker, size_m: 1.2, at: {east_m: 42.0, north_m: 62.0}}
+  - {name: boundary_se, kind: marker, size_m: 1.2, at: {east_m: 108.0, north_m: 62.0}}
+  - {name: boundary_ne, kind: marker, size_m: 1.2, at: {east_m: 108.0, north_m: 128.0}}
+  - {name: boundary_nw, kind: marker, size_m: 1.2, at: {east_m: 42.0, north_m: 128.0}}
+  - name: marker_1
+    kind: marker
+    digit: 1
+    heading_deg: 30.0
+    at: {random: {area: survey_area, min_separation_m: 8.0, margin_m: 5.0}}
+  - name: marker_4
+    kind: marker
+    digit: 4
+    heading_deg: 135.0
+    at: {random: {area: survey_area, min_separation_m: 8.0, margin_m: 5.0}}
+  - name: marker_7
+    kind: marker
+    digit: 7
+    heading_deg: 250.0
+    at: {random: {area: survey_area, min_separation_m: 8.0, margin_m: 5.0}}
+  - name: x_mat
+    kind: x_mat
+    at: {east_m: -30.0, north_m: 40.0}
+  - name: bucket
+    kind: bucket
+    mass_kg: 1.5
+    on_top_of: x_mat
+  - name: package
+    kind: payload
+    mass_kg: 0.5
+    at: {east_m: -12.0, north_m: 8.0}
+wind: {level: calm}

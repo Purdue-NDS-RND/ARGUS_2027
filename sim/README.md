@@ -176,6 +176,7 @@ Start-up options (environment variables):
 | `SKIP_BUILD=1` | Don't run colcon at start-up. |
 | `WIPE_PARAMS=1` | Reset SITL's saved parameters once. |
 | `SITE=apollo_xi` | Start at a competition site with its geofence on (below). |
+| `RUN_DIR=<folder>` | Start a scenario's world at its site (`sim/scenario/README.md`). |
 
 ## Competition sites
 

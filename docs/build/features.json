@@ -43,9 +43,9 @@
       "land": "L01",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_scenario.py test_target_placement.py test_site.py -> 101 passed; src/drone_utils/test/test_sdf_objects.py -> 23 passed; check.sh -> OK; spec-auditor COMPLETE (round 2). Sim, hand-started: RUN_DIR=sim/.state/runs/delivery-clutter-s1-off sim/run_sim.sh -> READY, all 11 objects in the world, the 2026 delivery mission flew the generated sequence to 'Mission sequence complete'. Owed: the scored, unattended scenario run via SIM-07",
       "blocked_reason": ""
     },
     {
