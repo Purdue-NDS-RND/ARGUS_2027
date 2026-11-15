@@ -178,6 +178,42 @@ Start-up options (environment variables):
 | `SITE=apollo_xi` | Start at a competition site with its geofence on (below). |
 | `RUN_DIR=<folder>` | Start a scenario's world at its site (`sim/scenario/README.md`). |
 
+## Flying scenarios with nobody watching
+
+`sim/run_scenarios.sh` builds a scenario, starts a fresh sim for it in the background, flies the mission, scores it from Gazebo's true positions and stops the sim. It keeps the laptop awake while it runs.
+
+```bash
+sim/run_scenarios.sh smoke                    # one 2026 delivery flight, about 5 minutes
+sim/run_scenarios.sh delivery/clutter --seeds 1,2,3 --variants off,on
+sim/run_scenarios.sh nightly                  # every scenario, 3 seeds, flags off and on
+sim/run_scenarios.sh --list gates             # show the flights without flying
+```
+
+Suites are in `sim/scenarios/suites.yaml`; scenarios and their file format are in `sim/scenario/README.md`. Variant `off` is every flag false, which is the 2026 behaviour; `on` sets the scenario's flags. Run `smoke` before a pull request that touches missions, CV or the sim, and paste its table under "How I tested it".
+
+It ends with a table of flags off beside flags on, and exit code 0 only if every flight was OK:
+
+```
+| Scenario | Seed | 2026 (flags off) | Points | Result | 2027 (flags on) | Points | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| delivery/baseline | 1 | OK | 16.10 | 0.12 m from the target | not run |  |  |
+```
+
+| Status | Meaning |
+| --- | --- |
+| `OK` | Flown to a disarm on the ground, and scored |
+| `TIMEOUT` | Not over within the scenario's `timeout_s` of sim time; scored as far as it got |
+| `NEVER_ARMED` | The vehicle did not arm within 300 s of sim time |
+| `INVALID` | The result does not count: Gazebo averaged below 0.8 of real time while armed (our nodes still run on the wall clock), or the scenario asks for wind or GPS faults, which the sim cannot do yet |
+| `ERROR` | The sim did not start or the flight script failed; look at `sim.log` and `fly.log` |
+
+Results go to `sim/.state/suites/<suite>-<time>/`: `summary.md`, and under `runs/` one folder per flight with `report.md`, `score.json`, `trace.jsonl` (true poses and events on sim time), `launch.log` (the mission), `sim.log` (the container) and `fly.log`.
+
+How a flight is recorded and ended:
+- `sim/runner/fly.py` runs inside the container. It reads true poses and sim time straight from Gazebo, and arm state, the mission's release lines and the autopilot's warnings from ROS.
+- The flight ends when the vehicle has been disarmed on the ground for 5 s, or at the timeout. Both are sim time, so a slow laptop does not cut a flight short.
+- `sim/runner/gcs_audit.py` then reads MAVProxy's MAVLink log: a command from a ground station (system id 255) or an RC override during the flight is human input, and the judge takes the autonomy bonus away.
+
 ## Competition sites
 
 `sim/sites/<name>.yaml` holds a field's coordinates: origin, ground elevation, runway, flight boundary, maximum height, takeoff point, compass rose and survey area. `sim/sites/apollo_xi.yaml` is the 2027 site; its coordinates are placeholders until someone checks them against the organisers' field map.

@@ -35,6 +35,7 @@ RUN_DIR=${ARGUS_RUN_DIR:-}
 BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"
 TOOLS_PORT=14552
 if [[ -n $RUN_DIR ]]; then
+    rm -f "$RUN_DIR/READY"
     SITE_FILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["site_file"])' "$RUN_DIR/scenario.json")
     BRIDGE_FILE="$RUN_DIR/bridge.yaml"
 fi
@@ -298,6 +299,9 @@ else
     grep -E "PreArm|Arm:" "$LOG_DIR/mavros.log" | tail -n 3 || true
 fi
 
+if [[ -n $RUN_DIR ]]; then
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$RUN_DIR/READY"  # sim/run_scenarios.sh waits for this file
+fi
 cat <<EOF
 
 == READY. In another terminal:

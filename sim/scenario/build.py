@@ -284,6 +284,18 @@ def build_params(scenario: Scenario, shipped: dict, flags_on: bool) -> dict:
 # --- the run folder ------------------------------------------------------------------
 
 
+def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
+    """The command the runner starts in place of a mission launch."""
+    if scenario.driver is None:
+        return None
+    settings = {key: value for key, value in scenario.driver.items() if key != "tool"}
+    # fence_check talks MAVLink with pymavlink, which lives in the base image's user site.
+    command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / "fence_check.py"), "--site", str(site_path)]
+    command += ["--speed", str(float(settings.get("speed_mps", 5.0))), "--height", str(float(settings.get("height_m", 15.0)))]
+    command += ["--out", str(run_dir / "fence_check.json")]
+    return {"tool": scenario.driver["tool"], "command": command}
+
+
 def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str = "off", dry_run: bool = False) -> Path:
     import yaml
 
@@ -310,17 +322,20 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     except site_file.SiteError as error:
         raise BuildError(str(error)) from error
 
-    shipped_sequence = _load_yaml(CONFIG_DIR / "sequences" / scenario.sequence, "sequence")
-    shipped_params = _load_yaml(CONFIG_DIR / "params" / scenario.params, "params file")
-    launch = scenario.launch or f"{Path(scenario.sequence).stem}.launch.py"
-    if scenario.launch is None and not (LAUNCH_DIR / launch).is_file():
-        launch = FALLBACK_LAUNCH
-    if not (LAUNCH_DIR / launch).is_file():
-        raise BuildError(f"{scenario.path}: launch file '{launch}' does not exist in {LAUNCH_DIR}")
-
     objects = place_objects(scenario, site, seed)
-    sequence, route, mission_truth, error = build_sequence(scenario, shipped_sequence, objects, site, seed, flags_on, run_dir)
-    params = build_params(scenario, shipped_params, flags_on)
+    if scenario.driver is not None:
+        # A tool flies the vehicle: there is no mission sequence to generate.
+        sequence, params, route, mission_truth, error, launch = None, None, None, {}, {"east_m": 0.0, "north_m": 0.0}, None
+    else:
+        shipped_sequence = _load_yaml(CONFIG_DIR / "sequences" / scenario.sequence, "sequence")
+        shipped_params = _load_yaml(CONFIG_DIR / "params" / scenario.params, "params file")
+        launch = scenario.launch or f"{Path(scenario.sequence).stem}.launch.py"
+        if scenario.launch is None and not (LAUNCH_DIR / launch).is_file():
+            launch = FALLBACK_LAUNCH
+        if not (LAUNCH_DIR / launch).is_file():
+            raise BuildError(f"{scenario.path}: launch file '{launch}' does not exist in {LAUNCH_DIR}")
+        sequence, route, mission_truth, error = build_sequence(scenario, shipped_sequence, objects, site, seed, flags_on, run_dir)
+        params = build_params(scenario, shipped_params, flags_on)
     base_world = BASE_WORLD.read_text()
     world = build_world(base_world, site, objects, scenario.sun)
     profile = SENSOR_PROFILES[scenario.sensor_profile]
@@ -339,7 +354,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             found = next(item for item in objects if item["name"] == name)
             truth[kind] = {"name": name, "mass_kg": float(found.get("mass_kg", default_mass)), "e": found["e"], "n": found["n"]}
 
-    root = sequence.get("mission_sequence", sequence)
+    root = {} if sequence is None else sequence.get("mission_sequence", sequence)
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,
@@ -351,17 +366,21 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "flags": dict(scenario.flags) if flags_on else {},
         "node_flags": copy.deepcopy(scenario.node_flags) if flags_on else {},
         "timeout_s": scenario.timeout_s,
-        "launch": {
+        "launch": None
+        if launch is None
+        else {
             "package": "drone_mission_demo",
             "file": launch,
             "arguments": {"sequence": str(run_dir / "sequence.yaml"), "params": str(run_dir / "params.yaml")},
         },
+        "driver": _driver(scenario, site_path, run_dir),
         "vehicle": {"model": profile["model"], "bridge": str(run_dir / "bridge.yaml"), "sensor_profile": scenario.sensor_profile},
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
         "gps_events": scenario.gps_events,
         "coordinate_error": error,
         "sun": scenario.sun,
+        "list_file": scenario.list_file,
     }
     if dry_run:
         return run_dir
@@ -372,8 +391,9 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     (run_dir / "bridge.yaml").write_text((SIM_DIR / profile["bridge"]).read_text())
     sitl = {"SIM_TERRAIN": 0, **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
-    (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))
-    (run_dir / "params.yaml").write_text(header + yaml.safe_dump(params, sort_keys=False))
+    if sequence is not None:
+        (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))
+        (run_dir / "params.yaml").write_text(header + yaml.safe_dump(params, sort_keys=False))
     if route is not None:
         (run_dir / "waypoints.yaml").write_text(header + yaml.safe_dump({"waypoints": route}, sort_keys=False))
     (run_dir / "truth.json").write_text(json.dumps(truth, indent=2) + "\n")

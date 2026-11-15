@@ -91,8 +91,12 @@ def test_scenarios_are_shipped_one_folder_per_mission():
 @pytest.mark.parametrize("variant", ["off", "on"])
 def test_every_shipped_scenario_builds_a_complete_run_folder(path, variant, tmp_path):
     run = build_run(path, tmp_path / "run", variant=variant)
+    flown_by_a_tool = load_scenario(path).driver is not None
     for name in RUN_FILES:
-        assert (run / name).is_file(), name
+        if flown_by_a_tool and name in ("sequence.yaml", "params.yaml"):
+            assert not (run / name).exists(), name  # no mission sequence is flown
+        else:
+            assert (run / name).is_file(), name
     ET.fromstring((run / "world.sdf").read_text())
     manifest = read(run, "scenario.json")
     assert manifest["variant"] == variant
@@ -441,9 +445,52 @@ def test_manifest_tells_the_runner_how_to_fly_it(tmp_path):
     assert manifest["wind"] == {"level": "moderate", "mean_mps": 4.0, "gust_mps": 1.0, "discrete_gust_mps": 0.0, "direction_deg": 270.0}
     assert manifest["gps_events"] == [{"at_s": 40.0, "kind": "glitch", "north_m": 5.0}]
     assert manifest["expected_missions"] == ["takeoff", "package_delivery", "rtl"]
+    assert manifest["list_file"] is None
     sitl = (run / "sitl.parm").read_text().split("\n")
     assert "SIM_TERRAIN 0" in sitl and "SIM_GPS1_NOISE 0.5" in sitl
     assert (run / "bridge.yaml").read_text() == (SIM / "config" / "bridge.yaml").read_text()
+
+
+# --- a scenario flown by a tool instead of a mission ---------------------------------------------------
+
+
+GEOFENCE = SCENARIOS / "geofence" / "breach.yaml"
+
+
+def test_driver_scenario_tells_the_runner_which_command_flies_it(tmp_path):
+    run = build_run(GEOFENCE, tmp_path / "run")
+    manifest = read(run, "scenario.json")
+    assert manifest["launch"] is None and manifest["expected_missions"] == []
+    command = manifest["driver"]["command"]
+    assert manifest["driver"]["tool"] == "fence_check"
+    assert command[:4] == ["env", "-u", "PYTHONNOUSERSITE", "python3"]  # pymavlink is in the base image's user site
+    assert command[4] == str(SIM / "fence_check.py")
+    assert command[command.index("--site") + 1] == str(SIM / "sites" / "apollo_xi.yaml")
+    assert command[command.index("--speed") + 1] == "5.0"
+    assert command[command.index("--out") + 1] == str(run / "fence_check.json")
+    assert read(run, "judge.yaml")["mission"] == "geofence"
+    assert read(run, "truth.json")["fence"]["polygon"]
+    assert read(build_run(DELIVERY, tmp_path / "mission"), "scenario.json")["driver"] is None
+
+
+@pytest.mark.parametrize(
+    "changes, message",
+    [
+        ({"driver": {"tool": "autopilot_whisperer"}}, "fence_check"),
+        ({"driver": {"tool": "fence_check", "sped_mps": 5.0}}, "sped_mps"),
+        ({"sequence": "package_delivery_demo.yaml"}, "flies no mission sequence"),
+        ({"flags": {"use_frame_time_pose": True}}, "flags"),
+    ],
+)
+def test_bad_driver_scenario_is_refused(changes, message, tmp_path):
+    with pytest.raises(BuildError, match=message):
+        build_run(scenario_file(tmp_path, base=GEOFENCE, **changes), tmp_path / "run")
+
+
+def test_mission_scenario_still_needs_its_sequence_and_params(tmp_path):
+    for key in ("sequence", "params"):
+        with pytest.raises(BuildError, match=key):
+            build_run(scenario_file(tmp_path, **{key: None}), tmp_path / "run")
 
 
 # --- a bad scenario is refused ---------------------------------------------------------------------------

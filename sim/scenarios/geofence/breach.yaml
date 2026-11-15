@@ -1,0 +1,13 @@
+# The SIM-02 pass line as a scored flight: sim/fence_check.py flies the
+# vehicle at the east fence, and the geofence judge measures, from Gazebo's
+# true positions, how soon the autopilot responded and how far out it got.
+# No mission sequence is flown, so there are no flags: off and on are the same.
+description: Fly through the east fence at 5 m/s; RTL must begin within 2 s and 10 m.
+mission: geofence
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: fence_check
+  speed_mps: 5.0
+wind: {level: calm}

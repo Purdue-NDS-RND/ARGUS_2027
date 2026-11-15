@@ -13,9 +13,13 @@ from pathlib import Path
 KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
-    "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge",
+    "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver",
 }  # fmt: skip
-REQUIRED = ("mission", "site", "sequence", "params")
+REQUIRED = ("mission", "site")
+
+# Tools that fly the vehicle themselves, in place of a mission launch, with
+# the settings each takes. fence_check: sim/fence_check.py.
+DRIVERS = {"fence_check": {"speed_mps", "height_m"}}
 
 OBJECT_KINDS = {
     "bullseye": {"size_m", "rings"},
@@ -52,8 +56,8 @@ class Scenario:
     site: str
     seed: int
     timeout_s: float
-    sequence: str
-    params: str
+    sequence: str | None  # None when a driver flies the vehicle
+    params: str | None
     launch: str | None
     config: dict
     targets: dict
@@ -70,6 +74,8 @@ class Scenario:
     sensor_profile: str
     sitl_params: dict
     judge: dict
+    list_file: str | None = None  # where the mission writes its judges' list (localisation)
+    driver: dict | None = None  # {"tool": ..., settings}: flies the vehicle in place of a mission launch
     description: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -148,6 +154,22 @@ def parse_scenario(data, path: Path) -> Scenario:
         if not data.get(key):
             raise BuildError(f"{where}: missing '{key}'")
 
+    driver = data.get("driver")
+    mission_keys = ("sequence", "params", "launch", "config", "targets", "flags", "node_flags", "waypoints")
+    if driver is None:
+        for key in ("sequence", "params"):
+            if not data.get(key):
+                raise BuildError(f"{where}: missing '{key}'")
+    else:
+        if not isinstance(driver, dict) or driver.get("tool") not in DRIVERS:
+            raise BuildError(f"{where}: driver needs a tool, one of: {', '.join(DRIVERS)}")
+        extra = sorted(str(key) for key in set(driver) - {"tool"} - DRIVERS[driver["tool"]])
+        if extra:
+            raise BuildError(f"{where}: driver {driver['tool']} has unknown setting(s) {', '.join(extra)}")
+        used = [key for key in mission_keys if data.get(key)]
+        if used:
+            raise BuildError(f"{where}: a scenario with a driver flies no mission sequence, so it cannot have {', '.join(used)}")
+
     objects = data.get("objects") or []
     if not isinstance(objects, list):
         raise BuildError(f"{where}: objects must be a list")
@@ -191,8 +213,8 @@ def parse_scenario(data, path: Path) -> Scenario:
         site=str(data["site"]),
         seed=int(data.get("seed", 1)),
         timeout_s=float(data.get("timeout_s", 600.0)),
-        sequence=str(data["sequence"]),
-        params=str(data["params"]),
+        sequence=None if driver is not None else str(data["sequence"]),
+        params=None if driver is not None else str(data["params"]),
         launch=data.get("launch"),
         config=_mapping(data, "config", where),
         targets=_mapping(data, "targets", where),
@@ -209,6 +231,8 @@ def parse_scenario(data, path: Path) -> Scenario:
         sensor_profile=sensor_profile,
         sitl_params=_mapping(data, "sitl_params", where),
         judge=_mapping(data, "judge", where),
+        list_file=None if data.get("list_file") is None else str(data["list_file"]),
+        driver=driver,
         description=str(data.get("description", "")),
     )
 

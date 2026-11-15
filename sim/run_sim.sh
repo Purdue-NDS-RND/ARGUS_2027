@@ -16,6 +16,8 @@ Usage: sim/run_sim.sh [option]
 
   (no option)      Start the sim: build our code, Gazebo, target, camera
                    bridge, SITL and MAVROS. Ctrl+C stops it.
+  --detach         Start the sim in the background and return (needs
+                   HEADLESS=1; sim/run_scenarios.sh uses it). Stop with --down.
   --build          Build (or rebuild) the argus-sim:humble image, then exit
   --shell          Open a shell in the running sim with ROS sourced
   --exec CMD...    Run one command in the running sim with ROS sourced
@@ -35,6 +37,7 @@ action=up
 case "${1:-}" in
     "") ;;
     --build) action=build ;;
+    --detach) action=detach ;;
     --shell) action=shell ;;
     --exec) action=exec; shift ;;
     --down) action=down ;;
@@ -185,6 +188,11 @@ case "${software,,}" in
     *) echo "ERROR: SOFTWARE_RENDERING must be 0 or 1." >&2; exit 2 ;;
 esac
 
+if [[ $action == detach && ${HEADLESS:-0} != 1 ]]; then
+    echo "ERROR: --detach needs HEADLESS=1 (a window cannot outlive this script's display cookie)." >&2
+    exit 2
+fi
+
 XAUTH_FILE=
 if [[ ${HEADLESS:-0} != 1 ]]; then
     if [[ -z ${DISPLAY:-} ]]; then
@@ -227,4 +235,8 @@ else
     echo "Start QGroundControl any time; it connects on UDP 14550."
 fi
 
+if [[ $action == detach ]]; then
+    "${compose[@]}" up --remove-orphans --detach
+    exit 0
+fi
 "${compose[@]}" up --remove-orphans

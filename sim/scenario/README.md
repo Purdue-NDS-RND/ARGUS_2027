@@ -16,7 +16,7 @@ RUN_DIR=sim/.state/runs/delivery-clutter-s7-on HEADLESS=1 sim/run_sim.sh      # 
 | `site` | A site in `sim/sites/` |
 | `seed` | Default seed for random placement and coordinate error (`--seed` overrides) |
 | `timeout_s` | Sim seconds the flight may take |
-| `sequence`, `params` | The shipped sequence and params files to fly (`src/drone_mission_demo/config/`) |
+| `sequence`, `params` | The shipped sequence and params files to fly (`src/drone_mission_demo/config/`). Required unless the scenario has a `driver` |
 | `launch` | Launch file; default `<sequence name>.launch.py`, else `multi_mission_demo.launch.py` |
 | `config` | Overrides per mission name in the sequence. The setting must exist in the shipped file |
 | `targets` | `<mission name>: <object name>`: that mission's `target_latitude` and `target_longitude` are set to the object's position |
@@ -31,6 +31,8 @@ RUN_DIR=sim/.state/runs/delivery-clutter-s7-on HEADLESS=1 sim/run_sim.sh      # 
 | `sensor_profile` | Camera and vehicle variant; only `delivery` exists so far |
 | `sitl_params` | Extra SITL parameters for the run |
 | `judge` | Settings for the judge |
+| `driver` | `{tool: fence_check, speed_mps, height_m}`: a tool flies the vehicle in place of a mission launch. Such a scenario has no `sequence`, `params`, `config`, `targets`, `flags` or `waypoints` |
+| `list_file` | Localisation: the file the mission writes its judges' list to. The runner notes each rewrite and keeps the copy as it stood when the flight ended |
 
 Objects have a `name`, a `kind` and a place: `at: {east_m, north_m}`, `at: {random: {area, min_separation_m, margin_m}}` (area is `survey_area`, `flight_boundary` or `{east_m: [a, b], north_m: [c, d]}`), or `on_top_of: <object>`. `heading_deg` is a compass heading.
 

@@ -61,9 +61,9 @@
       "land": "L02",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_runner.py test_scenario.py test_judge.py test_judge_cli.py -> 212 passed; check.sh -> OK; spec-auditor COMPLETE (round 2). Sim: sim/run_scenarios.sh smoke x3 in a row -> OK, 0.02/0.03/0.02 m, exit 0 each; geofence/breach -> OK; docs/results/2026-11-15-scenario-runner.md. Owed: live injector run (SIM-03, SIM-04), judges'-list capture with a real mission (localisation lane), contact events (SIM-06)",
       "blocked_reason": ""
     },
     {

@@ -1,0 +1,26 @@
+# Suites for sim/run_scenarios.sh: which scenarios, seeds and variants each flies.
+# Variant "off" is every flag false (the 2026 behaviour); "on" is the scenario's flags.
+# Quote "off" and "on": bare, YAML reads them as false and true.
+
+# One flight of the 2026 delivery. Tier C: run it before a pull request that touches missions, CV or sim.
+smoke:
+  scenarios: [delivery/baseline]
+  seeds: [1]
+  variants: ["off"]
+
+# Everything, three seeds, 2026 against 2027.
+nightly:
+  scenarios:
+    - delivery/baseline
+    - delivery/clutter
+    - drop/baseline
+    - waypoint_navigation/site_circuit
+    - geofence/breach
+  seeds: [1, 2, 3]
+  variants: ["off", "on"]
+
+# The acceptance gates' flights. G0: the 2026 delivery, flags off, five times.
+gates:
+  scenarios: [delivery/baseline]
+  seeds: [1, 2, 3, 4, 5]
+  variants: ["off"]
