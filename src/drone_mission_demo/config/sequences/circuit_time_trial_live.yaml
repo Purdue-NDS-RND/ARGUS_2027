@@ -2,6 +2,7 @@ mission_sequence:
   on_failure: abort_and_rtl
   features:
     use_frame_time_pose: false
+    enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
   missions:
     - type: takeoff
       name: takeoff

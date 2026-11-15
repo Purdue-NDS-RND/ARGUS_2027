@@ -96,18 +96,27 @@ def flags(node):
     return [mission.spec.features for mission in node._sequence]
 
 
+def shipped_flags(**changed):
+    """The flags package_delivery_demo.yaml declares (every one false), with any changes, once per mission."""
+    import yaml
+
+    declared = yaml.safe_load(SEQUENCE.read_text())["mission_sequence"]["features"]
+    assert declared["use_frame_time_pose"] is False and not any(declared.values())
+    return [{**declared, **changed}] * 3
+
+
 def test_executor_declares_the_parameter_empty_and_flies_the_sequence_as_shipped(executor_module, monkeypatch):
     node = start(executor_module, monkeypatch)
     assert node.declared["feature_overrides"] == ""
     assert [mission.name for mission in node._sequence] == ["takeoff", "package_delivery", "rtl"]
-    assert flags(node) == [{"use_frame_time_pose": False}] * 3  # every flag as the YAML has it: off
+    assert flags(node) == shipped_flags()  # every flag as the YAML has it: off
     assert not any("Feature overrides" in str(call) for call in node.logger.info.call_args_list)
     assert node.declared["loop_rate_hz"] == 20.0  # the tick is untouched
 
 
 def test_executor_applies_overrides_to_every_mission_and_logs_them(executor_module, monkeypatch):
     node = start(executor_module, monkeypatch, feature_overrides="use_frame_time_pose")
-    assert flags(node) == [{"use_frame_time_pose": True}] * 3
+    assert flags(node) == shipped_flags(use_frame_time_pose=True)
     assert any("Feature overrides: use_frame_time_pose" in str(call) for call in node.logger.info.call_args_list)
 
 
@@ -123,4 +132,43 @@ def test_executor_does_not_start_with_a_dependency_missing(executor_module, monk
     monkeypatch.setattr(features, "FLAG_REQUIRES", {"use_frame_time_pose": ("time_base_ok",)})
     with pytest.raises(ValueError, match="use_frame_time_pose requires time_base_ok"):
         start(executor_module, monkeypatch, feature_overrides="use_frame_time_pose")
-    assert flags(start(executor_module, monkeypatch)) == [{"use_frame_time_pose": False}] * 3  # off: nothing to require
+    assert flags(start(executor_module, monkeypatch)) == shipped_flags()  # off: nothing to require
+
+
+# --- safety limits at load time (FND-09), behind the enforce_safety_limits flag ---------------
+
+
+def low_drop_sequence(tmp_path, drop_altitude_m):
+    """package_drop_demo.yaml with another drop height; its tolerance stays 0.5 m."""
+    import yaml
+
+    source = SEQUENCE.parent / "package_drop_demo.yaml"
+    data = yaml.safe_load(source.read_text())
+    for mission in data["mission_sequence"]["missions"]:
+        if mission["type"] == "package_drop":
+            assert mission["config"]["drop_altitude_tolerance_m"] == 0.5
+            mission["config"]["drop_altitude_m"] = drop_altitude_m
+    path = tmp_path / "drop.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    return str(path)
+
+
+def test_low_drop_height_still_loads_with_the_flag_off_as_it_did_in_2026(executor_module, monkeypatch, tmp_path):
+    node = start(executor_module, monkeypatch, sequence_file=low_drop_sequence(tmp_path, 2.0))
+    assert [mission.name for mission in node._sequence] == ["takeoff", "package_drop", "rtl"]
+
+
+def test_low_drop_height_stops_the_executor_when_limits_are_enforced(executor_module, monkeypatch, tmp_path):
+    with pytest.raises(ValueError, match="1.50 m, below the 1.83 m"):
+        start(executor_module, monkeypatch, sequence_file=low_drop_sequence(tmp_path, 2.0), feature_overrides="enforce_safety_limits")
+
+
+def test_legal_drop_height_starts_with_limits_enforced(executor_module, monkeypatch, tmp_path):
+    node = start(executor_module, monkeypatch, sequence_file=low_drop_sequence(tmp_path, 4.0), feature_overrides="enforce_safety_limits")
+    assert all(features["enforce_safety_limits"] is True for features in flags(node))
+
+
+@pytest.mark.parametrize("name", ["package_drop_demo.yaml", "package_drop_live.yaml", "final_waypoint_drop.yaml", "package_delivery_live.yaml"])
+def test_shipped_sequences_start_with_limits_enforced(executor_module, monkeypatch, name):
+    node = start(executor_module, monkeypatch, sequence_file=str(SEQUENCE.parent / name), feature_overrides="enforce_safety_limits")
+    assert node._sequence

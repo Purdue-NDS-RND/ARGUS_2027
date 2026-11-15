@@ -24,6 +24,7 @@ from .features import apply_feature_overrides
 from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
+from .safety_limits import enforced_violations
 
 
 class MissionExecutorNode(Node):
@@ -154,6 +155,14 @@ class MissionExecutorNode(Node):
         specs = apply_feature_overrides(specs, feature_overrides)
         if feature_overrides.strip():
             self.get_logger().info(f"Feature overrides: {feature_overrides.strip()}")
+        # Empty unless the enforce_safety_limits flag is on: then a configured
+        # height that breaks a rule limit stops the executor from starting.
+        violations = enforced_violations(specs)
+        if violations:
+            raise ValueError(
+                "enforce_safety_limits is on and the sequence breaks a safety limit: "
+                + "; ".join(violations)
+            )
         missions = [create_mission(spec) for spec in specs]
         for mission in missions:
             self.get_logger().info(

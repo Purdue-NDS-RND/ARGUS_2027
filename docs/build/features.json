@@ -126,9 +126,9 @@
       "land": "L03",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_safety_limits.py -> 47 passed; test_executor_feature_overrides.py -> 13 passed; check.sh -> OK; real ROS: low drop height loads with the flag off, refused with enforce_safety_limits on (quoted in the notes); sim smoke flags off -> OK 0.01 m; spec-auditor: PARTIAL is right, nothing left for the session; flight-guardian CONCERNS, no blocker (2 rounds). Left, lead: edit F5 in .claude/agents/flight-guardian.md to reference safety_limits.py (the spec's second bullet); confirm GEOFENCE_MARGIN_M 5.0 and the phase speed caps; put enforce_safety_limits into a flight profile (until then no sequence is checked at start-up). Left, CEN-04, LOC-1, REC-4: import the limits; add survey and recovery heights to check_mission",
       "blocked_reason": ""
     },
     {

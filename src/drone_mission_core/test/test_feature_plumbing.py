@@ -178,8 +178,8 @@ def test_overrides_reach_every_mission_of_the_sequence():
     changed = apply_feature_overrides(loaded, "use_frame_time_pose")
     assert len(changed) == len(loaded) == 3
     for before, after in zip(loaded, changed):
-        assert after.features == {"use_frame_time_pose": True}
-        assert before.features == {"use_frame_time_pose": False}  # the loaded specs are not modified
+        assert after.features == {**before.features, "use_frame_time_pose": True}
+        assert before.features["use_frame_time_pose"] is False and not any(before.features.values())  # the loaded specs are not modified
         assert dataclasses.replace(after, features=before.features) == before  # nothing else changed
 
 

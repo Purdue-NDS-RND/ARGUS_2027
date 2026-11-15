@@ -328,8 +328,10 @@ def test_flags_reach_only_the_generated_sequence_and_only_in_the_on_variant(tmp_
     shipped_before = (CONFIG / "sequences" / "package_delivery_demo.yaml").read_bytes()
     off = build_run(path, tmp_path / "off", variant="off")
     on = build_run(path, tmp_path / "on", variant="on")
-    assert read(off, "sequence.yaml")["mission_sequence"]["features"] == {"use_frame_time_pose": False}
-    assert read(on, "sequence.yaml")["mission_sequence"]["features"] == {"use_frame_time_pose": True}
+    shipped_flags = yaml.safe_load(shipped_before)["mission_sequence"]["features"]
+    assert shipped_flags["use_frame_time_pose"] is False and not any(shipped_flags.values())
+    assert read(off, "sequence.yaml")["mission_sequence"]["features"] == shipped_flags
+    assert read(on, "sequence.yaml")["mission_sequence"]["features"] == {**shipped_flags, "use_frame_time_pose": True}
     assert (CONFIG / "sequences" / "package_delivery_demo.yaml").read_bytes() == shipped_before
     assert read(on, "scenario.json")["flags"] == {"use_frame_time_pose": True}
     assert read(off, "scenario.json")["flags"] == {}
