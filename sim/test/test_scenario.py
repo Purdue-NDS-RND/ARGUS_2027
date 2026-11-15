@@ -340,6 +340,12 @@ def test_flag_that_no_shipped_sequence_has_fails_the_build(tmp_path):
         build_run(scenario_file(tmp_path, flags={"use_warp_drive": True}), tmp_path / "run", variant="off")
 
 
+def test_flag_value_that_is_not_true_or_false_fails_the_build(tmp_path):
+    for value in (1, "true"):
+        with pytest.raises(BuildError, match="true or false"):
+            build_run(scenario_file(tmp_path, flags={"use_frame_time_pose": value}), tmp_path / "run", variant="on")
+
+
 def test_node_flags_are_checked_against_the_shipped_params_and_set_in_the_copy(tmp_path, monkeypatch):
     with pytest.raises(BuildError, match="target_cv.*ring_fit"):
         build_run(scenario_file(tmp_path, node_flags={"target_cv": {"ring_fit": True}}), tmp_path / "bad")

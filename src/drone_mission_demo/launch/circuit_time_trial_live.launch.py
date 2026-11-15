@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -36,6 +37,10 @@ def generate_launch_description() -> LaunchDescription:
             params,
             {
                 "sequence_file": sequence,
+                # Flags to turn on for this launch; empty changes nothing.
+                "feature_overrides": ParameterValue(
+                    LaunchConfiguration("feature_overrides"), value_type=str
+                ),
                 "mission_modules": ["drone_mission_demo.missions"],
             },
         ],
@@ -43,6 +48,11 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "feature_overrides",
+                default_value="",
+                description="Feature flags to turn on for this launch, comma-separated (profiles/README.md)",
+            ),
             DeclareLaunchArgument(
                 "params",
                 default_value="config/params/mission_params.yaml",

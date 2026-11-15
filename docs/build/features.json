@@ -111,9 +111,9 @@
       "land": "L03",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_feature_plumbing.py test_feature_flag_rules.py -> 186 passed; test_executor_feature_overrides.py + tools/test/test_flag_profile.py -> pass; check.sh -> OK; spec-auditor COMPLETE (round 2); flight-guardian CONCERNS, no blocker (2 rounds). ROS 2 Humble: all 12 executor launch files start with no argument and with an override (sim/.state/fnd08_launch_all.log, quoted in the notes); sim smoke flags off -> OK 0.07 m. Owed: node flags and profile-by-name are PLT-07's",
       "blocked_reason": ""
     },
     {

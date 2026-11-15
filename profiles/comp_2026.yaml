@@ -1,0 +1,4 @@
+# The fallback: every 2027 flag off. The drone flies the June 2026 code
+# (tag comp-2026). Launching with no feature_overrides argument is the same.
+description: Every flag off; the code as flown at the June 2026 competition.
+enable: []

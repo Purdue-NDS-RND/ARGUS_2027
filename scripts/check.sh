@@ -111,10 +111,14 @@ for mod in cv2 numpy yaml; do
     has_module "$mod" || missing+=("$mod")
 done
 if ((${#missing[@]})); then
-    skip "bullseye detector, feature-flag config, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log, sim judge, sim site, sim scenario, sim runner and sim gate tests, tools/bullseye_try.py (missing: ${missing[*]})"
+    skip "bullseye detector, feature-flag config, plumbing, rules and profile, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log, sim judge, sim site, sim scenario, sim runner and sim gate tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
+    run_test "" src/drone_mission_core/test/test_executor_feature_overrides.py
+    run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
     run_test "" sim/test/test_sim_camera.py

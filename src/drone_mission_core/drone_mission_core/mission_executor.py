@@ -20,6 +20,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
+from .features import apply_feature_overrides
 from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
@@ -35,6 +36,9 @@ class MissionExecutorNode(Node):
         self.declare_parameter("mission_modules", Parameter.Type.STRING_ARRAY)
         self.declare_parameter("loop_rate_hz", 20.0)
         self.declare_parameter("abort_rtl_mode", "RTL")
+        # Flags to turn on for this launch without editing config YAML, as
+        # "a,b" or "a=true,b=false". Empty (the default) changes nothing.
+        self.declare_parameter("feature_overrides", "")
 
         self._mavros_state: Optional[State] = None
         self._local_pose: Optional[PoseStamped] = None
@@ -140,6 +144,16 @@ class MissionExecutorNode(Node):
             raise ValueError("mission_executor.sequence_file parameter is required")
 
         specs = load_sequence_file(sequence_file)
+        feature_overrides = (
+            self.get_parameter("feature_overrides")
+            .get_parameter_value()
+            .string_value
+        )
+        # Raises, so the executor does not start, on an override for a flag the
+        # sequence does not declare or a flag whose dependency is off.
+        specs = apply_feature_overrides(specs, feature_overrides)
+        if feature_overrides.strip():
+            self.get_logger().info(f"Feature overrides: {feature_overrides.strip()}")
         missions = [create_mission(spec) for spec in specs]
         for mission in missions:
             self.get_logger().info(

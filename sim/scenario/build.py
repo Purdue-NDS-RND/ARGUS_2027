@@ -261,9 +261,11 @@ def build_sequence(scenario: Scenario, shipped: dict, objects: list[dict], site:
         config["waypoint_file"] = str(run_dir / "waypoints.yaml")
 
     features = root.get("features") or {}
-    for flag in scenario.flags:
+    for flag, value in scenario.flags.items():
         if flag not in features:
             raise BuildError(f"flag '{flag}' is not declared under features: in the shipped sequence {scenario.sequence}")
+        if not isinstance(value, bool):
+            raise BuildError(f"flag '{flag}' must be true or false, got {value!r}")  # the executor refuses anything else
     if flags_on:
         root["features"] = {**features, **scenario.flags}
     return sequence, route, truth, {"east_m": error_east, "north_m": error_north}
