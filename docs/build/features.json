@@ -1598,8 +1598,8 @@
       "after_ids": [
         "SIM-11"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-15-gate-G0.md"
     },
     "G1": {
       "title": "Estimator and centring",

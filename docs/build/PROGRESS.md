@@ -70,6 +70,7 @@ Choices the specs did not settle, with the reason. Newest first.
 
 One line per finished feature, gate run or stop, newest first: `- YYYY-MM-DD <ID> DONE: <one line>`, `- YYYY-MM-DD G0: PASS ...`, `- STOP YYYY-MM-DD: <what is needed>`.
 
+- 2026-11-15 G0: PASS, 5 of 5 flags-off delivery touchdowns within 0.3 m (0.02 to 0.08 m) at `3cfe831`; `docs/results/2026-11-15-gate-G0.md`.
 - 2026-11-15 SIM-11 DONE: gates G0 to G8 as data in `sim/scenarios/gates.yaml`, checked by `sim/gate.py` (PASS, FAIL or INVALID, with a result file); a gate is a runner suite (`sim/run_scenarios.sh G0`). G0 has flights; G1 to G6 have rules and wait for their lanes' scenarios. Trial G0 run: 5 of 5 within 0.05 m.
 - 2026-11-15 SIM-02 follow-up: its pass line now has a scored run from true positions, scenario `geofence/breach` (OK: response 0.02 s before the true crossing, 1.07 m outside). The trigger deviation and the placeholder coordinates still stand.
 - 2026-11-15 SIM-07 DONE: `sim/run_scenarios.sh` flies a suite or scenario unattended (fresh sim per flight, true-pose recorder, sim-time end, ground-station audit, judge, `report.md`, off-against-on table). Smoke suite OK three times in a row (0.02, 0.03, 0.02 m); `docs/results/2026-11-15-scenario-runner.md`. Wind and GPS-event scenarios are INVALID until SIM-03 and SIM-04.
