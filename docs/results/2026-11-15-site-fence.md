@@ -111,7 +111,7 @@ Spawned 'delivery_target' in 'argus_runway' at x=10.07 m east, y=15.02 m north o
 
 ## Not measured
 
-- True position from Gazebo, as above.
+- True position from Gazebo was not measured in these runs. It was later the same day, as the scored scenario `geofence/breach`: 1.07 m outside, response 0.02 s before the true crossing ([2026-11-15-scenario-runner.md](2026-11-15-scenario-runner.md)).
 - The maximum-height fence.
 - A breach in an AUTO mission, and whether an AUTO mission flies to a waypoint outside the fence.
 - A breach at full speed with avoidance off (`AVOID_ENABLE 0`).

@@ -65,6 +65,7 @@ Choices the specs did not settle, with the reason. Newest first.
 
 One line per finished feature, gate run or stop, newest first: `- YYYY-MM-DD <ID> DONE: <one line>`, `- YYYY-MM-DD G0: PASS ...`, `- STOP YYYY-MM-DD: <what is needed>`.
 
+- 2026-11-15 SIM-02 follow-up: its pass line now has a scored run from true positions, scenario `geofence/breach` (OK: response 0.02 s before the true crossing, 1.07 m outside). The trigger deviation and the placeholder coordinates still stand.
 - 2026-11-15 SIM-07 DONE: `sim/run_scenarios.sh` flies a suite or scenario unattended (fresh sim per flight, true-pose recorder, sim-time end, ground-station audit, judge, `report.md`, off-against-on table). Smoke suite OK three times in a row (0.02, 0.03, 0.02 m); `docs/results/2026-11-15-scenario-runner.md`. Wind and GPS-event scenarios are INVALID until SIM-03 and SIM-04.
 - 2026-11-15 SIM-01 DONE: scenario files (`sim/scenarios/<mission>/`), `sim/scenario/build.py` writes a run folder (world with every object embedded, sequence, SITL parameters, truth, judge settings), new marker, X mat, bucket and payload models; `RUN_DIR=<folder> sim/run_sim.sh` starts it. Hand-flown once in the sim; the scored, unattended run is owed to SIM-07.
 - 2026-11-15 SIM-02 DONE: site file `sim/sites/apollo_xi.yaml` (placeholder coordinates), `sim/site_file.py`, fence upload and `SITE=<name>` start-up; live fence check PASS (RTL 0.04 to 0.06 s after the line, at most 4.46 m out). Pass-line trigger deviates (GUIDED refuses the outside waypoint); the true-pose scored run is owed to SIM-07.

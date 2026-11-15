@@ -28,7 +28,7 @@
       "note": "",
       "status": "DONE",
       "attempts": 0,
-      "evidence": "pytest sim/test/test_site.py test_fence_upload.py test_fence_check.py -> 63 passed; check.sh -> OK; live: SITE=apollo_xi sim/run_sim.sh READY with fence uploaded, sim/fence_check.py PASS x3 (RTL 0.04-0.06 s after the line, max 4.46 m out), plain start after it unchanged; docs/results/2026-11-15-site-fence.md. Deviation: in GUIDED the waypoint 20 m outside is refused, limits met on a velocity breach, AUTO untested. Owed: true-pose scored run via SIM-07; site coordinates are placeholders (person step)",
+      "evidence": "pytest sim/test/test_site.py test_fence_upload.py test_fence_check.py -> pass; check.sh -> OK; live: SITE=apollo_xi sim/run_sim.sh READY with fence uploaded, sim/fence_check.py PASS x3; scored from true positions by sim/run_scenarios.sh geofence/breach -> OK, response 0.02 s before the true crossing, 1.07 m outside (docs/results/2026-11-15-site-fence.md, 2026-11-15-scenario-runner.md). Deviation: in GUIDED the waypoint 20 m outside is refused, limits met on a velocity breach, AUTO untested. Owed: site coordinates are placeholders (person step)",
       "blocked_reason": ""
     },
     {

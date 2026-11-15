@@ -67,7 +67,7 @@ flight-guardian did not run: no mission, executor, target CV or `config/` YAML c
 ## Not done
 
 - **The pass line as written does not happen in GUIDED.** ArduCopter does not fly to a position target outside the fence, so "a waypoint 20 m outside" causes no breach (measured, with an inside target as the control). `fence_check.py` breaches on a velocity command instead. The lead should reword the line; AUTO is untested.
-- The scored breach run through the headless runner and the judge's fence report on true poses is owed until SIM-07 exists; `fence_check.py` reads the autopilot's position.
+- ~~The scored breach run on true poses was owed until the runner existed.~~ Done with SIM-07: `sim/run_scenarios.sh geofence/breach` flies `fence_check.py` as a scenario and the `geofence` judge scores it from Gazebo's true positions: response 0.02 s before the true crossing, 1.07 m outside, OK ([results](../../results/2026-11-15-scenario-runner.md)).
 - The site coordinates are placeholders: a person checks them against the field map (PROGRESS.md, "Needs a person").
 - "Scenario runs always wipe SITL's stored parameters" holds for every `SITE` run; the runner (SIM-07) inherits it by starting with a site.
 - The maximum-height fence was not flown. The runway strip drawn is the base model's, not the site's length and width.
