@@ -96,9 +96,9 @@
       "land": "L02",
       "proven_in": "Unit",
       "note": "Wave 0 builds tier A only. Tier B to D scripts may be written, but the nightly machine and its token are person steps",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest scripts/test/test_secret_scan.py test_check_coverage.py sim/test/test_nightly.py -> 56 passed; check.sh -> OK (it now runs scripts/secret_scan.py); spec-auditor round 2: nothing left for the session. Built: secret scan, test-registration and sim-coverage guard, sim/nightly.sh, tier docs. Left, lead: edit scripts/pr_checks.py so sim/ counts as code (wave-0 'CI requires tests for sim/' not met until then) and fold the secret rule into the hygiene gate and pre-commit hook; nightly machine, issues-only token, pinned issue and timer (after wave 0 lands on main); tier C line in the PR template; an owner for tier D. Left, later features: tier A tests for wind, GPS, payload bridge, replay core, dataset tools",
       "blocked_reason": ""
     },
     {

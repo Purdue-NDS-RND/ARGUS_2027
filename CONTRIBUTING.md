@@ -50,6 +50,19 @@ CI runs `scripts/pr_checks.py` on every pull request, and again when you edit th
 
 Locally, `scripts/check.sh` runs the gates against `origin/main`. It prints `SKIP: no PR context` for the title and description; set `PR_TITLE` and `PR_BODY` to check them too.
 
+`scripts/check.sh` also runs `scripts/secret_scan.py`, which fails when an added line, a commit message, the title or the description holds something shaped like a key, a token, a private key or a password. It prints the file and line, never the secret. If it is a false positive, waive it with the hygiene marker. If it is real, revoke the secret: taking the line out does not take it out of the branch's history.
+
+## Test tiers
+
+| Tier | When and where | What runs |
+| --- | --- | --- |
+| A | Every pull request, in GitHub Actions | `scripts/check.sh`: the PR gates, the secret scan and every test that needs no ROS, including the sim's (scenario build, judges, gates, runner) |
+| B | Nightly, on a club machine that never sleeps | `sim/nightly.sh`: a fresh worktree of `main`, the `nightly` suite (every scenario, three seeds, flags off and on), the table posted to a pinned GitHub issue |
+| C | Before a pull request that touches missions, CV or the sim, by its author | `sim/run_scenarios.sh smoke` (about 5 minutes); paste its table under "How I tested it" |
+| D | Weekly, on the GPU desktop | The long suites: `sim/run_scenarios.sh gates`, and later the 4K stills and replay runs |
+
+Tier A keeps itself honest: `scripts/test/test_check_coverage.py` fails if a test file has no `run_test` line in `scripts/check.sh`, or if a Python module under `sim/` is reached by no test. Tier B is a script on a machine, not a self-hosted Actions runner: the repo is public, and a runner would execute any pull request's code on that machine.
+
 ## Getting help
 
 Post in the team chat with three things: what you ran, what you expected, and what happened (paste the full error).

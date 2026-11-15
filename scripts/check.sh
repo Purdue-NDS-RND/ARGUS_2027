@@ -71,6 +71,16 @@ case $? in
 esac
 echo
 
+# Nothing secret-shaped in what the branch adds (the repo is public). See scripts/secret_scan.py.
+echo "== scripts/secret_scan.py"
+py "" scripts/secret_scan.py
+case $? in
+    0) ;;
+    3) skips=$((skips + 1)) ;;
+    *) failures+=("scripts/secret_scan.py") ;;
+esac
+echo
+
 if ! has_module pytest; then
     skip "pytest not installed, no tests ran"
     finish
@@ -83,9 +93,12 @@ run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
 run_test scripts scripts/test/test_pr_checks.py
+run_test scripts scripts/test/test_secret_scan.py
+run_test "" scripts/test/test_check_coverage.py
 run_test "" scripts/test/test_guardian_read_guard.py
 run_test "" sim/test/test_target_placement.py
 run_test "" tools/test/test_build_ledger.py
+run_test "" sim/test/test_nightly.py
 
 # The 2027 build ledger must stay valid (see docs/build/SESSION.md).
 echo "== docs/build/features.json"
