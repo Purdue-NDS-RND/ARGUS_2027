@@ -141,6 +141,7 @@ else
     run_test "" sim/test/test_time_base.py
     run_test "" sim/test/test_rate_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
+    run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

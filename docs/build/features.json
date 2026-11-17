@@ -188,7 +188,7 @@
       "land": "L05",
       "proven_in": "Sim, Bench",
       "note": "Build FND-01 straight after this; they share the capture-clock code",
-      "status": "TODO",
+      "status": "DOING",
       "attempts": 0,
       "evidence": "",
       "blocked_reason": ""

@@ -1,0 +1,10 @@
+# IMX519 at 1280 x 720, 60 fps. NOT MEASURED: these are the 4K numbers divided
+# by three, which is what the 2026 grabber did. The 720p60 sensor mode may
+# crop or bin differently, so calibrate in this mode and replace this file.
+width: 1280
+height: 720
+measured: false
+basis: scaled from the 4K calibration by 1/3; to be replaced by a calibration in this mode
+distortion_model: plumb_bob
+k: [778.33216, 0.0, 624.68618, 0.0, 779.35542, 344.33087, 0.0, 0.0, 1.0]
+d: [-0.233303, 0.051830, -0.000329, 0.000262, 0.0]

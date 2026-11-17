@@ -1,0 +1,55 @@
+# Sensor modes for argus_camera (PLT-03). One entry per way of running a sensor.
+# Each mode has its own calibration file, measured in that mode; a mode whose
+# calibration is null has not been calibrated and cannot publish camera_info yet.
+
+cameras:
+  down:                     # the IMX519, looking straight down
+    frame_id: down_camera_optical
+  flow:                     # the OV9782 global-shutter camera for optical flow
+    frame_id: flow_camera_optical
+
+modes:
+  imx519_4k:
+    camera: down
+    driver: csi
+    sensor_id: 0
+    width: 3840
+    height: 2160
+    fps: 17
+    calibration: calibration/imx519_4k.yaml
+    in_process_only: true   # 25 MB a frame: no 4K images over ROS topics
+    use: localisation (markers and digit crops); stays inside one process
+
+  imx519_720p60:
+    camera: down
+    driver: csi
+    sensor_id: 0
+    width: 1280
+    height: 720
+    fps: 60
+    calibration: calibration/imx519_720p60.yaml
+    use: drop and delivery, published as topics
+
+  ov9782_flow:
+    camera: flow
+    driver: v4l2
+    device: /dev/video0
+    pixel_format: MJPG
+    width: 1280
+    height: 800
+    fps: 120
+    calibration: null       # not calibrated yet
+    in_process_only: true   # 120 frames a second go straight to the flow code
+    use: optical flow, read in-process
+
+  sim_delivery:
+    camera: down
+    driver: ros_topic       # the sim's Gazebo camera, as ros_gz_bridge publishes it
+    width: 640
+    height: 360
+    fps: 30
+    calibration: calibration/sim_delivery.yaml
+    use: the sim's downward camera
+
+# The 12 MP spare is not listed: its sensor, CSI port and modes are not known
+# here. Adding it is one more entry above and its calibration file.

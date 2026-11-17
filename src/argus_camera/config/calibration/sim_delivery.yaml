@@ -1,0 +1,10 @@
+# The sim's downward camera (sim/models/iris_downcam/model.sdf): an ideal
+# pinhole, 640 x 360, horizontal field of view 1.37635 rad, no distortion.
+# fx = fy = 640 / (2 tan(1.37635 / 2)).
+width: 640
+height: 360
+measured: true
+basis: computed from the sim model's field of view
+distortion_model: plumb_bob
+k: [389.16536, 0.0, 320.0, 0.0, 389.16536, 180.0, 0.0, 0.0, 1.0]
+d: [0.0, 0.0, 0.0, 0.0, 0.0]

@@ -1,0 +1,9 @@
+# IMX519 at 3840 x 2160, measured. The same K and D as
+# src/drone_target_cv/config/mipi_info.yaml (camera_calibration.md).
+width: 3840
+height: 2160
+measured: true
+basis: 2026 checkerboard calibration at 4K (mipi_info.yaml)
+distortion_model: plumb_bob
+k: [2334.99647, 0.0, 1874.05854, 0.0, 2338.06625, 1032.9926, 0.0, 0.0, 1.0]
+d: [-0.233303, 0.051830, -0.000329, 0.000262, 0.0]
