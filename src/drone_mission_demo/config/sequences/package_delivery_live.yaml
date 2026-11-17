@@ -1,7 +1,7 @@
 mission_sequence:
   on_failure: abort_and_rtl                         # Abort the remaining sequence and request RTL on failure.
   features:                                         # Mission feature flags; a missing flag means false.
-    use_frame_time_pose: false                      # Not read by any mission yet.
+    use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
     time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
   missions:

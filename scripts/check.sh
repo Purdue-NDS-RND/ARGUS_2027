@@ -89,6 +89,7 @@ fi
 run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projection.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_time_health.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_pose_buffer.py
 run_test src/drone_target_cv src/drone_target_cv/test/test_detection_stamp.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
@@ -124,6 +125,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_safety_limits.py
     run_test "" src/drone_mission_core/test/test_executor_feature_overrides.py
     run_test "" src/drone_mission_core/test/test_executor_time_health.py
+    run_test "" src/drone_mission_core/test/test_executor_pose_buffer.py
     run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
