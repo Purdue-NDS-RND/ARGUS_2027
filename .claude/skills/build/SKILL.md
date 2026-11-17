@@ -26,6 +26,8 @@ You are running unattended. Nobody answers questions turn by turn, and the conte
 
 If a feature fails three attempts, or two review rounds, run `set <ID> BLOCKED --reason "..." --attempt`, log it, and go back to 2. Stop only for the reasons under "When to stop" in SESSION.md, writing a STOP line first.
 
+Budget: follow "Token and time budget" in SESSION.md; run the sim only where `proven_in` or the change needs it.
+
 ## End-of-turn report
 
 This is also the evidence the `/goal` check reads, so print the real output, not a description of it:
