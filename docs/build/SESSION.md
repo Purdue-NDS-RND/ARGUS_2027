@@ -76,6 +76,18 @@ Also after a compaction or a resume (the hook prints a reminder):
 - Don't add process of your own (trackers, monitors, extra orchestration) beyond what the spec asks for.
 - Keep command output short. Send long output (sim logs, full test runs) to a file under `sim/.state/` and read its tail or grep it.
 
+## Token and time budget
+
+- Usage limits are shared with the lead's other work, so spend tokens and wall-clock time only where they buy proof.
+- Run the sim only when the row's `proven_in` includes Sim, the change touches flight code, launch or sequence files, or a gate is due. Unit-level features get unit tests only; the flags-off baseline is re-checked by the G0-W gates at wave ends.
+- One sim run proves a scenario. Repeat runs only where a pass rule asks for several.
+- While iterating, run only the new or changed test files (`python3 -m pytest -q <file>`). Run the full strict check once, before the commit.
+- Run long commands in the background and wait for the completion notice; don't poll with sleep or wait loops. Afterwards read only the summary lines or the tail of the log.
+- Read the spec section, the changed files and log tails, not whole large files.
+- Reviewers get the spec section and the diff path only. A second round re-checks only the rows the first round flagged; skip it when the fixes were tests or wording only.
+- Keep notes files and reports short; don't restate the spec.
+- Stop background tasks as soon as they're no longer needed.
+
 ## Gates
 
 `next` returns `GATE <name>` when a gate's features are finished. Run it with the `/gate` skill.

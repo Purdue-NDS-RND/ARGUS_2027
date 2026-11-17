@@ -46,7 +46,7 @@ Then type two lines in the session. The first starts the work; the second queues
 ```
 
 ```text
-/goal The /build session for scope wave:0 is finished: "python3 tools/build_ledger.py next --scope wave:0" printed NONE, or the build log in docs/build/PROGRESS.md starts with a STOP line. Claude's last message shows the output of "python3 tools/build_ledger.py summary --scope wave:0", the last three lines of "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh" ending in OK, and "git status -sb" with a clean tree that is not ahead of origin/platform/build-2027. Or stop after 150 turns.
+/goal The /build session for scope wave:0 is finished: "python3 tools/build_ledger.py next --scope wave:0" printed NONE, or the build log in docs/build/PROGRESS.md starts with a STOP line. Claude's last message shows the output of "python3 tools/build_ledger.py summary --scope wave:0", the last three lines of "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh" ending in OK, and "git status -sb" showing nothing modified or staged and the branch not ahead of origin/platform/build-2027 (untracked files that were there before the session don't count). Or stop after 150 turns.
 ```
 
 Change `wave 0` and `wave:0` for each session: `wave 3 CEN` becomes `wave:3:CEN`.

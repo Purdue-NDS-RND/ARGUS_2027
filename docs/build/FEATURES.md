@@ -646,7 +646,7 @@ This table has no "Proven in" column: a SIM feature is proven in sim when its Pa
 
 - `sim/sites/apollo_xi.yaml`: origin (exact coordinates still to verify from the field map), terrain elevation (a wrong home altitude made the SITL rangefinder read 18.5 m on the ground), runway, flight boundary, maximum altitude, takeoff point and compass rose, and a placeholder survey area.
 - The geofence polygon is uploaded by `sim/fence_upload.py`; the real flight controller uses the same file (PLT-08). Scenario runs always wipe SITL's stored parameters.
-- **Pass:** a waypoint 20 m outside the fence triggers a breach and RTL within 2 s, with at most 10 m excursion.
+- **Pass:** a scenario that drives the vehicle toward the fence with velocity setpoints (GUIDED refuses a waypoint outside the fence) triggers a breach and RTL within 2 s, with at most 10 m excursion, scored from true positions.
 
 ### SIM-03 Wind
 
@@ -691,7 +691,7 @@ This table has no "Proven in" column: a SIM feature is proven in sim when its Pa
 | Delivery | 13 − distance; 0 if released above 1.83 m; contact impulse logged against a limit parameter; +0.25 per 500 g |
 | Recovery | Bucket lifted above 0.5 m; 0 if released above 1.83 m; distance to the return point (takeoff or compass rose, a parameter) |
 
-Every mission: single flight, geofence breaches and failsafes reported, +25% autonomy if the log shows no ground-station commands.
+Every mission: single flight, geofence breaches and failsafes reported. Localisation, drop, delivery and recovery get +25% autonomy if the log shows no ground-station commands, as the rules say; waypoint navigation and the time trial get no bonus.
 
 ### SIM-09 Replay harness
 
