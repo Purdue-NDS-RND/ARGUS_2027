@@ -1,6 +1,6 @@
 # FND-03: Time base (MAVROS time sync, sim clock, stale-data guard)
 
-Flags: `time_health_guard` (mission flag, default false, declared in the six drop and delivery sequences); `features.stamp_from_image` (node flag on `target_cv`, default false); in the sim, `SIM_TIME=1` / scenario `sim_time: true` / launch argument `use_sim_time:=true` (all default off) · Status: PARTIAL · Commits: `git log --oneline --grep '^FND-03:' platform/build-2027`
+Flags: `time_health_guard` (mission flag, default false, declared in the six drop and delivery sequences); `features.stamp_from_image` (node flag on `target_cv`, default false); in the sim, `SIM_TIME=1` / scenario `sim_time: true` / launch argument `use_sim_time:=true` (all default off) · Status: DONE · Commits: `git log --oneline --grep '^FND-03:' platform/build-2027`
 
 ## What it solves
 
@@ -71,6 +71,8 @@ $ sim/run_scenarios.sh smoke
 
 Real-time factor 0.97, and the launch command carried no `use_sim_time`. That flight was before the last detector edit (the clock read moved back to where 2026 has it, at the publish); flags off, that edit is covered by `test_detection_stamp.py` and by G0-W2 at the end of wave 2.
 
+**After PLT-06** (MAVROS on SITL's own port with the stream keeper), the same scenario, four flights: pose stamps 4.6, 5.4, 4.4 and 4.6 ms from the sim clock at the 95th percentile, pose at 30 Hz, the last flight OK at 0.02 m. The 20 ms pass line is met with margin and the row is DONE. [docs/results/2026-11-17-mavros-rates.md](../../results/2026-11-17-mavros-rates.md).
+
 ## Spec check
 
 spec-auditor, two rounds, INCOMPLETE both times. Round 1: the sim result was not written, the frame age was measured from a `now()` stamp, and four choices were not recorded (sim time opt-in, the 95th-percentile reading of "within 20 ms", the extra UNHEALTHY causes, the hold timeout). Round 2 found all of those closed and two new things: my detector edit had moved the flags-off stamp earlier than in 2026, and a "Needs a person" sentence said the guard had flown. Both were fixed after round 2 and not reviewed again; the first now has its own test.
@@ -87,8 +89,7 @@ What differs from the spec, each recorded under Decisions: sim time is opt-in; `
 
 ## Not done
 
-- **The sim pass line is not reliably met** (one flight of three), which is why this row is PARTIAL. PLT-06 owns the MAVROS link: MAVROS straight onto SITL's second serial port, without MAVProxy in between, is the first thing to try. Until it passes, `delivery/time_base` is not in the nightly suite.
-- **The guard has not flown with its flag on.** The sim delivers poses at 4 Hz, the guard needs 20 Hz, and the first flight with it on held all the way. PLT-06's stream keeper fixes the rate and adds the flag to `delivery/time_base`.
+- **The guard has not completed a flight with its flag on.** Pose age no longer trips it (PLT-06 holds pose at 30 Hz), but frame age does: in the sim a frame is 250 to 282 ms old when the mission can use its detection, against the 250 ms limit, and the one flight with the guard on held, climbed and failed to RTL. That is the guard working on a camera chain that is too slow. FND-01 and PLT-03 own that chain; the flag goes into `delivery/time_base` when frames are fresh enough.
 - **Not flyable on the aircraft yet.** `mavros_boot.sh device` does not load `argus_mavros.yaml`, and the frame age is only the frame's with `features.stamp_from_image` on (grabber publish time until FND-01 makes it capture time). The bench step is under "Needs a person".
 - **Sim time is opt-in**, so flags-off flights and G0 are unchanged. Making it the sim's default is the lead's call.
 - **Only `local_position/pose` is checked** against `/clock`; IMU and GPS stamps go through the same MAVROS code and were not measured.

@@ -156,9 +156,9 @@
       "land": "L04",
       "proven_in": "Sim",
       "note": "",
-      "status": "PARTIAL",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (5 new test files: test_time_health 42, test_time_guard_missions 32, test_executor_time_health 4, test_detection_stamp 6, sim/test_time_base 50). Sim: sim/run_scenarios.sh delivery/time_base --variants on, 3 flights, all landed <= 0.09 m, 65/65 nodes on sim time, stamps time-synchronised; pose stamps vs sim clock p95 16.0 / 23.0 / 23.9 ms against 20 ms, so 1 OK and 2 INVALID. Flags-off smoke OK (0.03 m). docs/results/2026-11-17-time-base.md. Left, for the session in PLT-06: bring p95 under 20 ms reliably (MAVROS on SITL's direct port, no MAVProxy), hold pose >= 20 Hz (4 Hz in the sim today), then turn time_health_guard on in delivery/time_base and put it back in nightly. Left for the lead: bench check before the guard goes into a flight profile (Needs a person)",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_time_health 42, test_time_guard_missions 32, test_executor_time_health 4, test_detection_stamp 6, sim/test_time_base). Sim: sim/run_scenarios.sh delivery/time_base --variants on on PLT-06's direct MAVROS link, four flights: pose stamps 4.6 / 5.4 / 4.4 / 4.6 ms from the sim clock at p95 against 20 ms, every node on sim time, last flight OK at 0.02 m (on the MAVProxy link it was 16.0 / 23.0 / 23.9 ms). docs/results/2026-11-17-time-base.md and 2026-11-17-mavros-rates.md. Not flown: the guard with its flag on to a completed delivery; in the sim it trips on frame age (250 to 282 ms against 250 ms), owed to FND-01 and PLT-03, which add the flag to delivery/time_base. Lead: bench check before the guard goes into a flight profile (Needs a person)",
       "blocked_reason": ""
     },
     {
