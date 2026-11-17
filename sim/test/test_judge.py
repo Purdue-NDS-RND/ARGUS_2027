@@ -629,6 +629,23 @@ def test_autonomy_bonus_is_a_quarter_of_the_points():
     assert score["points"] == pytest.approx(1.25 * (14.0 - 1.2))
 
 
+@pytest.mark.parametrize("mission, settings", [("waypoint_navigation", {}), ("time_trial", {"reference_times_s": [1000.0]})])
+def test_waypoint_navigation_and_time_trial_get_no_autonomy_bonus(mission, settings):
+    score = judge_run(mission, record(flight(visit(WAYPOINTS))), truth(waypoints=WAYPOINTS), settings)
+    assert score["common"]["autonomous"] is True
+    assert score["base_points"] > 0.0
+    assert score["autonomy_bonus"] == 0.0
+    assert score["points"] == score["base_points"]
+
+
+def test_only_localisation_drop_delivery_and_recovery_get_the_autonomy_bonus():
+    from judge import MISSIONS, default_settings
+
+    fractions = {mission: default_settings(mission)["autonomy_bonus_fraction"] for mission in MISSIONS}
+    assert {mission for mission, fraction in fractions.items() if fraction} == {"localisation", "drop", "delivery", "recovery"}
+    assert all(fraction in (0.0, 0.25) for fraction in fractions.values())
+
+
 @pytest.mark.parametrize("kind", ["gcs_command", "rc_override"])
 def test_ground_station_input_during_the_flight_loses_the_bonus(kind):
     rec = drop_flight()

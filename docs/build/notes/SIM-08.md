@@ -53,7 +53,7 @@ The tests were written before the judges but first run after them, so "seen fail
 
 spec-auditor: INCOMPLETE in round 1 (thresholds not pinned by tests, time-trial points and open scoring choices not recorded), COMPLETE in round 2 after adding near-threshold tests and nine Decisions rows. flight-guardian did not run: no flight code or config changed.
 
-Choices the spec left open are in PROGRESS.md under Decisions. Two need the lead's eye: the autonomy bonus is applied to all six missions as SIM-08 says, while the rules table lists four; and localisation penalties are outright (−0.5, −0.5, −1), not deductions from a marker's point.
+Choices the spec left open are in PROGRESS.md under Decisions. One needs the lead's eye: localisation penalties are outright (−0.5, −0.5, −1), not deductions from a marker's point. The autonomy bonus applies only to localisation, drop, delivery and recovery, as the rules say; waypoint navigation and the time trial get none (fixed 2026-11-17).
 
 ## Not done
 

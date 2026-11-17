@@ -9,7 +9,8 @@ from .record import AIRBORNE_HEIGHT_M, Record
 
 # Settings every mission has. judge.yaml's `settings:` overrides any of them.
 COMMON = {
-    "autonomy_bonus_fraction": 0.25,  # +25% when the log shows no human input
+    "autonomy_bonus_fraction": 0.25,  # +25% when the log shows no human input; the rules give it
+    # only to localisation, drop, delivery and recovery, so the other judges set it to 0
     "takeoff_zone_radius_m": 5.0,  # being low this close to the takeoff point is takeoff or landing
     "airborne_height_m": AIRBORNE_HEIGHT_M,
 }
@@ -19,11 +20,11 @@ COMMON = {
 MISSIONS = {
     "waypoint_navigation": (
         missions.judge_waypoint_navigation,
-        {"tolerance_m": 1.0, "dimensions": 3, "points_per_waypoint": 1.0},
+        {"tolerance_m": 1.0, "dimensions": 3, "points_per_waypoint": 1.0, "autonomy_bonus_fraction": 0.0},
     ),
     "time_trial": (
         missions.judge_time_trial,
-        {"tolerance_m": 4.0, "dimensions": 3, "reference_times_s": [], "points_fastest": 12.0, "points_slowest": 8.0},
+        {"tolerance_m": 4.0, "dimensions": 3, "reference_times_s": [], "points_fastest": 12.0, "points_slowest": 8.0, "autonomy_bonus_fraction": 0.0},
     ),
     "localisation": (
         missions.judge_localisation,
