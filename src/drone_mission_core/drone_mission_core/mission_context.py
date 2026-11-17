@@ -60,6 +60,13 @@ class MissionContext:
     def now(self) -> Time:
         return self._node.get_clock().now()
 
+    def time_health(self):
+        """The stale-data guard's report (time_health.py), or None with the time_health_guard flag off."""
+        monitor = getattr(self._node, "_time_health", None)
+        if monitor is None:
+            return None
+        return monitor.report(self.now().nanoseconds * 1.0e-9)
+
     def seconds_since(self, start_time: Time) -> float:
         return (self.now() - start_time).nanoseconds / 1e9
 

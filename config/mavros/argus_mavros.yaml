@@ -1,0 +1,18 @@
+# ARGUS settings for MAVROS, loaded after MAVROS's own apm_config.yaml by
+# config/mavros/argus_mavros.launch.py, so a key here wins.
+#
+# FND-03 owns the requirement in the sys_time block; PLT-06 owns this file
+# and adds the rest (plugin list, message rates).
+
+# sys_time: MAVROS exchanges TIMESYNC with the flight controller and stamps
+# every message it publishes (pose, IMU, GPS) with the time the flight
+# controller measured it, converted to the ROS clock. With timesync_rate 0,
+# which is what the plugin does when nothing sets it, the stamp is the time
+# the message reached MAVROS, and the link delay is hidden.
+/**/time:
+  ros__parameters:
+    timesync_mode: MAVLINK
+    timesync_rate: 10.0       # Hz. Must stay above 0 (sim/test/test_time_base.py).
+    timesync_avg_alpha: 0.6
+    system_time_rate: 1.0     # Hz, ROS time sent to the flight controller for its logs.
+    time_ref_source: "fcu"

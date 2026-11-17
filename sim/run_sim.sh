@@ -29,7 +29,8 @@ SKIP_BUILD=1 (no colcon build), SPAWN_TARGET=0, WIPE_PARAMS=1 (reset SITL
 parameters once), SITE=<name in sim/sites, or a site file in the repo> (start
 at that site with its geofence on; default: the 2026 runway world, no fence),
 RUN_DIR=<run folder built by sim/scenario/build.py> (start that scenario's
-world at its site).
+world at its site), SIM_TIME=1 (bridge Gazebo's clock to /clock and run the
+bridge and MAVROS on it; then launch missions with use_sim_time:=true).
 EOF
 }
 

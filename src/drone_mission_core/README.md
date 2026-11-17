@@ -127,6 +127,23 @@ every mission's `spec.features`; read a flag with
 which returns `False` when the flag or the block is missing. Shipped YAML keeps every
 flag `false` (`src/drone_mission_demo/test/test_feature_flags_config.py` enforces it).
 
+`time_health_guard` (declared, off, in the six sequences that fly a drop or delivery
+mission) turns on the stale-data guard: the executor watches pose age, frame age and
+MAVROS's time-sync offset (`time_health.py`, limits 100 ms, 250 ms and a 10 ms jump), and a
+vision mission treats UNHEALTHY as "no target": it holds, may climb to look again, and
+never descends. A blind column descent that stays held for `time_guard_hold_timeout_s`
+(default 10 s) fails the mission, so its failure policy acts. Once UNHEALTHY the guard
+holds until the time base has been healthy for a full second. What it needs to read
+HEALTHY:
+
+- MAVROS time sync running and converged (`/mavros/timesync_status`, and pose stamps that
+  are synchronised flight-controller time; for about a minute after MAVROS starts they
+  are arrival times and the guard says so).
+- Poses at 20 Hz or more: the pose-age limit is 100 ms.
+- The detector's node flag `features.stamp_from_image` on, for the frame age to be the
+  frame's. With it off the detector stamps its output with its own clock, and the guard
+  only notices a camera or detector that has stopped.
+
 Node flags are not set here. They are ROS parameters named `features.<flag>` on the node
 that uses them, declared with default `false`. Never put `features:` at the top level of a
 params file: rcl will not parse it and no node in that launch will start.

@@ -204,7 +204,7 @@ It ends with a table of flags off beside flags on, and exit code 0 only if every
 | `OK` | Flown to a disarm on the ground, and scored |
 | `TIMEOUT` | Not over within the scenario's `timeout_s` of sim time; scored as far as it got |
 | `NEVER_ARMED` | The vehicle did not arm within 300 s of sim time |
-| `INVALID` | The result does not count: Gazebo averaged below 0.8 of real time while armed (our nodes still run on the wall clock), or the scenario asks for wind or GPS faults, which the sim cannot do yet |
+| `INVALID` | The result does not count: Gazebo averaged below 0.8 of real time while armed and the run was on the wall clock; or a run on sim time failed its time check; or the scenario asks for wind or GPS faults, which the sim cannot do yet |
 | `ERROR` | The sim did not start or the flight script failed; look at `sim.log` and `fly.log` |
 
 Results go to `sim/.state/suites/<suite>-<time>/`: `summary.md`, and under `runs/` one folder per flight with `report.md`, `score.json`, `trace.jsonl` (true poses and events on sim time), `launch.log` (the mission), `sim.log` (the container) and `fly.log`.
@@ -213,6 +213,22 @@ How a flight is recorded and ended:
 - `sim/runner/fly.py` runs inside the container. It reads true poses and sim time straight from Gazebo, and arm state, the mission's release lines and the autopilot's warnings from ROS.
 - The flight ends when the vehicle has been disarmed on the ground for 5 s, or at the timeout. Both are sim time, so a slow laptop does not cut a flight short.
 - `sim/runner/gcs_audit.py` then reads MAVProxy's MAVLink log: a command from a ground station (system id 255) or an RC override during the flight is human input, and the judge takes the autonomy bonus away.
+
+## Sim time
+
+By default ROS in the sim runs on the wall clock while Gazebo, SITL and the camera's image stamps run on sim time, as in 2026. That hides timing bugs, and it is why a slow run is `INVALID`. To put everything on Gazebo's clock:
+
+```bash
+SIM_TIME=1 sim/run_sim.sh                                  # terminal 1
+sim/run_sim.sh --shell                                     # terminal 2
+ros2 launch drone_mission_demo package_delivery_demo.launch.py use_sim_time:=true
+sim/run_sim.sh --exec python3 sim/time_check.py sim/.state --duration 30   # optional: prove it
+```
+
+- `SIM_TIME=1` bridges Gazebo's clock to `/clock` (`sim/clock_bridge.py`: one message per 4 ms of sim time, because passing on all 1000 per second cost more CPU than the rest of the sim), and starts the camera bridge and MAVROS on it. MAVROS is started from `config/mavros/argus_mavros.launch.py`, which loads `config/mavros/argus_mavros.yaml` (time sync at 10 Hz) on top of MAVROS's ArduPilot defaults.
+- Every mission launch file takes `use_sim_time:=true` and passes it to all its nodes. Without the argument the nodes stay on the wall clock.
+- READY takes up to two minutes longer: the start script waits until MAVROS stamps poses with the flight controller's time (`sim/time_check.py --wait-synced`). MAVROS only applies its time-sync offset once its filter has converged.
+- A scenario asks for it with `sim_time: true`, which applies in variant `on` only. The runner then runs `sim/time_check.py` beside the flight, and the run is `INVALID` unless pose stamps agree with `/clock` within 20 ms (95th percentile), at least 100 of them are synchronised flight-controller time, and every node has `use_sim_time` true. A run on sim time is not held to the 0.8 real-time rule. `delivery/time_base` is the example; measured numbers are in [docs/results/2026-11-17-time-base.md](../docs/results/2026-11-17-time-base.md).
 
 ## Acceptance gates
 

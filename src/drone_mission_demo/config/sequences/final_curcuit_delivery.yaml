@@ -3,6 +3,7 @@ mission_sequence:
   features:
     use_frame_time_pose: false
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
   missions:
     - type: takeoff
       name: takeoff

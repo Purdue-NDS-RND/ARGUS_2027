@@ -3,6 +3,7 @@ mission_sequence:
   features:                                         # Mission feature flags; a missing flag means false.
     use_frame_time_pose: false                      # Not read by any mission yet.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
   missions:
     - type: takeoff                                # Mission type registered in the mission framework.
       name: takeoff                                # Human-readable mission instance name for logs.

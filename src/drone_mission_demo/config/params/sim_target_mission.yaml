@@ -27,6 +27,8 @@ target_cv:
     compressed_input: false
     sim_hsv: true
     min_circularity: 0.4  # 1.0 is circle-like; reject long/irregular red blobs below this.
+    features:
+      stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
 
 session_logger:
   ros__parameters:

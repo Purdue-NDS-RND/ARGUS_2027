@@ -97,13 +97,15 @@ def human_inputs(messages, ground_stations=GROUND_STATION_SYSTEMS) -> list[dict]
 
 
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
         needed.add("wind")
     if manifest.get("gps_events"):
         needed.add("gps_events")
+    if manifest.get("sim_time") is True:
+        needed.add("time_check")  # a run on sim time is checked to really be on one clock
     return needed
 
 
@@ -116,6 +118,7 @@ def unsupported(manifest: dict, tools_present) -> str:
     reasons = {
         "wind": "it asks for wind, which the sim does not apply yet (SIM-03)",
         "gps_events": "it has GPS events, which the sim cannot inject yet (SIM-04)",
+        "time_check": "it runs on sim time, and the time check that proves it (sim/time_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

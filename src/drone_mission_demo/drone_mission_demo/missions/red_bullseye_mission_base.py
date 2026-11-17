@@ -5,8 +5,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from drone_mission_core.mission_api import BaseMission
+from drone_mission_core.features import get_feature_flag
+from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.mission_context import MissionContext
+from drone_mission_core.time_guard import (
+    DEFAULT_HOLD_TIMEOUT_S,
+    TIME_HEALTH_FLAG,
+    TimeGuard,
+)
 from drone_mission_core.tracking_projection import (
     DEFAULT_CAMERA_CALIBRATION_HEIGHT_PX,
     DEFAULT_CAMERA_CALIBRATION_WIDTH_PX,
@@ -112,6 +118,10 @@ class RedBullseyeMissionBase(BaseMission):
             config.get("recovery_alt_tolerance_m", self._arrival_alt_tolerance_m)
         )
         self._failed = self._target_latitude == 0.0 and self._target_longitude == 0.0
+        # Only read with the time_health_guard flag on (FND-03).
+        self._time_guard_hold_timeout_s = float(
+            config.get("time_guard_hold_timeout_s", DEFAULT_HOLD_TIMEOUT_S)
+        )
 
     def _initialize_common_vision_state(self) -> None:
         self._actuator_requested = False
@@ -125,6 +135,58 @@ class RedBullseyeMissionBase(BaseMission):
         self._filtered_tracking_east_m: float | None = None
         self._filtered_tracking_north_m: float | None = None
         self._last_velocity_log_time: Time | None = None
+        self._time_guard = TimeGuard(self.name, self._time_guard_hold_timeout_s)
+        self._time_guard_hold: tuple[float, float, float] | None = None
+
+    def _time_is_unhealthy(self, context: MissionContext) -> bool:
+        """The stale-data guard (FND-03). Always False with its flag off."""
+        if not get_feature_flag(self.spec.features, TIME_HEALTH_FLAG):
+            return False
+        unhealthy = self._time_guard.unhealthy(context)
+        if not unhealthy:
+            self._time_guard_hold = None
+        return unhealthy
+
+    def _hold_for_time_guard(
+        self,
+        context: MissionContext,
+        column_position: tuple[float, float] | None,
+    ) -> MissionStatus:
+        """Stop a blind descent while the time base is unhealthy.
+
+        The hold point is fixed when the hold starts: the column's frozen
+        position (the vehicle's own before the column is frozen) at the
+        vehicle's own height. Not the column's height setpoint: that runs
+        ahead of the vehicle, and holding it would let the descent go on.
+        The mission fails once the hold has lasted
+        time_guard_hold_timeout_s, so the failure policy acts. The caller
+        has checked that the pose and the GPS fix exist.
+        """
+        if self._time_guard.hold_expired(context):
+            context.logger.error(
+                f"[{self.name}] time base UNHEALTHY for "
+                f"{self._time_guard_hold_timeout_s:.1f} s during a descent; failing"
+            )
+            return MissionStatus.FAILURE
+        if self._time_guard_hold is None:
+            if column_position is None:
+                column_position = (
+                    context.global_gps.latitude,
+                    context.global_gps.longitude,
+                )
+            self._time_guard_hold = (
+                column_position[0],
+                column_position[1],
+                float(context.local_pose.pose.position.z),
+            )
+        context.set_global_position_setpoint(
+            self._time_guard_hold[0],
+            self._time_guard_hold[1],
+            self._time_guard_hold[2],
+            yaw_deg=HOLD_YAW_DEG,
+            lock_yaw=True,
+        )
+        return MissionStatus.RUNNING
 
     def _enter_common_mission(self, context: MissionContext) -> None:
         context.clear_all_setpoints()
@@ -184,6 +246,8 @@ class RedBullseyeMissionBase(BaseMission):
         )
 
     def _has_recent_target_detection(self, context: MissionContext) -> bool:
+        if self._time_is_unhealthy(context):
+            return False  # an unhealthy time base is "no target" (flag on only)
         detection = context.target_detection
         if detection is None:
             return False
@@ -298,6 +362,15 @@ class RedBullseyeMissionBase(BaseMission):
     def _update_target_recovery(self, context: MissionContext) -> RecoveryCommandResult:
         if context.global_gps is None or context.local_pose is None:
             return RecoveryCommandResult(failed=False, reached_altitude=False)
+
+        if self._time_is_unhealthy(context) and self._time_guard.hold_expired(context):
+            # Flag on only. Climbing to look again does not mend a time base,
+            # and with a dead pose the climb would never be seen to finish.
+            context.logger.error(
+                f"[{self.name}] time base UNHEALTHY for "
+                f"{self._time_guard_hold_timeout_s:.1f} s; giving up the target recovery"
+            )
+            return RecoveryCommandResult(failed=True, reached_altitude=False)
 
         if self._recovery_target_altitude is None or self._recovery_hold_position is None:
             if self._recovery_attempts >= self._max_recovery_attempts:

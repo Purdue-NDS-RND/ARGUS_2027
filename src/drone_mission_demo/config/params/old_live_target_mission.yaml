@@ -54,6 +54,8 @@ target_cv:
     compressed_input: true
     sim_hsv: false
     min_circularity: 0.4
+    features:
+      stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
     hsv_blur_kernel_px: 5
     morph_kernel_px: 7
     mask_blur_kernel_px: 5

@@ -13,7 +13,7 @@ from pathlib import Path
 KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
-    "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver",
+    "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 
@@ -76,6 +76,7 @@ class Scenario:
     judge: dict
     list_file: str | None = None  # where the mission writes its judges' list (localisation)
     driver: dict | None = None  # {"tool": ..., settings}: flies the vehicle in place of a mission launch
+    sim_time: bool = False  # variant on runs the whole sim on Gazebo's clock (FND-03); off is wall time, as in 2026
     description: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -202,6 +203,10 @@ def parse_scenario(data, path: Path) -> Scenario:
             if not isinstance(point, dict) or not {"east_m", "north_m", "height_m"} <= set(point):
                 raise BuildError(f"{where}: waypoints.points[{index}] needs east_m, north_m and height_m")
 
+    sim_time = data.get("sim_time", False)
+    if not isinstance(sim_time, bool):
+        raise BuildError(f"{where}: sim_time must be true or false, got {sim_time!r}")
+
     sensor_profile = data.get("sensor_profile", "delivery")
     if sensor_profile not in SENSOR_PROFILES:
         raise BuildError(f"{where}: sensor profile '{sensor_profile}' does not exist (profiles: {', '.join(SENSOR_PROFILES)})")
@@ -233,6 +238,7 @@ def parse_scenario(data, path: Path) -> Scenario:
         judge=_mapping(data, "judge", where),
         list_file=None if data.get("list_file") is None else str(data["list_file"]),
         driver=driver,
+        sim_time=sim_time,
         description=str(data.get("description", "")),
     )
 

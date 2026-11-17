@@ -36,6 +36,7 @@ from rclpy.qos import (
 from sensor_msgs.msg import CompressedImage, Image
 from std_srvs.srv import SetBool
 
+from drone_target_cv.detection_stamp import detection_stamp
 from drone_target_cv.target_detector import (
     RedTargetDetector,
     RedTargetDetectorConfig,
@@ -52,6 +53,14 @@ class TargetCV(Node):
         self.declare_parameter("debug_view", False)
         self.declare_parameter("start_enabled", True)
         self.declare_parameter("sim_hsv", True)
+        # Off (2026): a detection is stamped with this node's clock. On: with
+        # the stamp of the image it was made from (detection_stamp.py).
+        self.declare_parameter("features.stamp_from_image", False)
+        self._stamp_from_image = (
+            self.get_parameter("features.stamp_from_image")
+            .get_parameter_value()
+            .bool_value
+        )
 
         self._image_topic = (
             self.get_parameter("image_topic").get_parameter_value().string_value
@@ -266,9 +275,13 @@ class TargetCV(Node):
         self._publish_not_found_detection()
         self.get_logger().info("Target detection disabled")
 
-    def _publish_not_found_detection(self) -> None:
+    def _publish_not_found_detection(self, image_stamp=None) -> None:
         det = PointStamped()
-        det.header.stamp = self.get_clock().now().to_msg()
+        det.header.stamp = detection_stamp(
+            image_stamp,
+            self.get_clock().now().to_msg(),
+            self._stamp_from_image,
+        )
         det.header.frame_id = "camera"
         det.point.x = -1.0
         det.point.y = -1.0
@@ -352,7 +365,13 @@ class TargetCV(Node):
             x_norm = self._normalize_offset(center_x, width)
             y_norm = self._normalize_offset(center_y, height)
             det = PointStamped()
-            det.header.stamp = self.get_clock().now().to_msg()
+            # The clock is read here, at the publish, as in 2026; it is only
+            # replaced by the image's stamp with the flag on.
+            det.header.stamp = detection_stamp(
+                header.stamp,
+                self.get_clock().now().to_msg(),
+                self._stamp_from_image,
+            )
             det.header.frame_id = "camera"
             det.point.x = x_norm
             det.point.y = y_norm
@@ -368,7 +387,7 @@ class TargetCV(Node):
             )
         else:
             self.last_detection = None
-            self._publish_not_found_detection()
+            self._publish_not_found_detection(header.stamp)
 
     def _on_image(self, msg: Image) -> None:
         try:

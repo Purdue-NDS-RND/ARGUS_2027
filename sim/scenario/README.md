@@ -23,6 +23,7 @@ RUN_DIR=sim/.state/runs/delivery-clutter-s7-on HEADLESS=1 sim/run_sim.sh      # 
 | `payload`, `bucket` | The object the mission carries, and the object recovery must bring back. Only these are the judge's payload and bucket; other packages and buckets are just on the field |
 | `coordinate_error` | Error added to those coordinates: `{east_m, north_m}`, `{radius_m}` (random bearing) or `{max_radius_m}` (random within the circle) |
 | `flags`, `node_flags` | Mission flags and `<node>: {<flag>: value}` flags, applied only with `--variant on` |
+| `sim_time` | `true`: with `--variant on` the sim runs on Gazebo's clock (`/clock`, every node on sim time, MAVROS time sync) and the run must pass `sim/time_check.py`. Default `false`: wall time, as in 2026 |
 | `objects` | The things on the field (below) |
 | `waypoints` | `{mission: <name>, points: [{name, east_m, north_m, height_m}]}`: written as that mission's waypoint file |
 | `wind` | `{level: calm, moderate or strong}`, with `direction_deg` and optional numbers; passed to the runner |

@@ -17,6 +17,14 @@
 # With a run folder (ARGUS_RUN_DIR, set by `RUN_DIR=<folder> sim/run_sim.sh`;
 # built by sim/scenario/build.py) the site is the scenario's, and the world,
 # the bridge file and the SITL parameters are the ones in that folder.
+#
+# On sim time (SIM_TIME=1, or a run folder whose scenario has sim_time: true)
+# Gazebo's clock is bridged to /clock (sim/clock_bridge.py, 250 messages per
+# sim second), and the camera bridge and MAVROS follow it
+# (use_sim_time), with MAVROS started from config/mavros/argus_mavros.launch.py
+# so its TIMESYNC with SITL is on. Mission launches then take
+# use_sim_time:=true. Without it nothing here changes: ROS runs on wall time,
+# as the 2026 sim did.
 # If any of them stops, everything stops. Logs: sim/.state/logs/<run id>/.
 set -Eeuo pipefail
 
@@ -34,8 +42,11 @@ SITE_FILE=${ARGUS_SITE_FILE:-}
 RUN_DIR=${ARGUS_RUN_DIR:-}
 BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"
 TOOLS_PORT=14552
+SIM_TIME=${SIM_TIME:-0}
 if [[ -n $RUN_DIR ]]; then
     rm -f "$RUN_DIR/READY"
+    # A scenario run is on sim time only if its run folder says so.
+    SIM_TIME=$(python3 -c 'import json, sys; print(1 if json.load(open(sys.argv[1])).get("sim_time") is True else 0)' "$RUN_DIR/scenario.json")
     SITE_FILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["site_file"])' "$RUN_DIR/scenario.json")
     BRIDGE_FILE="$RUN_DIR/bridge.yaml"
 fi
@@ -166,9 +177,14 @@ else
 fi
 
 # 4. Camera bridge
+bridge_args=(-p "config_file:=$BRIDGE_FILE")
+if [[ $SIM_TIME == 1 ]]; then
+    echo "== Sim time: bridging Gazebo's clock to /clock"
+    start clock python3 "$ARGUS_SIM/clock_bridge.py"
+    bridge_args+=(-p use_sim_time:=true)
+fi
 echo "== Starting the camera bridge"
-start bridge ros2 run ros_gz_bridge parameter_bridge \
-    --ros-args -p "config_file:=$BRIDGE_FILE"
+start bridge ros2 run ros_gz_bridge parameter_bridge --ros-args "${bridge_args[@]}"
 
 # 5. SITL. Home goes at the world origin so GPS and Gazebo positions agree.
 location=$(python3 - "$WORLD_FILE" <<'EOF'
@@ -216,8 +232,14 @@ start sitl env -u PYTHONNOUSERSITE sim_vehicle.py "${sitl_args[@]}"
 cd "$ARGUS_REPO"
 
 # 6. MAVROS
-echo "== Starting MAVROS"
-start mavros "$ARGUS_REPO/mavros_boot.sh" sim
+if [[ $SIM_TIME == 1 ]]; then
+    echo "== Starting MAVROS on sim time (config/mavros/argus_mavros.yaml)"
+    start mavros ros2 launch "$ARGUS_REPO/config/mavros/argus_mavros.launch.py" \
+        fcu_url:=udp://:14551@ use_sim_time:=true
+else
+    echo "== Starting MAVROS"
+    start mavros "$ARGUS_REPO/mavros_boot.sh" sim
+fi
 
 # Wait for MAVROS to see the autopilot.
 echo "   waiting up to 120s for /mavros/state connected..."
@@ -299,6 +321,20 @@ else
     grep -E "PreArm|Arm:" "$LOG_DIR/mavros.log" | tail -n 3 || true
 fi
 
+# On sim time, also wait until MAVROS stamps poses with the flight
+# controller's time: it only applies its time-sync offset once the
+# synchroniser has converged, which in the sim takes about two minutes from
+# MAVROS's start (docs/results/2026-11-17-time-base.md).
+if [[ $SIM_TIME == 1 ]]; then
+    echo "   waiting up to 300s for MAVROS's time sync to be applied..."
+    check_alive
+    if python3 "$ARGUS_SIM/time_check.py" --wait-synced 300 2>&1 | tee "$LOG_DIR/time_sync_wait.log" | sed 's/^/   /' && [[ ${PIPESTATUS[0]} == 0 ]]; then
+        echo "   time sync applied after ${SECONDS}s."
+    else
+        echo "   WARNING: MAVROS's pose stamps are still arrival times, not synchronised flight-controller time."
+    fi
+fi
+
 if [[ -n $RUN_DIR ]]; then
     date -u +%Y-%m-%dT%H:%M:%SZ >"$RUN_DIR/READY"  # sim/run_scenarios.sh waits for this file
 fi
@@ -306,7 +342,7 @@ cat <<EOF
 
 == READY. In another terminal:
      sim/run_sim.sh --shell
-     ros2 launch drone_mission_demo package_delivery_demo.launch.py
+     ros2 launch drone_mission_demo package_delivery_demo.launch.py$([[ $SIM_TIME == 1 ]] && echo ' use_sim_time:=true')
    QGroundControl on the host connects on UDP 14550.
    Ctrl+C here stops everything.
 

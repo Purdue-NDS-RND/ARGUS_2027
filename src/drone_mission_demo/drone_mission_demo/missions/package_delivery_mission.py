@@ -279,6 +279,14 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
             return MissionStatus.RUNNING
 
         self._touchdown_debounce_start = None
+        if self._time_is_unhealthy(context):
+            # Flag on only: no descent on an unhealthy time base. The vehicle
+            # holds its height, and the column carries on when it clears.
+            self._final_descent_last_update = None
+            return self._hold_for_time_guard(
+                context,
+                self._final_descent_hold_position,
+            )
         if self._final_descent_hold_position is None:
             self._final_descent_hold_position = (
                 context.global_gps.latitude,

@@ -13,6 +13,8 @@ target_cv:
     min_cluster_area_px: 0.0
     min_detection_confidence: 0.25
     min_circularity: 0.4
+    features:
+      stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
     min_solid_score: 0.0
     min_bullseye_score: 0.0
 

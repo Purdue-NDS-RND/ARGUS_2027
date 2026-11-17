@@ -25,6 +25,7 @@ from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
 from .safety_limits import enforced_violations
+from .time_guard import attach_time_health
 
 
 class MissionExecutorNode(Node):
@@ -114,6 +115,11 @@ class MissionExecutorNode(Node):
 
         self._mission_context = MissionContext(self)
         self._sequence = self._load_sequence()
+        # None unless a mission has the time_health_guard flag on: then the
+        # stale-data guard's monitor, fed by its own subscriptions.
+        self._time_health = attach_time_health(
+            self, [mission.spec for mission in self._sequence]
+        )
         self._active_index = 0
         self._active_mission = None
         self._abort_requested = False

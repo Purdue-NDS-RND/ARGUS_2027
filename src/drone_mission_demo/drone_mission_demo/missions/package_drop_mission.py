@@ -225,6 +225,15 @@ class PackageDropMission(RedBullseyeMissionBase):
         if context.global_gps is None or context.local_pose is None:
             return MissionStatus.WAITING
 
+        if self._time_is_unhealthy(context):
+            # Flag on only: no descent on an unhealthy time base. The vehicle
+            # holds its height, and the column carries on when it clears.
+            self._drop_column_last_update = None
+            return self._hold_for_time_guard(
+                context,
+                self._drop_column_hold_position,
+            )
+
         if self._drop_column_hold_position is None:
             self._drop_column_hold_position = (
                 context.global_gps.latitude,

@@ -14,11 +14,15 @@ The run folder (default sim/.state/runs/<mission>-<name>-s<seed>-<variant>) gets
   params.yaml    the ROS params file, with node flags set in variant on
   truth.json     where everything really is, for the judge
   judge.yaml     which judge scores it, and its settings
-  scenario.json  what the runner needs: launch, timeout, wind, GPS events
+  scenario.json  what the runner needs: launch, timeout, wind, GPS events,
+                 and whether the sim runs on sim time
 
 Variant "off" leaves every flag false: that is the 2026 behaviour. Flags are
 only ever switched on in these generated copies; a flag that no shipped file
 declares fails the build, as does a setting or a config key nothing reads.
+A scenario with `sim_time: true` runs on Gazebo's clock in variant "on" (the
+sim's start script and the mission launch read it from scenario.json); in
+variant "off" it runs on wall time like every other.
 """
 
 from __future__ import annotations
@@ -357,6 +361,10 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             truth[kind] = {"name": name, "mass_kg": float(found.get("mass_kg", default_mass)), "e": found["e"], "n": found["n"]}
 
     root = {} if sequence is None else sequence.get("mission_sequence", sequence)
+    sim_time = scenario.sim_time and flags_on
+    launch_arguments = {"sequence": str(run_dir / "sequence.yaml"), "params": str(run_dir / "params.yaml")}
+    if sim_time:
+        launch_arguments["use_sim_time"] = "true"
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,
@@ -367,13 +375,14 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "variant": variant,
         "flags": dict(scenario.flags) if flags_on else {},
         "node_flags": copy.deepcopy(scenario.node_flags) if flags_on else {},
+        "sim_time": sim_time,
         "timeout_s": scenario.timeout_s,
         "launch": None
         if launch is None
         else {
             "package": "drone_mission_demo",
             "file": launch,
-            "arguments": {"sequence": str(run_dir / "sequence.yaml"), "params": str(run_dir / "params.yaml")},
+            "arguments": launch_arguments,
         },
         "driver": _driver(scenario, site_path, run_dir),
         "vehicle": {"model": profile["model"], "bridge": str(run_dir / "bridge.yaml"), "sensor_profile": scenario.sensor_profile},

@@ -1,7 +1,8 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -48,6 +49,17 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "use_sim_time",
+                default_value="false",
+                description="Run every node of this launch on /clock (the sim started with SIM_TIME=1)",
+            ),
+            # Adds nothing to any node unless use_sim_time is true.
+            SetParameter(
+                name="use_sim_time",
+                value=True,
+                condition=IfCondition(LaunchConfiguration("use_sim_time")),
+            ),
             DeclareLaunchArgument(
                 "feature_overrides",
                 default_value="",

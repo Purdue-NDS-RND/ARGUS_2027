@@ -35,8 +35,9 @@ from runner.trace import TraceWriter  # noqa: E402
 from runner.watch import DONE, EndWatch  # noqa: E402
 
 # Tools a scenario may need, started with the run folder as their argument
-# and stopped when the flight ends. They arrive with SIM-03 and SIM-04.
-TOOLS = {"wind": SIM_DIR / "wind.py", "gps_events": SIM_DIR / "inject.py"}
+# and stopped when the flight ends. Wind and GPS events arrive with SIM-03
+# and SIM-04; the time check runs beside every flight on sim time (FND-03).
+TOOLS = {"wind": SIM_DIR / "wind.py", "gps_events": SIM_DIR / "inject.py", "time_check": SIM_DIR / "time_check.py"}
 CLOCK_MARK_S = 5.0
 STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded
 
@@ -136,7 +137,14 @@ def fly(run_dir: Path) -> dict:
         time.sleep(0.1)
 
     rclpy.init()
-    node = rclpy.create_node("argus_scenario_recorder")
+    overrides = []
+    if manifest.get("sim_time") is True:
+        # The recorder takes its time from Gazebo directly; this only keeps
+        # "every node is on sim time" true of the whole graph.
+        from rclpy.parameter import Parameter
+
+        overrides = [Parameter("use_sim_time", value=True)]
+    node = rclpy.create_node("argus_scenario_recorder", parameter_overrides=overrides)
     watch = EndWatch(recorder.now, timeout_s=float(manifest["timeout_s"]), height=recorder.height)
     arm = events.ArmWatcher()
     modes = events.ModeWatcher()

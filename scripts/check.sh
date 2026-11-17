@@ -88,11 +88,14 @@ fi
 
 run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projection.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_time_health.py
+run_test src/drone_target_cv src/drone_target_cv/test/test_detection_stamp.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
 run_test "" src/argus_interfaces/test/test_interface_files.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
+run_test "" src/drone_mission_demo/test/test_time_guard_missions.py
 run_test scripts scripts/test/test_pr_checks.py
 run_test scripts scripts/test/test_secret_scan.py
 run_test "" scripts/test/test_check_coverage.py
@@ -120,6 +123,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_safety_limits.py
     run_test "" src/drone_mission_core/test/test_executor_feature_overrides.py
+    run_test "" src/drone_mission_core/test/test_executor_time_health.py
     run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
@@ -134,6 +138,7 @@ else
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
     run_test "" sim/test/test_gates.py
+    run_test "" sim/test/test_time_base.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

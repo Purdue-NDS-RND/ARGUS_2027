@@ -9,7 +9,8 @@ Statuses:
   TIMEOUT      the flight did not end within the scenario's timeout (sim time); scored as far as it got
   NEVER_ARMED  the vehicle did not arm
   INVALID      flown, but the result does not count: the sim ran below 0.8 of
-               real time, or the scenario needs something the sim cannot do yet
+               real time on wall-clock nodes, a run on sim time failed its time
+               check, or the scenario needs something the sim cannot do yet
   ERROR        the sim or the flight script failed
 """
 
@@ -24,14 +25,16 @@ SIM_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM_DIR))
 
 from judge.record import Record  # noqa: E402
+from time_check import read_time_check  # noqa: E402
 
 if __package__ in (None, ""):
     from runner.trace import real_time_factor  # noqa: E402
 else:
     from .trace import real_time_factor  # noqa: E402
 
-# Our nodes still run on the wall clock (until FND-03), so a slow sim changes
-# what they do: such a run is not a fair test.
+# On the wall clock a slow sim changes what our nodes do, so such a run is not
+# a fair test. A run on sim time (FND-03) has no such limit; it has to pass
+# its time check instead, which shows every node really was on the sim clock.
 MIN_REAL_TIME_FACTOR = 0.8
 
 
@@ -87,6 +90,8 @@ def run_result(run_dir: Path) -> dict:
         "base_points": None,
         "headline": "",
         "real_time_factor": None,
+        "sim_time": manifest.get("sim_time") is True,
+        "time_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -122,6 +127,10 @@ def run_result(run_dir: Path) -> dict:
                 result["flight_s"] = t_end - t_arm
             result["real_time_factor"] = real_time_factor(record, t_arm, t_end)
 
+    if result["sim_time"]:
+        result["time_check"] = read_time_check(run_dir)
+    time_check = result["time_check"]
+
     outcome = (flight or {}).get("outcome")
     rtf = result["real_time_factor"]
     if flight is None:
@@ -136,6 +145,13 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="TIMEOUT", reason=f"the flight did not end within {manifest.get('timeout_s')} s of sim time")
     elif outcome != "DONE":
         result["reason"] = f"the flight script reported '{outcome}'"
+    elif result["sim_time"] and time_check is None:
+        result.update(status="INVALID", reason="the run was on sim time but left no time check (time_check.json), so nothing shows its nodes shared one clock")
+    elif result["sim_time"] and not time_check["passed"]:
+        problems = time_check.get("problems") or ["no reason given"]
+        result.update(status="INVALID", reason="the run was on sim time but failed its time check: " + "; ".join(problems))
+    elif result["sim_time"]:
+        result["status"] = "OK"
     elif rtf is None:
         result.update(status="INVALID", reason="no clock marks in the trace, so the real-time factor is unknown")
     elif rtf < MIN_REAL_TIME_FACTOR:
@@ -147,6 +163,17 @@ def run_result(run_dir: Path) -> dict:
 
 def _number(value, pattern: str = "{:.2f}") -> str:
     return "n/a" if value is None else pattern.format(value)
+
+
+def _time_check_rows(result: dict) -> list[str]:
+    """Report rows for a run on sim time: how well pose stamps agreed with /clock."""
+    if not result.get("sim_time"):
+        return []
+    pose = (result.get("time_check") or {}).get("pose") or {}
+    if not pose.get("count"):
+        return ["| Pose stamps against the sim clock | no time check |"]
+    verdict = "PASS" if result["time_check"]["passed"] else "FAIL"
+    return [f"| Pose stamps against the sim clock | {verdict}: p95 {pose['p95_abs_ms']:.1f} ms, max {pose['max_abs_ms']:.1f} ms over {pose['count']} poses (limit 20 ms) |"]
 
 
 def render_report(result: dict) -> str:
@@ -164,6 +191,7 @@ def render_report(result: dict) -> str:
         f"| Result | {result['headline'] or 'n/a'} |",
         f"| Flight time, arm to disarm (sim time) | {_number(result['flight_s'], '{:.0f} s')} |",
         f"| Real-time factor while armed | {_number(result['real_time_factor'])} |",
+        *_time_check_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",
