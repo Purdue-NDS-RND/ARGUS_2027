@@ -47,7 +47,11 @@ def test_argus_mavros_config_is_a_params_file_without_feature_flags():
 def test_argus_mavros_launch_loads_the_argus_config_last_and_takes_use_sim_time():
     source = MAVROS_LAUNCH.read_text()
     tree = ast.parse(source)
-    node = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "Node")
+    node = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "Node" and any(kw.arg == "executable" and getattr(kw.value, "value", "") == "mavros_node" for kw in n.keywords)
+    )
     parameters = next(kw.value for kw in node.keywords if kw.arg == "parameters")
     order = [ast.unparse(item) for item in parameters.elts]
     assert "apm_pluginlists.yaml" in order[0] and "apm_config.yaml" in order[1]
@@ -98,6 +102,10 @@ def test_start_script_is_on_wall_time_unless_asked():
     assert sim_time_only == 3  # the clock bridge, MAVROS, and the wait for time sync
     assert 'start clock python3 "$ARGUS_SIM/clock_bridge.py"' in START
     assert "use_sim_time:=true" in START and "argus_mavros.launch.py" in START and "--wait-synced" in START
+    # On sim time MAVROS is on SITL's own second serial port, with the stream keeper (PLT-06).
+    assert "MAVROS_PORT=5762" in START
+    assert '"fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" use_sim_time:=true stream_keeper:=true' in START
+    assert START.count("stream_keeper:=true") == 1 and START.count("tcp://") == 1
     assert "SIM_TIME: ${SIM_TIME:-0}" in (SIM / "compose.yaml").read_text()
 
 
@@ -220,7 +228,7 @@ def test_verdict_passes_when_stamps_agree_time_sync_runs_and_every_node_is_on_si
         ({"rate": None}, "did not report its timesync_rate"),
         ({"nodes": {**GOOD_NODES, "/target_cv": False}}, "/target_cv is on wall time"),
         ({"nodes": {**GOOD_NODES, "/session_logger": None}}, "/session_logger did not report"),
-        ({"nodes": {"/launch_ros_1": True}}, "no ROS nodes"),
+        ({"nodes": {"/launch_ros_1": True, "/argus_rate_check": False}}, "no ROS nodes"),
     ],
 )
 def test_verdict_fails_and_says_why(change, word):
@@ -283,6 +291,7 @@ def test_sim_time_must_be_true_or_false(tmp_path, value):
 def test_shipped_time_base_scenario_is_the_delivery_baseline_on_one_clock(tmp_path):
     scenario, baseline = yaml.safe_load(TIME_BASE.read_text()), yaml.safe_load(DELIVERY.read_text())
     assert scenario["sim_time"] is True
+    assert "flags" not in scenario  # the stale-data guard stays off until frames are fresh enough in the sim
     assert scenario["node_flags"] == {"target_cv": {"stamp_from_image": True}}
     for key in ("mission", "site", "sequence", "params", "targets", "objects", "wind"):
         assert scenario[key] == baseline[key], key
@@ -297,22 +306,44 @@ def test_a_sim_time_run_gets_the_time_check_beside_it():
     calm = {"wind": {"level": "calm", "mean_mps": 0.0, "gust_mps": 0.0, "discrete_gust_mps": 0.0}, "gps_events": []}
     assert events.tools_needed(calm) == set()
     assert events.tools_needed({**calm, "sim_time": False}) == set()
-    assert events.tools_needed({**calm, "sim_time": True}) == {"time_check"}
-    assert "time check" in events.unsupported({**calm, "sim_time": True}, set())
-    assert events.unsupported({**calm, "sim_time": True}, {"time_check"}) == ""
+    assert events.tools_needed({**calm, "sim_time": True}) == {"time_check", "rate_check"}
+    assert "time check" in events.unsupported({**calm, "sim_time": True}, {"rate_check"})
+    assert "rate check" in events.unsupported({**calm, "sim_time": True}, {"time_check"})
+    assert events.unsupported({**calm, "sim_time": True}, {"time_check", "rate_check"}) == ""
     fly = (SIM / "runner" / "fly.py").read_text()
-    assert '"time_check": SIM_DIR / "time_check.py"' in fly
+    assert '"time_check": SIM_DIR / "time_check.py"' in fly and '"rate_check": SIM_DIR / "rate_check.py"' in fly
 
 
 PASSED = {"passed": True, "problems": [], "pose": {"count": 4000, "median_ms": 4.0, "p95_abs_ms": 5.3, "max_abs_ms": 6.6}}
 FAILED = {"passed": False, "problems": ["node /target_cv is on wall time (use_sim_time is false)"], "pose": {"count": 4000, "median_ms": 4.0, "p95_abs_ms": 5.3, "max_abs_ms": 6.6}}
 
 
-def sim_time_run(tmp_path, report, rtf=0.95):
+RATES_HELD = {"passed": True, "problems": [], "topics": {"/mavros/local_position/pose": {"measured_hz": 30.2, "asked_hz": 30.0, "status": "PASS"}}}
+RATES_LOST = {
+    "passed": False,
+    "problems": ["/mavros/local_position/pose is at 4.2 Hz, under 90% of the 30 Hz asked (LOCAL_POSITION_NED)"],
+    "topics": {"/mavros/local_position/pose": {"measured_hz": 4.2, "asked_hz": 30.0, "status": "FAIL"}},
+}
+
+
+def sim_time_run(tmp_path, report, rtf=0.95, rates=RATES_HELD):
     run = make_run(tmp_path, rtf=rtf, score=SCORE, manifest={"variant": "on", "sim_time": True})
     if report is not None:
         (run / "time_check.json").write_text(json.dumps(report))
+    if rates is not None:
+        (run / "rate_check.json").write_text(json.dumps(rates))
     return run
+
+
+@pytest.mark.parametrize("rates, word", [(RATES_LOST, "pose is at 4.2 Hz"), (None, "no rate check")])
+def test_sim_time_run_whose_message_rates_were_not_held_is_invalid(tmp_path, rates, word):
+    summary = result.run_result(sim_time_run(tmp_path, PASSED, rates=rates))
+    assert summary["status"] == "INVALID" and word in summary["reason"]
+
+
+def test_sim_time_report_shows_the_measured_rates(tmp_path):
+    report = result.render_report(result.run_result(sim_time_run(tmp_path, PASSED)))
+    assert "| MAVROS message rates (sim time) | PASS: local_position 30.2 Hz |" in report
 
 
 def test_sim_time_run_with_a_passing_time_check_is_ok_and_reports_it(tmp_path):

@@ -10,7 +10,8 @@ Statuses:
   NEVER_ARMED  the vehicle did not arm
   INVALID      flown, but the result does not count: the sim ran below 0.8 of
                real time on wall-clock nodes, a run on sim time failed its time
-               check, or the scenario needs something the sim cannot do yet
+               check or its rate check, or the scenario needs something the
+               sim cannot do yet
   ERROR        the sim or the flight script failed
 """
 
@@ -25,6 +26,7 @@ SIM_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM_DIR))
 
 from judge.record import Record  # noqa: E402
+from rate_check import read_rate_check  # noqa: E402
 from time_check import read_time_check  # noqa: E402
 
 if __package__ in (None, ""):
@@ -92,6 +94,7 @@ def run_result(run_dir: Path) -> dict:
         "real_time_factor": None,
         "sim_time": manifest.get("sim_time") is True,
         "time_check": None,
+        "rate_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -129,7 +132,8 @@ def run_result(run_dir: Path) -> dict:
 
     if result["sim_time"]:
         result["time_check"] = read_time_check(run_dir)
-    time_check = result["time_check"]
+        result["rate_check"] = read_rate_check(run_dir)
+    time_check, rate_check = result["time_check"], result["rate_check"]
 
     outcome = (flight or {}).get("outcome")
     rtf = result["real_time_factor"]
@@ -150,6 +154,11 @@ def run_result(run_dir: Path) -> dict:
     elif result["sim_time"] and not time_check["passed"]:
         problems = time_check.get("problems") or ["no reason given"]
         result.update(status="INVALID", reason="the run was on sim time but failed its time check: " + "; ".join(problems))
+    elif result["sim_time"] and rate_check is None:
+        result.update(status="INVALID", reason="the run was on sim time but left no rate check (rate_check.json), so nothing shows MAVROS's message rates were held")
+    elif result["sim_time"] and not rate_check["passed"]:
+        problems = rate_check.get("problems") or ["no reason given"]
+        result.update(status="INVALID", reason="the run was on sim time but MAVROS's message rates were not held: " + "; ".join(problems))
     elif result["sim_time"]:
         result["status"] = "OK"
     elif rtf is None:
@@ -173,7 +182,14 @@ def _time_check_rows(result: dict) -> list[str]:
     if not pose.get("count"):
         return ["| Pose stamps against the sim clock | no time check |"]
     verdict = "PASS" if result["time_check"]["passed"] else "FAIL"
-    return [f"| Pose stamps against the sim clock | {verdict}: p95 {pose['p95_abs_ms']:.1f} ms, max {pose['max_abs_ms']:.1f} ms over {pose['count']} poses (limit 20 ms) |"]
+    rows = [f"| Pose stamps against the sim clock | {verdict}: p95 {pose['p95_abs_ms']:.1f} ms, max {pose['max_abs_ms']:.1f} ms over {pose['count']} poses (limit 20 ms) |"]
+    rates = result.get("rate_check")
+    if rates is None:
+        rows.append("| MAVROS message rates (sim time) | no rate check |")
+    else:
+        measured = ", ".join(f"{topic.split('/')[2]} {row['measured_hz']:.1f} Hz" for topic, row in rates.get("topics", {}).items())
+        rows.append(f"| MAVROS message rates (sim time) | {'PASS' if rates['passed'] else 'FAIL'}: {measured} |")
+    return rows
 
 
 def render_report(result: dict) -> str:

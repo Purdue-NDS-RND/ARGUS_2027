@@ -13,6 +13,7 @@ nightly:
   scenarios:
     - delivery/baseline
     - delivery/clutter
+    - delivery/time_base
     - drop/baseline
     - waypoint_navigation/site_circuit
     - geofence/breach

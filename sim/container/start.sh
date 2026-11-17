@@ -22,7 +22,8 @@
 # Gazebo's clock is bridged to /clock (sim/clock_bridge.py, 250 messages per
 # sim second), and the camera bridge and MAVROS follow it
 # (use_sim_time), with MAVROS started from config/mavros/argus_mavros.launch.py
-# so its TIMESYNC with SITL is on. Mission launches then take
+# on SITL's own second serial port (TCP 5762, not through MAVProxy), with its
+# TIMESYNC on and the stream keeper holding the message rates. Mission launches then take
 # use_sim_time:=true. Without it nothing here changes: ROS runs on wall time,
 # as the 2026 sim did.
 # If any of them stops, everything stops. Logs: sim/.state/logs/<run id>/.
@@ -42,6 +43,7 @@ SITE_FILE=${ARGUS_SITE_FILE:-}
 RUN_DIR=${ARGUS_RUN_DIR:-}
 BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"
 TOOLS_PORT=14552
+MAVROS_PORT=5762  # SITL's SERIAL1, used by MAVROS on sim time
 SIM_TIME=${SIM_TIME:-0}
 if [[ -n $RUN_DIR ]]; then
     rm -f "$RUN_DIR/READY"
@@ -233,9 +235,24 @@ cd "$ARGUS_REPO"
 
 # 6. MAVROS
 if [[ $SIM_TIME == 1 ]]; then
-    echo "== Starting MAVROS on sim time (config/mavros/argus_mavros.yaml)"
+    # MAVROS goes straight to SITL's second serial port, as it is wired to the
+    # flight controller on the aircraft. Through MAVProxy every message is
+    # relayed by a Python process, and MAVProxy's own stream requests replace
+    # ours (poses came at 4 Hz). Nothing is sent on this port until it is
+    # asked for, which is the stream keeper's job.
+    echo "   waiting up to 120s for SITL's second serial port (TCP $MAVROS_PORT)..."
+    deadline=$((SECONDS + 120))
+    until grep -q "SERIAL1 on TCP port $MAVROS_PORT" "$LOG_DIR/arducopter.log" 2>/dev/null; do
+        check_alive
+        if ((SECONDS >= deadline)); then
+            echo "ERROR: SITL did not open TCP $MAVROS_PORT within 120s." >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    echo "== Starting MAVROS on sim time (config/mavros/argus_mavros.yaml) with the stream keeper"
     start mavros ros2 launch "$ARGUS_REPO/config/mavros/argus_mavros.launch.py" \
-        fcu_url:=udp://:14551@ use_sim_time:=true
+        "fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" use_sim_time:=true stream_keeper:=true
 else
     echo "== Starting MAVROS"
     start mavros "$ARGUS_REPO/mavros_boot.sh" sim

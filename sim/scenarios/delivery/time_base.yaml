@@ -1,14 +1,19 @@
-# The 2026 delivery with the whole sim on one clock (FND-03). In variant "on"
-# Gazebo's clock is bridged to /clock, every node runs on sim time, MAVROS
-# stamps poses with time-synchronised flight-controller time, and the
-# detector stamps each detection with its image's stamp. sim/time_check.py
-# runs beside the flight and the run only counts if pose stamps agree with
-# /clock within 20 ms. Variant "off" is the plain 2026 baseline on wall time.
+# The 2026 delivery with the whole sim on one clock (FND-03, PLT-06). In
+# variant "on" Gazebo's clock is bridged to /clock, every node runs on sim
+# time, MAVROS is on SITL's own serial port with the stream keeper holding
+# the message rates (pose 30 Hz), it stamps poses with time-synchronised
+# flight-controller time, and the detector stamps each detection with its
+# image's stamp. sim/time_check.py runs beside the flight and the run only
+# counts if pose stamps agree with the sim clock within 20 ms.
+# Variant "off" is the plain 2026 baseline on wall time.
 #
-# The missions' stale-data guard (flag time_health_guard) is not on here yet:
-# it needs poses at 20 Hz or more, and the sim delivers 4 Hz until PLT-06's
-# stream keeper holds the rate. PLT-06 adds the flag to this scenario.
-description: 2026 delivery mission on sim time, detections stamped with their image's time.
+# The missions' stale-data guard (flag time_health_guard) is not on here.
+# Flown with it on, the 2026 delivery never got down: on a club laptop a
+# frame is 250 to 280 ms old by the time the mission can use its detection,
+# against the guard's 250 ms limit (docs/results/2026-11-17-mavros-rates.md).
+# The camera and detector work of FND-01 and PLT-03 has to bring that down
+# before the flag can be added here.
+description: 2026 delivery mission on sim time, MAVROS rates held, detections stamped with their image's time.
 mission: delivery
 site: apollo_xi
 seed: 1

@@ -155,6 +155,14 @@ Disable it with `log_session:=false`. Logger settings come from the
 
 ---
 
+### `stream_keeper`
+
+Keeps the MAVLink message rates the 2027 stack needs: `LOCAL_POSITION_NED` 30 Hz, `ATTITUDE` 50 Hz, `RANGEFINDER` 20 Hz, `GPS_RAW_INT` 5 Hz and `BATTERY_STATUS` 2 Hz, plus three at the rates the 2026 start-up gives them: `GLOBAL_POSITION_INT` 20 Hz, `EXTENDED_SYS_STATE` 2 Hz and `SYS_STATUS` 2 Hz. It is not part of the 2026 start-up: `config/mavros/argus_mavros.launch.py` starts it with `stream_keeper:=true`.
+
+- Each rate is requested as `MAV_CMD_SET_MESSAGE_INTERVAL` through `/mavros/cmd/command` when MAVROS connects, again after a reboot (MAVROS reconnecting, or the flight controller's clock on `/mavros/timesync_status` going back by more than a second), and every 10 s regardless. The repeat is what undoes anything else that sets rates, such as `simple_takeoff_service` asking for all streams at 20 Hz.
+- One request is out at a time, and after a refused or unanswered one the keeper asks for nothing for 5 s. MAVROS serves every command in turn, the gripper's and the arming request included, and waits up to 5 s for each acknowledgement, so a burst of requests would queue ahead of a command that matters. It does not use MAVROS's `set_message_interval` service: that one blocks the group that also serves `set_mode` for a second per call.
+- The table and the timing are in `drone_utils/stream_keeper.py`, with no ROS in it; `stream_keeper_node.py` is the wrapper.
+
 ## Library Module
 
 ### `sdf_objects.py`

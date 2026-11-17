@@ -36,8 +36,14 @@ from runner.watch import DONE, EndWatch  # noqa: E402
 
 # Tools a scenario may need, started with the run folder as their argument
 # and stopped when the flight ends. Wind and GPS events arrive with SIM-03
-# and SIM-04; the time check runs beside every flight on sim time (FND-03).
-TOOLS = {"wind": SIM_DIR / "wind.py", "gps_events": SIM_DIR / "inject.py", "time_check": SIM_DIR / "time_check.py"}
+# and SIM-04; the time check and the rate check run beside every flight on
+# sim time (FND-03, PLT-06).
+TOOLS = {
+    "wind": SIM_DIR / "wind.py",
+    "gps_events": SIM_DIR / "inject.py",
+    "time_check": SIM_DIR / "time_check.py",
+    "rate_check": SIM_DIR / "rate_check.py",
+}
 CLOCK_MARK_S = 5.0
 STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded
 

@@ -173,9 +173,9 @@
       "land": "L04",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_stream_keeper 21, test_rate_check 6, test_time_base). Sim: sim/run_scenarios.sh delivery/time_base --variants on -> OK, 0.02 m; in flight pose 29.9 Hz, attitude 48.7 Hz, rangefinder 20.0, GPS 5.8, battery 2.9, global position 20.0, landed state 2.0, sys status 3.0 Hz; pose stamps 4.6 ms from the sim clock at p95; no MAVROS service timeouts; 12 plugins loaded. docs/results/2026-11-17-mavros-rates.md. Left for the lead (bench, Needs a person): reboot the flight controller and see the keeper detect it (the sim hides both signals; rates did return after a SITL reboot through the 10 s repeat); check the aircraft firmware accepts all eight rates; time a real release with the keeper running. Left for the session: PLT-07 starts the keeper on the aircraft; FND-01/PLT-03 bring sim frame age under 250 ms before time_health_guard goes on in delivery/time_base",
       "blocked_reason": ""
     },
     {

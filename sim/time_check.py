@@ -61,7 +61,9 @@ SWEEP_EVERY_S = 10.0  # wall seconds between looks at the nodes' parameters
 # Two more answer no parameter request: tf2's listener helper inside MAVROS is
 # never spun, and MAVROS's /mavros/param serves the flight controller's
 # parameters in place of its own.
-IGNORED_NODE_PREFIXES = ("/launch_ros_", "/_", "/transform_listener_impl_", "/mavros/param")
+# And the rate check (sim/rate_check.py), which like this script is on the
+# wall clock on purpose and takes its time from Gazebo.
+IGNORED_NODE_PREFIXES = ("/launch_ros_", "/_", "/transform_listener_impl_", "/mavros/param", "/argus_rate_check")
 SYNCED_IN_A_ROW = 20  # poses, for --wait-synced
 
 

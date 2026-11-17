@@ -1,8 +1,29 @@
-# ARGUS settings for MAVROS, loaded after MAVROS's own apm_config.yaml by
-# config/mavros/argus_mavros.launch.py, so a key here wins.
-#
-# FND-03 owns the requirement in the sys_time block; PLT-06 owns this file
-# and adds the rest (plugin list, message rates).
+# ARGUS settings for MAVROS, loaded after MAVROS's own apm_pluginlists.yaml
+# and apm_config.yaml by config/mavros/argus_mavros.launch.py, so a key here
+# wins. PLT-06 owns this file; FND-03 owns the requirement in the sys_time
+# block. The message rates are not here: they are requested from the flight
+# controller by the stream keeper (src/drone_utils/drone_utils/stream_keeper.py).
+
+# Only the plugins we use. MAVROS loads a plugin the deny-list matches only
+# if the allow-list names it, so "*" plus this list is exactly this list.
+# Using a new /mavros/... topic or service means adding its plugin here
+# (src/drone_utils/test/test_stream_keeper.py checks).
+/**:
+  ros__parameters:
+    plugin_denylist: ["*"]
+    plugin_allowlist:
+      - sys_status          # state, extended_state, statustext, sys_status, battery, set_mode, set_stream_rate, set_message_interval
+      - sys_time            # time sync with the flight controller, timesync_status
+      - command             # cmd/command, cmd/arming, cmd/takeoff
+      - local_position      # local_position/pose and velocity
+      - global_position     # global_position/global, compass_hdg
+      - home_position       # home_position/home
+      - imu                 # imu/data
+      - setpoint_raw        # setpoint_raw/local, global, attitude
+      - setpoint_position   # setpoint_position/local
+      - rangefinder         # rangefinder/rangefinder
+      - gps_status          # gpsstatus/gps1/raw
+      - gimbal_control      # gimbal_control/manager/pitchyaw
 
 # sys_time: MAVROS exchanges TIMESYNC with the flight controller and stamps
 # every message it publishes (pose, IMU, GPS) with the time the flight
