@@ -291,3 +291,49 @@ sim/run_sim.sh --exec python3 sim/orientation_check.py --direction north
 ```
 
 Each run ends with `PASS` or `FAIL` and the numbers. Run both after any change to the camera model.
+
+## Recording and replay
+
+`sim/replay/` records a flight's topics, in the sim and on the aircraft, and runs the flight code on the recording again, on the bench (SIM-09).
+
+**Record.** In the sim, add `--record` to any scenario run; the run folder gets a `bag/`:
+
+```
+sim/run_scenarios.sh delivery/baseline --record
+```
+
+Anywhere else (the aircraft, a hand-flown sim), with the nodes already running:
+
+```
+ros2 launch sim/replay/record.launch.py out:=/path/to/bag            # MCAP, wall time
+ros2 launch sim/replay/record.launch.py out:=bag storage:=sqlite3 use_sim_time:=true
+ros2 launch sim/replay/record.launch.py out:=bag tap_images:=/camera/image,/target_cv/annotated     # with frame taps: the bench
+```
+
+What is recorded is one list, `sim/replay/topics.py`: MAVROS pose, velocity, IMU, GPS, state, rangefinder and setpoints (servo outputs join the list with SIM-06, which decides how they reach ROS); camera info, under the 2026 name and the 2027 driver's; the 2026 detection topics and every detector on the contract; the estimator's tracks. Images are not recorded, and nothing writes frames to disk during a recording yet (`argus_camera`'s frame log is the writer for that; it is not wired to the driver).
+
+A **frame tap** (`taps.py`) puts one small message in the bag for every frame seen on an image topic, so the bag says when each frame arrived. The sim's `--record` taps `/camera/image` and `/target_cv/annotated`, and on a wall-time run Gazebo's clock (`/replay/sim_clock`). The launch file taps nothing unless `tap_images:=` names topics: a tap is one more subscriber, and on the aircraft nothing else listens to the raw `/camera/image`, so a tap makes the 2026 grabber deliver every raw frame, before the compressed frame the detector reads. Record a flight that counts without taps until the cost has been measured on the Jetson.
+
+MCAP needs rosbag2's MCAP plugin (`ros-humble-rosbag2-storage-mcap`); where it is not installed the sim's recorder falls back to sqlite3. The replay reads both.
+
+**Replay without ROS (`core`).** Reads the bag in plain Python and gives its poses, rangefinder readings and detections to the same objects the executor runs (pose history, projection v2, the target estimator), on the bag's own times. The same bag gives the same answer on any machine; CI runs it on bags the tests generate.
+
+```
+python3 sim/replay/core.py <bag> --truth-file <run folder>/truth.json --out metrics.json
+```
+
+It prints the estimator's error against the truth, the mean NIS and the fraction above 9.21, the time to lock, the time without a lock, and the capture-to-heard latency.
+
+**Where a frame's age comes from.** From the same bag, stage by stage (render, bridge, detector, publish):
+
+```
+python3 sim/replay/latency.py <bag> --out stages.json
+```
+
+**Replay through the real nodes (`ros`).** For the bench only. Plays the bag with its original stamps and `/clock`; start the nodes under test with `use_sim_time:=true` beside it. What the flight's own nodes published comes out under `/recorded/...` (recorded setpoints always do). The bag's poses and state come out under MAVROS's own names, so the launch does not start if a MAVROS is live in the same ROS domain, or if it cannot tell: never play a bag on the aircraft's network.
+
+```
+ros2 launch sim/replay/play.launch.py bag:=/path/to/bag
+```
+
+**The layouts.** The replay reads messages with its own table of layouts (`msgdefs.py`). Check the table against the installed messages whenever a message package changes: `sim/run_sim.sh --exec python3 sim/replay/check_defs.py`.

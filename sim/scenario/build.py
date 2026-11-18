@@ -302,7 +302,7 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
     return {"tool": scenario.driver["tool"], "command": command}
 
 
-def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str = "off", dry_run: bool = False) -> Path:
+def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str = "off", dry_run: bool = False, record: bool = False) -> Path:
     import yaml
 
     if variant not in ("off", "on"):
@@ -376,6 +376,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "flags": dict(scenario.flags) if flags_on else {},
         "node_flags": copy.deepcopy(scenario.node_flags) if flags_on else {},
         "sim_time": sim_time,
+        "record": bool(record),  # true: the flight's topics are recorded for replay (sim/replay/record_run.py)
         "timeout_s": scenario.timeout_s,
         "launch": None
         if launch is None
@@ -421,9 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--variant", choices=("off", "on"), default="off", help="off: every flag false (2026); on: the scenario's flags")
     parser.add_argument("--out", type=Path, help="run folder (default: sim/.state/runs/<mission>-<name>-s<seed>-<variant>)")
     parser.add_argument("--dry-run", action="store_true", help="check the scenario and print the run folder, write nothing")
+    parser.add_argument("--record", action="store_true", help="record the flight's topics into <run folder>/bag for replay (SIM-09)")
     args = parser.parse_args(argv)
     try:
-        run_dir = build_run(args.scenario, args.out, seed=args.seed, variant=args.variant, dry_run=args.dry_run)
+        run_dir = build_run(args.scenario, args.out, seed=args.seed, variant=args.variant, dry_run=args.dry_run, record=args.record)
     except BuildError as error:
         print(f"scenario: {error}", file=sys.stderr)
         return 2

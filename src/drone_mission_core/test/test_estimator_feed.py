@@ -72,6 +72,20 @@ def test_a_target_seen_from_a_moving_vehicle_is_put_where_it_is_using_the_pose_a
     assert flight.feed.counters["frames"] == 3 and flight.feed.counters["measurements"] == 3
 
 
+def test_whoever_asks_is_given_each_frames_report_and_the_totals_do_not_keep_the_innovations():
+    flight = Flight()
+    flight.fly(T0, T0 + 600 * MS)
+    reports = []
+    flight.feed.on_report = lambda report, stamp_ns: reports.append((stamp_ns, report))
+    for index in range(3):
+        stamp = T0 + (100 + index * 100) * MS
+        flight.feed.add_detections(flight.frame(stamp, ("bullseye", 3.0, 1.0, 0.0)))
+        flight.feed.step(stamp + 50 * MS)
+    assert [stamp for stamp, _ in reports] == [T0 + 100 * MS, T0 + 200 * MS, T0 + 300 * MS]
+    assert [len(report.nis) for _, report in reports] == [0, 1, 1] and all(value < 0.01 for _, report in reports for value in report.nis)
+    assert flight.feed.totals.nis == [] and flight.feed.totals.accepted == 2
+
+
 def test_each_class_is_projected_onto_its_own_height():
     flight = Flight()
     flight.fly(T0, T0 + 400 * MS)

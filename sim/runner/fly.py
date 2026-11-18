@@ -45,6 +45,7 @@ TOOLS = {
     "rate_check": SIM_DIR / "rate_check.py",
     "projection_check": SIM_DIR / "projection_check.py",  # beside flights with use_frame_time_pose on (FND-05)
     "estimator_check": SIM_DIR / "estimator_check.py",  # beside flights with use_target_estimator on (FND-06)
+    "record": SIM_DIR / "replay" / "record_run.py",  # beside flights started with --record (SIM-09)
 }
 CLOCK_MARK_S = 5.0
 STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded

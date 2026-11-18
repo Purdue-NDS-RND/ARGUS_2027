@@ -129,6 +129,7 @@ class EstimatorFeed:
         self._reset_detector = PositionResetDetector()
         self.counters: Dict[str, int] = {"frames": 0, "measurements": 0, "position resets": 0}
         self.last_fault: Optional[str] = None  # why the last frame that failed did
+        self.on_report: Optional[Any] = None  # called with (FrameReport, stamp_ns) for every frame handled: the replay's hook (SIM-09)
         self._last_now_ns: Optional[int] = None
         self.totals = target_estimator.FrameReport()
 
@@ -261,7 +262,10 @@ class EstimatorFeed:
         if measurements:
             report = self.estimator.update(measurements, stamp_ns)
             for field in fields(report):
-                setattr(self.totals, field.name, getattr(self.totals, field.name) + getattr(report, field.name))
+                if field.name != "nis":  # the totals count; the innovations go to whoever asked for the reports
+                    setattr(self.totals, field.name, getattr(self.totals, field.name) + getattr(report, field.name))
+            if self.on_report is not None:
+                self.on_report(report, stamp_ns)
 
     # --- out ---------------------------------------------------------------------------
 

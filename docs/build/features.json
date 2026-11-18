@@ -310,9 +310,9 @@
       "land": "L08",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh -> OK (55 new tests; core replay byte-identical on a generated bag in CI); on a recorded delivery/estimator flight core.py replays the estimator to within 0.001 m (median) of the flight's own tracks, same bytes twice; check_defs.py 33 of 33 layouts match ROS; docs/results/2026-11-18-replay.md and 2026-11-18-frame-age-by-stage.md. LEFT: MCAP on a real bag (lead rebuilds the sim image: no MCAP plugin in it); servo outputs (SIM-06); flow frames, flow and marker metrics (SIM-05, flow lane, LOC-7); frames on disk and a frame player (G7); a recording on the Jetson (lead)",
       "blocked_reason": ""
     },
     {

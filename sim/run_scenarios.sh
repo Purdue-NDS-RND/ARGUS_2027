@@ -6,6 +6,7 @@
 #   sim/run_scenarios.sh gates                       the acceptance gates' flights
 #   sim/run_scenarios.sh delivery/clutter --seeds 1,2,3 --variants off,on
 #   sim/run_scenarios.sh --list smoke                show the flights and stop
+#   sim/run_scenarios.sh delivery/baseline --record  also record the flight's topics for replay
 #
 # Suites are in sim/scenarios/suites.yaml. A scenario is named as
 # <mission>/<name> or by its file. Each flight:
@@ -25,6 +26,8 @@
 #
 # The laptop is kept awake for the whole suite (systemd-inhibit, as
 # sim/gps/fly_all.sh does). Options: --seeds a,b,c  --variants off,on  --list
+# --record (each run folder gets a bag/ of the flight's topics; see
+# sim/replay and "Recording and replay" in sim/README.md).
 set -Eeuo pipefail
 
 SIM_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -38,14 +41,15 @@ PY=${PYTHON:-python3}
 # The sim's own start script; a test replaces it to try this loop without a sim.
 RUN_SIM=${ARGUS_RUN_SIM:-$SIM_DIR/run_sim.sh}
 
-usage() { sed -n '2,25p' "$0"; }
+usage() { sed -n '2,30p' "$0"; }
 
-name= seeds= variants= list_only=0
+name= seeds= variants= list_only=0 record=0
 while (($#)); do
     case $1 in
         --seeds) seeds=${2:?--seeds needs a value}; shift ;;
         --variants) variants=${2:?--variants needs a value}; shift ;;
         --list) list_only=1 ;;
+        --record) record=1 ;;
         --help|-h) usage; exit 0 ;;
         -*) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;
         *)
@@ -79,6 +83,7 @@ fi
 inhibit_args=("$name")
 [[ -n $seeds ]] && inhibit_args+=(--seeds "$seeds")
 [[ -n $variants ]] && inhibit_args+=(--variants "$variants")
+((record)) && inhibit_args+=(--record)
 # By full path: this script has changed directory since it was started.
 inhibit_sleep "$SIM_DIR/run_scenarios.sh" "${inhibit_args[@]}"
 
@@ -142,7 +147,9 @@ for flight in "${flights[@]}"; do
     run_dir="$suite_dir/runs/$label"
     echo
     echo "== Flight $number of ${#flights[@]}: $label"
-    if ! "$PY" "$SIM_DIR/scenario/build.py" "$scenario" --seed "$seed" --variant "$variant" --out "$run_dir" >"$suite_dir/build-$label.log" 2>&1; then
+    build_args=("$scenario" --seed "$seed" --variant "$variant" --out "$run_dir")
+    ((record)) && build_args+=(--record)
+    if ! "$PY" "$SIM_DIR/scenario/build.py" "${build_args[@]}" >"$suite_dir/build-$label.log" 2>&1; then
         echo "   the scenario did not build:"
         sed 's/^/     /' "$suite_dir/build-$label.log"
         mkdir -p "$run_dir"

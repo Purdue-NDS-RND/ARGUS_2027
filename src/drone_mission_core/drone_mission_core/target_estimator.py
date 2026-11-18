@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -168,6 +168,9 @@ class FrameReport:
     ignored: int = 0  # a second detection beside a track that already had one
     untracked: int = 0  # a new target with the class already at its limit
     invalid: int = 0  # not a usable measurement
+    # The normalised innovation squared of every measurement that was set against a track, accepted or
+    # rejected: what a replay judges the noise model by (the mean should be near 2, about 1% above the gate).
+    nis: List[float] = field(default_factory=list)
 
 
 class _Track:
@@ -281,6 +284,7 @@ class TargetEstimator:
             track.p = _floored(keep @ prior @ keep.T + gain @ noise @ gain.T)  # Joseph form: stays symmetric and positive
             track.hit(measurement, stamp_ns)
             report.accepted += 1
+            report.nis.append(float(cost[row, column]))
 
         # What is left over, nearest pairs first.
         left = [column for column in range(len(found)) if column not in taken_columns]
@@ -301,6 +305,7 @@ class TargetEstimator:
                 rejected_rows.add(free[0])
                 track.rejections += 1
                 report.rejected += 1
+                report.nis.append(float(cost[free[0], column]))
                 if track.rejections >= RESET_AFTER_REJECTIONS:
                     track.x = np.array([measurement.east_m, measurement.north_m], dtype=float)
                     track.p = _floored(noise)

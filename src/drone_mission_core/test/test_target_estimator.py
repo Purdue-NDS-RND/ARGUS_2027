@@ -108,6 +108,18 @@ def test_a_measurement_inside_nis_9_21_is_taken_and_one_outside_is_not():
     assert estimator.estimates(T0 + 300 * MS)[0].east_m == pytest.approx(0.0, abs=1e-9)
 
 
+def test_the_report_carries_the_innovation_of_every_measurement_set_against_a_track():
+    estimator = TargetEstimator()
+    first = estimator.update([at(0.0, 0.0, 0.1)], T0)
+    assert first.nis == [] and first.started == 1  # nothing to be an innovation against
+    second = estimator.update([at(0.1, 0.0, 0.1)], T0 + 100 * MS)
+    (value,) = second.nis
+    assert value == pytest.approx(0.1**2 / (0.1**2 + 0.1**2 + 0.0025 * 0.1), rel=1e-6)  # the offset squared over P + q dt + R
+    confirmed_track(estimator, east=0.0, north=0.0, sigma=0.1, start=T0 + 200 * MS)
+    rejected = estimator.update([at(1.0, 0.0, 0.1)], T0 + 500 * MS)
+    assert rejected.rejected == 1 and rejected.nis[0] > te.GATE_NIS
+
+
 def test_the_estimate_settles_on_the_mean_and_the_covariance_stops_at_the_floor():
     estimator = TargetEstimator()
     rng = np.random.default_rng(1)
