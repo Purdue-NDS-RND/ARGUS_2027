@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import yaml
 
-from argus_camera import bench, calibration, frame_log, frame_source, modes, robot_description
+from argus_camera import bench, calibration, frame_log, frame_source, modes, publishing, robot_description
 from argus_camera.frame_source import CaptureSource, Frame, FrameSourceError, SyntheticSource, csi_pipeline, open_source
 
 PACKAGE = Path(__file__).resolve().parents[1]
@@ -53,6 +53,8 @@ def test_every_mode_names_a_camera_with_an_optical_frame_and_its_own_calibration
         ({"fps": -1}, "fps"),
         ({"camera": "sideways"}, "camera"),
         ({"shutter": 5}, "unknown key"),
+        ({"exposure_time_s": 30}, "exposure_time_s"),
+        ({"wb_mode": "sunny"}, "wb_mode"),
     ],
 )
 def test_a_mode_that_cannot_be_right_is_refused_with_the_reason(tmp_path, change, word):
@@ -62,6 +64,15 @@ def test_a_mode_that_cannot_be_right_is_refused_with_the_reason(tmp_path, change
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(modes.ModeError, match=word):
         modes.load_modes(path)
+
+
+def test_the_imx519_modes_keep_the_exposure_and_white_balance_that_flew_in_2026():
+    live = yaml.safe_load((REPO / "src" / "drone_mission_demo" / "config" / "params" / "live_target_mission.yaml").read_text())
+    flown = live["mipi_grabber"]["ros__parameters"]
+    for name in ("imx519_4k", "imx519_720p60"):
+        assert MODES[name].exposure_time_s == pytest.approx(1.0 / flown["shutter_speed"])
+        assert MODES[name].wb_mode == flown["wb_mode"]
+    assert MODES["sim_delivery"].exposure_time_s is None and MODES["sim_delivery"].wb_mode is None
 
 
 def test_an_unknown_mode_name_lists_the_ones_there_are():
@@ -174,7 +185,7 @@ class FakeCapture:
 def test_capture_source_passes_frames_through_untouched_and_stamps_them():
     raw = np.arange(720 * 1280 * 3, dtype=np.uint8).reshape(720, 1280, 3)
     capture = FakeCapture([raw.copy(), raw.copy()])
-    source = CaptureSource(MODES["imx519_720p60"], opener=lambda mode: capture, clock=FakeClock())
+    source = CaptureSource(MODES["imx519_720p60"], FakeClock(), opener=lambda mode: capture)
     source.open()
     frame = source.read()
     assert np.array_equal(frame.image, raw) and frame.seq == 0 and frame.capture_ns > 1_000_000_000
@@ -186,7 +197,7 @@ def test_capture_source_passes_frames_through_untouched_and_stamps_them():
 
 def test_capture_source_refuses_a_frame_of_the_wrong_size_instead_of_resizing_it():
     capture = FakeCapture([np.zeros((1080, 1920, 3), dtype=np.uint8)])
-    source = CaptureSource(MODES["imx519_720p60"], opener=lambda mode: capture, clock=FakeClock())
+    source = CaptureSource(MODES["imx519_720p60"], FakeClock(), opener=lambda mode: capture)
     source.open()
     with pytest.raises(FrameSourceError, match="1920 x 1080.*1280 x 720"):
         source.read()
@@ -196,7 +207,7 @@ def test_capture_source_that_does_not_open_says_which_camera():
     capture = FakeCapture([])
     capture.opened = False
     with pytest.raises(FrameSourceError, match="imx519_4k"):
-        CaptureSource(MODES["imx519_4k"], opener=lambda mode: capture).open()
+        CaptureSource(MODES["imx519_4k"], FakeClock(), opener=lambda mode: capture).open()
 
 
 def test_csi_pipeline_asks_the_sensor_for_the_mode_and_does_no_scaling():
@@ -205,16 +216,65 @@ def test_csi_pipeline_asks_the_sensor_for_the_mode_and_does_no_scaling():
     assert "width=3840, height=2160" in pipeline and "framerate=17/1" in pipeline
     assert pipeline.endswith("appsink drop=1 max-buffers=1")
     assert pipeline.count("width=") == 1  # one size only: nothing downstream resizes
+    assert "exposuretimerange='1000000 1000000' wbmode=6 !" in pipeline  # 1/1000 s and the 2026 white balance, in the source element
+    auto = csi_pipeline(modes.SensorMode("x", "down", "down_camera_optical", "csi", 1280, 720, 60.0, None))
+    assert "exposuretimerange" not in auto and "wbmode" not in auto  # a mode that sets neither leaves the sensor on auto
     fast = csi_pipeline(MODES["imx519_720p60"])
     assert "width=1280, height=720" in fast and "framerate=60/1" in fast
 
 
 def test_open_source_picks_the_driver_and_the_node_owns_ros_topics():
-    assert isinstance(open_source(MODES["imx519_4k"], opener=lambda mode: FakeCapture([])), CaptureSource)
-    assert isinstance(open_source(MODES["ov9782_flow"], opener=lambda mode: FakeCapture([])), CaptureSource)
-    assert isinstance(open_source(MODES["imx519_4k"], synthetic=True), SyntheticSource)
+    clock = FakeClock()
+    assert isinstance(open_source(MODES["imx519_4k"], clock=clock, opener=lambda mode: FakeCapture([])), CaptureSource)
+    assert isinstance(open_source(MODES["ov9782_flow"], clock=clock, opener=lambda mode: FakeCapture([])), CaptureSource)
+    assert isinstance(open_source(MODES["imx519_4k"], clock=clock, synthetic=True), SyntheticSource)
     with pytest.raises(FrameSourceError, match="node"):
-        open_source(MODES["sim_delivery"])
+        open_source(MODES["sim_delivery"], clock=clock)
+
+
+def test_a_source_has_no_default_clock():
+    # Wall time by default would put frames on a different clock from the poses under sim time.
+    with pytest.raises(TypeError):
+        open_source(MODES["imx519_4k"])
+    with pytest.raises(TypeError):
+        SyntheticSource(MODES["imx519_4k"])
+
+
+def test_the_usb_camera_is_opened_through_v4l2_at_the_modes_size_rate_and_format(monkeypatch):
+    calls = {}
+
+    class Recorder:
+        def __init__(self, device, backend):
+            calls["open"] = (device, backend)
+            calls["set"] = {}
+
+        def set(self, prop, value):
+            calls["set"][prop] = value
+
+        def isOpened(self):
+            return True
+
+    monkeypatch.setattr(frame_source.cv2, "VideoCapture", Recorder)
+    source = open_source(MODES["ov9782_flow"], clock=FakeClock())
+    source.open()
+    assert calls["open"] == ("/dev/video0", cv2.CAP_V4L2)
+    assert calls["set"][cv2.CAP_PROP_FRAME_WIDTH] == 1280 and calls["set"][cv2.CAP_PROP_FRAME_HEIGHT] == 800
+    assert calls["set"][cv2.CAP_PROP_FPS] == 120.0 and calls["set"][cv2.CAP_PROP_FOURCC] == cv2.VideoWriter_fourcc(*"MJPG")
+
+
+def test_the_csi_camera_is_opened_with_its_pipeline_through_gstreamer(monkeypatch):
+    calls = {}
+
+    class Recorder:
+        def __init__(self, pipeline, backend):
+            calls["open"] = (pipeline, backend)
+
+        def isOpened(self):
+            return True
+
+    monkeypatch.setattr(frame_source.cv2, "VideoCapture", Recorder)
+    open_source(MODES["imx519_720p60"], clock=FakeClock()).open()
+    assert calls["open"] == (csi_pipeline(MODES["imx519_720p60"]), cv2.CAP_GSTREAMER)
 
 
 # --- the one robot description ----------------------------------------------------------------------------------
@@ -265,6 +325,16 @@ def test_the_sim_vehicles_camera_is_where_the_sim_model_puts_it():
     assert robot["sim_iris_downcam"].verified
 
 
+def test_an_unverified_airframe_is_only_given_to_a_caller_that_asks_for_it():
+    robot = robot_description.load(CONFIG / "robot.yaml")
+    assert robot_description.get_airframe(robot, "sim_iris_downcam").verified
+    with pytest.raises(robot_description.RobotDescriptionError, match="not verified"):
+        robot_description.get_airframe(robot, "argus_2027")
+    assert robot_description.get_airframe(robot, "argus_2027", allow_unverified=True).name == "argus_2027"
+    with pytest.raises(robot_description.RobotDescriptionError, match="sim_iris_downcam"):
+        robot_description.get_airframe(robot, "argus_2028")
+
+
 def test_a_description_with_a_missing_or_extra_key_is_refused(tmp_path):
     data = yaml.safe_load((CONFIG / "robot.yaml").read_text())
     del data["airframes"]["argus_2027"]["cameras"]["down"]["position_m"]
@@ -295,16 +365,27 @@ def frame(seq, capture_ns, value=0):
     return Frame(image=image, seq=seq, capture_ns=capture_ns, mode="sim_delivery")
 
 
-def test_frame_log_writes_each_frame_losslessly_with_an_index(tmp_path):
+def test_frame_log_writes_jpeg_at_quality_90_with_an_index(tmp_path):
     log = frame_log.FrameLog(tmp_path / "frames")
     first = frame(0, 1_000_000_000, 10)
     assert log.write(first) and log.write(frame(1, 1_033_000_000, 20))
     log.close()
     lines = [json.loads(line) for line in (tmp_path / "frames" / "index.jsonl").read_text().splitlines()]
     assert [line["seq"] for line in lines] == [0, 1]
-    assert lines[0] == {"seq": 0, "capture_ns": 1_000_000_000, "mode": "sim_delivery", "file": "frame_000000.png", "width": 64, "height": 36}
-    stored = cv2.imread(str(tmp_path / "frames" / "frame_000000.png"), cv2.IMREAD_COLOR)
-    assert np.array_equal(stored, first.image)
+    assert lines[0] == {"seq": 0, "capture_ns": 1_000_000_000, "mode": "sim_delivery", "file": "frame_000000.jpg", "width": 64, "height": 36}
+    stored = cv2.imread(str(tmp_path / "frames" / "frame_000000.jpg"), cv2.IMREAD_COLOR)
+    assert stored.shape == first.image.shape and np.abs(stored.astype(int) - first.image.astype(int)).mean() < 6.0
+    assert log._encode_args == [int(cv2.IMWRITE_JPEG_QUALITY), 90]  # LOC-11: JPEG quality 90
+
+
+def test_frame_log_can_keep_every_pixel_as_png(tmp_path):
+    log = frame_log.FrameLog(tmp_path / "frames", image_format="png")
+    first = frame(0, 1_000_000_000, 10)
+    log.write(first)
+    log.close()
+    assert np.array_equal(cv2.imread(str(tmp_path / "frames" / "frame_000000.png"), cv2.IMREAD_COLOR), first.image)
+    with pytest.raises(frame_log.FrameLogError, match="image_format"):
+        frame_log.FrameLog(tmp_path / "other", image_format="bmp")
 
 
 def test_frame_log_can_thin_by_time_and_counts_what_it_skipped(tmp_path):
@@ -313,11 +394,11 @@ def test_frame_log_can_thin_by_time_and_counts_what_it_skipped(tmp_path):
     log.close()
     assert written == [True, False, False, False, True, False, False, False, True, False]  # 0, 132 and 264 ms
     assert log.written == 3 and log.skipped == 7
-    assert len(list((tmp_path / "frames").glob("frame_*.png"))) == 3
+    assert len(list((tmp_path / "frames").glob("frame_*.jpg"))) == 3
 
 
 def test_frame_log_stops_at_its_size_limit_and_says_so(tmp_path):
-    log = frame_log.FrameLog(tmp_path / "frames", max_bytes=1500)
+    log = frame_log.FrameLog(tmp_path / "frames", image_format="png", max_bytes=1500)
     results = [log.write(frame(seq, seq * 1_000_000_000, seq)) for seq in range(20)]
     log.close()
     assert results[0] and not results[-1] and log.full
@@ -329,6 +410,133 @@ def test_frame_log_refuses_a_folder_that_already_has_a_log(tmp_path):
     frame_log.FrameLog(tmp_path / "frames").close()
     with pytest.raises(frame_log.FrameLogError):
         frame_log.FrameLog(tmp_path / "frames")
+
+
+def test_frame_log_on_worker_threads_writes_everything_it_took(tmp_path):
+    log = frame_log.FrameLog(tmp_path / "frames", workers=2, queue_frames=64)
+    taken = [log.write(frame(seq, seq * 33_000_000, seq)) for seq in range(40)]
+    log.close()  # waits for the queue
+    assert all(taken) and log.written == 40 and log.dropped == 0 and log.error is None
+    lines = [json.loads(line) for line in (tmp_path / "frames" / "index.jsonl").read_text().splitlines()]
+    assert sorted(line["seq"] for line in lines) == list(range(40))
+    assert len(list((tmp_path / "frames").glob("frame_*.jpg"))) == 40
+
+
+def test_frame_log_drops_frames_instead_of_blocking_when_its_workers_fall_behind(tmp_path, monkeypatch):
+    import threading
+
+    gate = threading.Event()
+    real_store = frame_log.FrameLog._store
+
+    def slow_store(self, item):
+        gate.wait(5.0)  # the disk is slow
+        real_store(self, item)
+
+    monkeypatch.setattr(frame_log.FrameLog, "_store", slow_store)
+    log = frame_log.FrameLog(tmp_path / "frames", workers=1, queue_frames=2)
+    taken = [log.write(frame(seq, seq * 33_000_000)) for seq in range(10)]  # returns at once every time
+    assert taken.count(True) in (2, 3) and log.dropped == 10 - taken.count(True)
+    gate.set()
+    log.close()
+    assert log.written == taken.count(True)
+
+
+def test_frame_log_worker_that_cannot_write_stops_the_log_and_keeps_the_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(frame_log.cv2, "imwrite", lambda *args: False)
+    log = frame_log.FrameLog(tmp_path / "frames", workers=1)
+    log.write(frame(0, 0))
+    log.close()
+    assert log.full and "could not write" in log.error and log.written == 0
+    assert not log.write(frame(1, 1_000_000_000))
+
+
+# --- what the node publishes where ------------------------------------------------------------------------------
+
+
+def test_the_nodes_own_topics_and_the_three_2026_names():
+    own = publishing.topic_names(MODES["imx519_720p60"], legacy=False)
+    assert own["image"] == ["/argus/camera/down/image_raw"] and own["info"] == ["/argus/camera/down/camera_info"]
+    assert own["legacy_image"] == own["legacy_compressed"] == own["legacy_info"] == []
+    legacy = publishing.topic_names(MODES["imx519_720p60"], legacy=True)
+    assert (legacy["legacy_image"], legacy["legacy_compressed"], legacy["legacy_info"]) == (["/camera/image"], ["/camera/image/compressed"], ["/camera/camera_info"])
+    # Every topic the 2026 CSI grabber publishes is among them.
+    grabber = (REPO / "src" / "drone_target_cv" / "drone_target_cv" / "mipi_grabber.py").read_text()
+    published = set(re.findall(r'create_publisher\(\s*\w+,\s*"([^"]+)"', grabber))
+    assert published == {"/camera/image", "/camera/image/compressed", "/camera/camera_info"}
+    assert published == set(legacy["legacy_image"] + legacy["legacy_compressed"] + legacy["legacy_info"])
+
+
+def test_the_2026_names_are_served_at_the_2026_rate_and_jpeg_quality():
+    live = yaml.safe_load((REPO / "src" / "drone_mission_demo" / "config" / "params" / "live_target_mission.yaml").read_text())
+    flown = live["mipi_grabber"]["ros__parameters"]
+    assert publishing.LEGACY_RATE_HZ == flown["image_publishing_rate"] == 30.0
+    assert publishing.LEGACY_JPEG_QUALITY == flown["compressed_quality"]
+
+
+def test_a_relay_may_not_take_its_input_from_a_topic_it_publishes():
+    legacy = publishing.topic_names(MODES["sim_delivery"], legacy=True)
+    own = publishing.topic_names(MODES["sim_delivery"], legacy=False)
+    assert publishing.check_input_topic("/camera/image", own) == "/camera/image"
+    assert publishing.check_input_topic("camera/image/", own) == "/camera/image"
+    for topic in ("/camera/image", "camera/image", "/argus/camera/down/image_raw"):
+        with pytest.raises(publishing.TopicError, match="its own output"):
+            publishing.check_input_topic(topic, legacy)
+
+
+def test_another_publisher_on_a_2026_name_is_noticed():
+    legacy = publishing.topic_names(MODES["imx519_720p60"], legacy=True)
+    alone = {"/camera/image": 1, "/camera/image/compressed": 1, "/camera/camera_info": 1, "/argus/camera/down/image_raw": 1}
+    assert publishing.other_publishers(alone, legacy) == []
+    assert publishing.other_publishers({**alone, "/camera/image": 2, "/camera/camera_info": 2}, legacy) == ["/camera/camera_info", "/camera/image"]
+    own = publishing.topic_names(MODES["imx519_720p60"], legacy=False)
+    assert publishing.other_publishers({"/camera/image": 1}, own) == []  # not our topic when the aliases are off
+
+
+def test_rate_limiter_thins_60_fps_to_30_by_capture_time():
+    limiter = publishing.RateLimiter(30.0)
+    stamps = [1_000_000_000 + int(round(index * 1.0e9 / 60.0)) for index in range(120)]
+    passed = [stamp for stamp in stamps if limiter.allow(stamp)]
+    assert len(passed) == 60 and passed[:3] == [stamps[0], stamps[2], stamps[4]]
+    slow = publishing.RateLimiter(30.0)
+    assert all(slow.allow(1_000_000_000 + index * 50_000_000) for index in range(20))  # a 20 fps source loses nothing
+    for source_fps in (25, 33, 40, 45, 50, 55, 60, 90):  # a loop that cannot hold its rate never feeds the 2026 names faster
+        limiter = publishing.RateLimiter(30.0)
+        stamps = [int(round(index * 1.0e9 / source_fps)) for index in range(source_fps * 10)]
+        assert sum(limiter.allow(stamp) for stamp in stamps) / 10.0 <= 30.0 * 1.12, source_fps
+    back = publishing.RateLimiter(30.0)
+    assert back.allow(5_000_000_000) and back.allow(1_000_000_000)  # the clock was reset: do not wait for it to catch up
+
+
+def test_jpeg_encoding_and_reading_an_image_message_back():
+    image = np.zeros((36, 64, 3), dtype=np.uint8)
+    image[:, :32] = (0, 0, 200)  # red on the left, in BGR
+    jpeg = publishing.encode_jpeg(image, 20)
+    decoded = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert decoded.shape == image.shape and decoded[18, 8, 2] > 150 and decoded[18, 56, 2] < 50
+    rgb = image[:, :, ::-1].tobytes()
+    assert np.array_equal(publishing.image_from_message(rgb, 36, 64, "rgb8"), image)
+    assert np.array_equal(publishing.image_from_message(image.tobytes(), 36, 64, "bgr8"), image)
+    assert publishing.image_from_message(image.tobytes(), 36, 64, "yuv422") is None
+    assert publishing.image_from_message(image.tobytes()[:-3], 36, 64, "bgr8") is None
+
+
+def test_pacer_holds_the_rate_whatever_the_work_between_frames_takes():
+    now = {"t": 100.0}
+    slept = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        now["t"] += seconds
+
+    pacer = publishing.Pacer(60.0, clock=lambda: now["t"], sleep=sleep)
+    for _ in range(120):
+        now["t"] += 0.004  # 4 ms of work per frame
+        pacer.wait()
+    assert now["t"] - 100.0 == pytest.approx(120 / 60.0 + 0.004, abs=0.001)  # 60 a second, not 60 minus the work
+    assert all(seconds <= 1 / 60.0 + 1e-9 for seconds in slept)
+    now["t"] += 3.0  # a long stall
+    pacer.wait()
+    assert slept[-1] == pytest.approx(1 / 60.0)  # it starts again from now instead of bursting to catch up
 
 
 # --- the bench check -----------------------------------------------------------------------------------------------
@@ -366,7 +574,7 @@ def test_bench_measures_a_source_through_the_same_interface_the_node_uses():
         clock.now += clock_step
         return clock.now
 
-    source = SyntheticSource(MODES["imx519_720p60"], clock=tick)
+    source = SyntheticSource(MODES["imx519_720p60"], tick)
     with source:
         stamps = bench.measure(source, 2.0)
     assert 120 <= len(stamps) <= 122
@@ -374,10 +582,24 @@ def test_bench_measures_a_source_through_the_same_interface_the_node_uses():
 
 
 def test_bench_gives_up_on_a_camera_that_stops():
-    source = CaptureSource(MODES["imx519_720p60"], opener=lambda mode: FakeCapture([np.zeros((720, 1280, 3), dtype=np.uint8)] * 3), clock=FakeClock())
+    source = CaptureSource(MODES["imx519_720p60"], FakeClock(), opener=lambda mode: FakeCapture([np.zeros((720, 1280, 3), dtype=np.uint8)] * 3))
     source.open()
     stamps = bench.measure(source, 10.0, sleep=lambda _seconds: None)
     assert len(stamps) == 3
+
+
+def test_bench_finds_its_config_in_the_source_tree_and_in_an_installed_package(tmp_path):
+    assert bench.default_config_dir() == CONFIG
+    # A plain `colcon build` (no symlinks): the module is under site-packages and the config under share.
+    module = tmp_path / "install" / "argus_camera" / "lib" / "python3.10" / "site-packages" / "argus_camera" / "bench.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("")
+    share = tmp_path / "install" / "argus_camera" / "share" / "argus_camera" / "config"
+    share.mkdir(parents=True)
+    (share / "modes.yaml").write_text((CONFIG / "modes.yaml").read_text())
+    assert bench.default_config_dir(module) == share
+    setup = (PACKAGE / "setup.py").read_text()
+    assert "('share/' + package_name + '/config', ['config/modes.yaml', 'config/robot.yaml'])" in setup  # what puts it there
 
 
 def test_bench_command_runs_on_the_test_pattern(capsys):
@@ -389,7 +611,7 @@ def test_bench_command_runs_on_the_test_pattern(capsys):
 # --- the package ------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["modes", "calibration", "frame_source", "robot_description", "frame_log", "bench"])
+@pytest.mark.parametrize("name", ["modes", "calibration", "frame_source", "robot_description", "frame_log", "bench", "publishing"])
 def test_the_library_has_no_ros_in_it(name):
     tree = ast.parse((PACKAGE / "argus_camera" / f"{name}.py").read_text())
     imported = set()
@@ -398,17 +620,42 @@ def test_the_library_has_no_ros_in_it(name):
             imported |= {alias.name.split(".")[0] for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
-    assert imported <= {"__future__", "abc", "argparse", "dataclasses", "json", "math", "pathlib", "sys", "time", "typing", "numpy", "cv2", "yaml"}
+    assert imported <= {"__future__", "abc", "argparse", "dataclasses", "json", "math", "pathlib", "queue", "sys", "threading", "time", "typing", "numpy", "cv2", "yaml"}
 
 
-def test_the_node_is_a_thin_wrapper_that_keeps_the_legacy_topic_names():
+def test_the_node_is_a_thin_wrapper_around_the_library():
     source = (PACKAGE / "argus_camera" / "camera_node.py").read_text()
-    assert '"/camera/image"' in source and '"/camera/camera_info"' in source  # what target_cv and the 2026 path read
-    assert "open_source(" in source and "camera_info_fields(" in source
+    assert "open_source(self._mode, clock=self._now_ns" in source and "camera_info_fields(" in source
+    assert "publishing.topic_names(" in source and "publishing.check_input_topic(" in source and "publishing.other_publishers(" in source
     assert "resize" not in source and "undistort" not in source and "remap" not in source  # raw frames
     assert "if self._mode.in_process_only:\n            raise RuntimeError" in source  # no 4K over topics
     assert 'message.data = array.array("B", frame.image.tobytes())' in source  # plain bytes cost 0.3 s a frame in rclpy
-    assert "get_clock().now()" not in source.split("def _publish")[1].split("def ")[0]  # a frame is stamped with its capture time
+    assert "get_clock().now()" not in source.split("def _publish(")[1]  # a frame is stamped with its capture time
+    assert 'self.declare_parameter("legacy_topics", False)' in source  # the 2026 names are asked for, never a default
+    watch = source.split("def _watch")[1].split("    def ")[0]
+    assert "raise SystemExit(1)" in watch  # a failure stops the node
+    assert "publishing.STARTUP_GUARD_S" in watch and "throttle_duration_sec" in watch  # a late second publisher is reported, not fatal
+    assert "TEST PATTERN" in source and "no frame from the camera in the last 5 s" in source
     setup = (PACKAGE / "setup.py").read_text()
     assert "'camera_node = argus_camera.camera_node:main'" in setup
-    assert len(source.splitlines()) < 170
+    assert len(source.splitlines()) < 210
+
+
+def test_the_launch_file_leaves_the_2026_names_off_and_reads_the_sims_bridge():
+    tree = ast.parse((PACKAGE / "launch" / "argus_camera.launch.py").read_text())
+    arguments = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "arguments")
+    defaults = {key.value: value.elts[0].value for key, value in zip(arguments.keys, arguments.values)}
+    assert defaults["legacy_topics"] == "false" and defaults["synthetic"] == "false" and defaults["use_sim_time"] == "false"
+    bridge = yaml.safe_load((REPO / "sim" / "config" / "bridge.yaml").read_text())
+    assert defaults["input_topic"] in {entry["ros_topic_name"] for entry in bridge}  # a topic something publishes
+
+
+def test_nothing_outside_the_package_starts_the_node():
+    # No flag guards argus_camera: what keeps the 2026 path as it was is that nothing shipped starts it.
+    import subprocess
+
+    found = subprocess.run(
+        ["git", "grep", "-l", "-e", "argus_camera", "--", "*.py", "*.sh", "*.yaml", "*.yml", "*.xml", "*.launch", "*.service", ":!src/argus_camera/*"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout.split()  # fmt: skip
+    assert found == ["scripts/check.sh"], found  # the search ran and found the one mention there should be

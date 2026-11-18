@@ -12,7 +12,6 @@ FND-01 replaces it with the sensor's own time.
 
 from __future__ import annotations
 
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -36,7 +35,9 @@ class Frame:
 
 
 class FrameSource(ABC):
-    def __init__(self, mode: SensorMode, clock: Callable[[], int] = time.time_ns) -> None:
+    def __init__(self, mode: SensorMode, clock: Callable[[], int]) -> None:
+        # `clock` gives nanoseconds on the clock every other stamp in the process uses: the ROS clock in a node
+        # (sim time in the sim). There is no default, so that nobody gets wall time by leaving it out.
         self.mode = mode
         self._clock = clock
         self._seq = 0
@@ -91,8 +92,14 @@ class SyntheticSource(FrameSource):
 def csi_pipeline(mode: SensorMode) -> str:
     """The GStreamer pipeline for a CSI sensor on the Jetson, at the mode's own size and rate."""
     fps = int(round(mode.fps))
+    controls = ""
+    if mode.exposure_time_s is not None:
+        exposure_ns = int(round(mode.exposure_time_s * 1.0e9))
+        controls += f" exposuretimerange='{exposure_ns} {exposure_ns}'"
+    if mode.wb_mode is not None:
+        controls += f" wbmode={mode.wb_mode}"
     return (
-        f"nvarguscamerasrc sensor-id={mode.sensor_id} ! "
+        f"nvarguscamerasrc sensor-id={mode.sensor_id}{controls} ! "
         f"video/x-raw(memory:NVMM), width={mode.width}, height={mode.height}, format=NV12, framerate={fps}/1 ! "
         "nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! "
         "appsink drop=1 max-buffers=1"
@@ -115,7 +122,7 @@ def _open_capture(mode: SensorMode) -> Any:
 class CaptureSource(FrameSource):
     """A CSI or USB camera through OpenCV's capture. `opener` makes the capture object; tests pass their own."""
 
-    def __init__(self, mode: SensorMode, opener: Callable[[SensorMode], Any] = _open_capture, clock: Callable[[], int] = time.time_ns) -> None:
+    def __init__(self, mode: SensorMode, clock: Callable[[], int], opener: Callable[[SensorMode], Any] = _open_capture) -> None:
         super().__init__(mode, clock)
         self._opener = opener
         self._capture: Any = None
@@ -138,10 +145,10 @@ class CaptureSource(FrameSource):
         return image if ok and image is not None else None
 
 
-def open_source(mode: SensorMode, synthetic: bool = False, opener: Optional[Callable[[SensorMode], Any]] = None, clock: Callable[[], int] = time.time_ns) -> FrameSource:
-    """The FrameSource for a mode (not opened yet). `synthetic` gives the test pattern in that mode's size."""
+def open_source(mode: SensorMode, *, clock: Callable[[], int], synthetic: bool = False, opener: Optional[Callable[[SensorMode], Any]] = None) -> FrameSource:
+    """The FrameSource for a mode (not opened yet). `clock` stamps the frames; `synthetic` gives the test pattern in that mode's size."""
     if synthetic:
         return SyntheticSource(mode, clock)
     if mode.driver == "ros_topic":
         raise FrameSourceError(f"mode {mode.name} reads a ROS topic: only the camera node can do that, not a FrameSource")
-    return CaptureSource(mode, opener or _open_capture, clock)
+    return CaptureSource(mode, clock, opener or _open_capture)

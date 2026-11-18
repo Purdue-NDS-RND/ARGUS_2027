@@ -1,7 +1,8 @@
 """Start the argus_camera node in one sensor mode.
 
   ros2 launch argus_camera argus_camera.launch.py mode:=imx519_720p60
-  ros2 launch argus_camera argus_camera.launch.py mode:=sim_delivery input_topic:=/camera/image legacy_topics:=false use_sim_time:=true
+  ros2 launch argus_camera argus_camera.launch.py mode:=imx519_720p60 legacy_topics:=true      # also the 2026 topic names
+  ros2 launch argus_camera argus_camera.launch.py mode:=sim_delivery use_sim_time:=true        # in the sim
 """
 
 from launch import LaunchDescription
@@ -15,8 +16,8 @@ def generate_launch_description() -> LaunchDescription:
     arguments = {
         "mode": ("imx519_720p60", "Sensor mode from config/modes.yaml"),
         "synthetic": ("false", "Publish a test pattern in the mode's size instead of opening a camera"),
-        "legacy_topics": ("true", "Also publish on /camera/image and /camera/camera_info, the 2026 names"),
-        "input_topic": ("/sim/camera/image", "Where a ros_topic mode (the sim) takes its frames from"),
+        "legacy_topics": ("false", "Also serve the 2026 names /camera/image, /camera/image/compressed and /camera/camera_info"),
+        "input_topic": ("/camera/image", "Where a ros_topic mode (the sim) takes its frames from"),
         "use_sim_time": ("false", "Take time from /clock (the sim started with SIM_TIME=1)"),
     }
     node = Node(

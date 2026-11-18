@@ -10,7 +10,8 @@ One camera driver for the 2027 stack (PLT-03): a library, `FrameSource`, and a n
 | Calibration per mode, and the `camera_info` for raw frames | `config/calibration/`, `argus_camera/calibration.py` |
 | `FrameSource`: frames from a CSI or USB camera, or a test pattern | `argus_camera/frame_source.py` |
 | The one robot description: camera mounts and the payload offset | `config/robot.yaml`, `argus_camera/robot_description.py` |
-| Frame log core: lossless frames and an index on disk | `argus_camera/frame_log.py` |
+| Frame log core: JPEG or PNG frames and an index on disk, on worker threads if asked | `argus_camera/frame_log.py` |
+| Topic names, the 2026 aliases and their guards | `argus_camera/publishing.py` |
 | The node | `argus_camera/camera_node.py`, `launch/argus_camera.launch.py` |
 | Bench check for a camera in one mode | `argus_camera/bench.py` (`camera_bench`) |
 
@@ -43,25 +44,32 @@ from argus_camera.modes import load_modes, get_mode
 from argus_camera.frame_source import open_source
 
 mode = get_mode(load_modes("config/modes.yaml"), "imx519_4k")
-with open_source(mode) as source:
+with open_source(mode, clock=lambda: node.get_clock().now().nanoseconds) as source:
     frame = source.read()      # Frame(image, seq, capture_ns, mode), or None
 ```
+
+`clock` has no default. It must be the clock every other stamp in the process uses, the ROS clock in a node, or frames end up on a different clock from the poses when the sim runs on sim time.
 
 As topics:
 
 ```bash
 ros2 launch argus_camera argus_camera.launch.py mode:=imx519_720p60
+ros2 launch argus_camera argus_camera.launch.py mode:=imx519_720p60 legacy_topics:=true  # and the 2026 topic names
 ros2 launch argus_camera argus_camera.launch.py mode:=imx519_720p60 synthetic:=true      # test pattern, no camera
-ros2 launch argus_camera argus_camera.launch.py mode:=sim_delivery input_topic:=/camera/image legacy_topics:=false use_sim_time:=true   # in the sim
+ros2 launch argus_camera argus_camera.launch.py mode:=sim_delivery use_sim_time:=true    # in the sim: relays the bridge's /camera/image
 ```
 
-The node publishes `/argus/camera/<camera>/image_raw` and `/argus/camera/<camera>/camera_info`, and also the 2026 names `/camera/image` and `/camera/camera_info` unless `legacy_topics:=false`, so `target_cv` and the 2026 missions run on it unchanged. The frame id is the camera's optical frame from `robot.yaml`.
+The node publishes `/argus/camera/<camera>/image_raw` and `/argus/camera/<camera>/camera_info`. The frame id is the camera's optical frame from `robot.yaml`.
+
+With `legacy_topics:=true` it also serves the three names the 2026 grabber publishes, so the 2026 detector and session logger can run on it: `/camera/image`, `/camera/image/compressed` (JPEG, quality 20) and `/camera/camera_info`, thinned to the 2026 rate of 30 a second. This is off by default, and the node stops with a FATAL line if anything else publishes on those names: it replaces the 2026 grabber, it does not run beside it. What is the same as 2026 on those names: the topics, the rate, the JPEG quality, and the IMX519's exposure (1/1000 s) and white balance, which are in `modes.yaml`. What differs: the frames carry the mode's own calibration and frame id.
+
+An error in the capture thread stops the node, and so does a second publisher on a 2026 name in its first ten seconds (a set-up mistake). A second publisher that appears later is reported every 5 s but does not stop the only camera. A camera that simply stops giving frames leaves the node up, as with the 2026 grabber; it says `no frame from the camera in the last 5 s`. In a relay mode the input topic may not be one the node publishes. With `synthetic:=true` the node says it is publishing a test pattern; the frames themselves carry no mark.
 
 `capture_ns` and the image stamp are, for now, the clock when the frame came out of the driver (in the sim: Gazebo's own render stamp). FND-01 replaces that with the sensor's capture time.
 
 ## The robot description
 
-`config/robot.yaml` is the only place 2027 code reads a camera mount or the payload offset from. Body frame: x forward, y left, z up, origin at the flight controller. Each airframe says whether anyone has measured it (`verified`). The aircraft's entry is not verified: its numbers are copied from the 2026 files, which disagree with each other about which way up the image is.
+`config/robot.yaml` is the only place 2027 code reads a camera mount or the payload offset from, through `robot_description.get_airframe`, which refuses an airframe that is not verified unless the caller passes `allow_unverified=True`. Body frame: x forward, y left, z up, origin at the flight controller. Each airframe says whether anyone has measured it (`verified`). The aircraft's entry is not verified: its numbers are copied from the 2026 files, which disagree with each other about which way up the image is.
 
 ## Bench check (on the Jetson, camera fitted)
 

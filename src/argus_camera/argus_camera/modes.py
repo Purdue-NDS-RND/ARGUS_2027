@@ -15,7 +15,7 @@ from typing import Dict, Optional
 import yaml
 
 DRIVERS = ("csi", "v4l2", "ros_topic")
-MODE_KEYS = {"camera", "driver", "width", "height", "fps", "calibration", "use", "sensor_id", "device", "pixel_format", "in_process_only"}
+MODE_KEYS = {"camera", "driver", "width", "height", "fps", "calibration", "use", "sensor_id", "device", "pixel_format", "in_process_only", "exposure_time_s", "wb_mode"}
 
 
 class ModeError(ValueError):
@@ -37,6 +37,8 @@ class SensorMode:
     device: str = ""  # v4l2
     pixel_format: str = ""  # v4l2 FOURCC, e.g. MJPG
     in_process_only: bool = False  # True: read through FrameSource in the process that uses it, never published as topics
+    exposure_time_s: Optional[float] = None  # csi: a fixed exposure; None leaves the sensor on auto
+    wb_mode: Optional[int] = None  # csi: nvarguscamerasrc's wbmode; None leaves it on auto
 
 
 def load_modes(path) -> Dict[str, SensorMode]:
@@ -69,6 +71,11 @@ def load_modes(path) -> Dict[str, SensorMode]:
             raise ModeError(f"{where}: fps must be above 0")
         if entry["driver"] == "v4l2" and not entry.get("device"):
             raise ModeError(f"{where}: a v4l2 mode needs a device")
+        exposure, wb_mode = entry.get("exposure_time_s"), entry.get("wb_mode")
+        if exposure is not None and (isinstance(exposure, bool) or not isinstance(exposure, (int, float)) or not 0.0 < exposure < 1.0):
+            raise ModeError(f"{where}: exposure_time_s must be a time in seconds between 0 and 1")
+        if wb_mode is not None and (isinstance(wb_mode, bool) or not isinstance(wb_mode, int) or not 0 <= wb_mode <= 9):
+            raise ModeError(f"{where}: wb_mode must be a whole number from 0 to 9")
         modes[str(name)] = SensorMode(
             name=str(name),
             camera=str(camera),
@@ -83,6 +90,8 @@ def load_modes(path) -> Dict[str, SensorMode]:
             device=str(entry.get("device", "")),
             pixel_format=str(entry.get("pixel_format", "")),
             in_process_only=entry.get("in_process_only", False) is True,
+            exposure_time_s=None if exposure is None else float(exposure),
+            wb_mode=wb_mode,
         )
     return modes
 

@@ -65,19 +65,32 @@ def judge(mode: SensorMode, stamps: List[int], calibration_measured: Optional[bo
     return {"mode": mode.name, "frames": len(stamps), "fps": rate, "longest_gap_s": longest, "passed": not problems, "problems": problems}
 
 
+def default_config_dir(module_file=__file__) -> Path:
+    """Where modes.yaml is: beside the package in the source tree, or under share/argus_camera in an installed one."""
+    here = Path(module_file).resolve()
+    source = here.parents[1] / "config"
+    if (source / "modes.yaml").is_file():
+        return source
+    for parent in here.parents:  # <prefix>/lib/python3.x/site-packages/argus_camera/bench.py -> <prefix>/share/argus_camera/config
+        installed = parent / "share" / "argus_camera" / "config"
+        if (installed / "modes.yaml").is_file():
+            return installed
+    return source
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Bench check for a camera in one sensor mode.")
     parser.add_argument("--mode", required=True)
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--synthetic", action="store_true", help="use the test pattern instead of a camera (tries the tool itself)")
-    parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[1] / "config")
+    parser.add_argument("--config", type=Path, default=default_config_dir(), help="folder with modes.yaml (default: the package's own)")
     args = parser.parse_args(argv)
     mode = get_mode(load_modes(args.config / "modes.yaml"), args.mode)
     try:
         measured: Optional[bool] = for_mode(mode, args.config).measured
     except CalibrationError:
         measured = None
-    source = open_source(mode, synthetic=args.synthetic)
+    source = open_source(mode, clock=time.time_ns, synthetic=args.synthetic)  # wall clock: only intervals are used
     with source:
         if args.synthetic:
             stamps = []

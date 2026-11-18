@@ -188,9 +188,9 @@
       "land": "L05",
       "proven_in": "Sim, Bench",
       "note": "Build FND-01 straight after this; they share the capture-clock code",
-      "status": "DOING",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_argus_camera 70). Sim container: argus_camera node relays the sim camera (22 to 26 Hz, 1 ms added, K matches Gazebo) with the 2026 detector on its topic; test pattern at 720p published at 60.0 frames a second; 2026 aliases incl. /camera/image/compressed at 30 Hz with the 2026 detector reading it; both guards fire. docs/results/2026-11-17-argus-camera.md. Left for the lead (bench, Needs a person): camera_bench on the Jetson for imx519_720p60 and imx519_4k and for the OV9782; calibrate 720p60 and the OV9782; name the 12 MP spare; measure the camera mount, image direction and payload offset for robot.yaml. Left for the session: FND-01 capture time; SIM-05 routes the sim's missions through the node",
       "blocked_reason": ""
     },
     {

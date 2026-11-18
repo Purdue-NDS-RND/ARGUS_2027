@@ -16,6 +16,8 @@ modes:
     width: 3840
     height: 2160
     fps: 17
+    exposure_time_s: 0.001  # 1/1000 s, as flown in 2026 (shutter_speed 1000 in live_target_mission.yaml)
+    wb_mode: 6              # as flown in 2026 (wb_mode 6 in live_target_mission.yaml)
     calibration: calibration/imx519_4k.yaml
     in_process_only: true   # 25 MB a frame: no 4K images over ROS topics
     use: localisation (markers and digit crops); stays inside one process
@@ -27,6 +29,8 @@ modes:
     width: 1280
     height: 720
     fps: 60
+    exposure_time_s: 0.001  # 1/1000 s, as flown in 2026: the detector's colour thresholds were tuned with it
+    wb_mode: 6              # as flown in 2026
     calibration: calibration/imx519_720p60.yaml
     use: drop and delivery, published as topics
 

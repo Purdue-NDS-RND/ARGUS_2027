@@ -57,6 +57,19 @@ class Airframe:
     description: str = ""
 
 
+def get_airframe(airframes: Dict[str, Airframe], name: str, allow_unverified: bool = False) -> Airframe:
+    """One airframe by name. An airframe nobody has measured is only given to a caller that asks for it knowingly."""
+    if name not in airframes:
+        raise RobotDescriptionError(f"no airframe '{name}' (airframes: {', '.join(sorted(airframes))})")
+    airframe = airframes[name]
+    if not airframe.verified and not allow_unverified:
+        raise RobotDescriptionError(
+            f"airframe '{name}' is not verified: its mounts have not been measured on the vehicle. "
+            "Measure them and set verified: true, or pass allow_unverified=True and say so in the log"
+        )
+    return airframe
+
+
 def _vector(value, where: str) -> Tuple[float, float, float]:
     if not isinstance(value, list) or len(value) != 3 or any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in value):
         raise RobotDescriptionError(f"{where} must be three numbers: forward, left, up, in metres")
