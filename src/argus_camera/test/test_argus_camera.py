@@ -687,6 +687,7 @@ def test_nothing_outside_the_package_starts_the_node():
     assert starters == [], starters
     readers = [path for path in mentions("argus_camera") if path.startswith("src/") and path.endswith(".py") and "/test/" not in path]  # flight code
     assert set(readers) <= {
+        "src/drone_mission_core/drone_mission_core/estimator_feed.py",  # the estimator's camera, through frame_projection (FND-06)
         "src/drone_mission_core/drone_mission_core/frame_projection.py",
         "src/drone_mission_core/drone_mission_core/projection_v2.py",
         "src/vision_pipeline/vision_pipeline/logger_projection.py",
