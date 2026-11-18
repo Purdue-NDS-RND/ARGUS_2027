@@ -265,6 +265,10 @@ class EstimatorFeed:
 
     # --- out ---------------------------------------------------------------------------
 
+    def ready(self, now_ns: int) -> bool:
+        """Whether a frame taken now could be placed: the pose history is live (a pose and a velocity within reach of now)."""
+        return self._poses.predict_position(int(now_ns), FORECAST_MAX_AHEAD_S) is not None
+
     def actuation_time_ns(self, now_ns: int) -> int:
         """The time a command given now takes effect: now + 0.08 s. Outputs are given for this time."""
         return int(now_ns) + int(self._te.ACTUATION_DELAY_S * 1.0e9)

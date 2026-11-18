@@ -300,6 +300,7 @@ def test_outputs_are_for_the_actuation_time_and_the_vehicle_is_forecast_to_it_fr
     flight.fly(T0, T0 + 330 * MS)
     now = T0 + 335 * MS
     assert flight.feed.actuation_time_ns(now) == now + 80 * MS
+    assert flight.feed.ready(now) and not flight.feed.ready(now + 1 * S) and not Flight().feed.ready(now)  # live only with a recent pose
     east, north, up = flight.feed.vehicle_position_at(flight.feed.actuation_time_ns(now))
     assert (east, north, up) == pytest.approx((4.0 * 0.415, 0.0, HEIGHT), abs=1e-6)
     assert flight.feed.vehicle_position_at(T0 + 200 * MS) == pytest.approx((0.8, 0.0, HEIGHT), abs=1e-6)  # a past instant: from the history

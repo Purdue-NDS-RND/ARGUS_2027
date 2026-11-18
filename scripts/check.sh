@@ -91,6 +91,7 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_time_health.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_pose_buffer.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_detection_contract.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_target_access.py
 run_test src/drone_target_cv src/drone_target_cv/test/test_detection_stamp.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
@@ -136,6 +137,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_target_estimator.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_estimator_feed.py
     run_test "" src/drone_mission_core/test/test_executor_target_estimator.py
+    run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py

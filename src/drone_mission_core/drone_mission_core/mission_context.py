@@ -21,6 +21,23 @@ from rclpy.time import Time
 from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
+from .target_access import (
+    ACTUATION_DELAY_S,
+    ESTIMATOR_OFF,
+    FIX_MAX_AGE_S,
+    FIX_POSE_MAX_APART_S,
+    POSE_MAX_AGE_S,
+    Permission,
+    descent_permission,
+    from_estimate,
+    height_agl,
+    latlon_to_local_enu,
+    release_permission,
+    within,
+)
+
+ACTUATION_DELAY_NS = int(ACTUATION_DELAY_S * 1.0e9)
+
 
 class MissionContext:
     """Facade over shared telemetry, services, and managed setpoints."""
@@ -94,6 +111,118 @@ class MissionContext:
             buffer.pose_at,
             getattr(self._node, "_ground_height", None),
         )
+
+    # --- the target estimator (FND-07) --------------------------------------------------
+    #
+    # With the use_target_estimator flag off there is no estimator: no target,
+    # not ready, no permission. The rules for acting on a track are answered
+    # here (target_access.py), not in each mission.
+
+    def _now_ns(self) -> int:
+        return int(self.now().nanoseconds)
+
+    def estimator_ready(self) -> bool:
+        """Whether the target estimator is running and could place a frame taken now (the pose history is live)."""
+        feed = getattr(self._node, "_target_estimator", None)
+        return feed is not None and feed.ready(self._now_ns())
+
+    def actuation_time_ns(self) -> int:
+        """The time a command given now takes effect: now + 0.08 s. The estimator's outputs are given for this time."""
+        return self._now_ns() + ACTUATION_DELAY_NS
+
+    def primary_target(self, class_id: str, *, near=None):
+        """The track of a class to act on, as a `target_access.PrimaryTarget`: position, covariance, age and state.
+
+        None with the estimator off or when the class has no track. `near`
+        (east, north) picks the track nearest a point among equals. The
+        track may be COASTING, LOST or TENTATIVE: ask `may_descend` and
+        `may_release` before acting on it.
+        """
+        feed = getattr(self._node, "_target_estimator", None)
+        if feed is None:
+            return None
+        estimate = feed.primary(class_id, self._now_ns(), near)
+        return None if estimate is None else from_estimate(estimate)
+
+    def _target_to_judge(self, class_id: str, near, track_id: Optional[int]):
+        """(the track a rule is asked about, or None; why there is none)."""
+        feed = getattr(self._node, "_target_estimator", None)
+        if feed is None:
+            return None, ESTIMATOR_OFF
+        if track_id is None:
+            return self.primary_target(class_id, near=near), ""
+        for estimate in feed.estimates(self._now_ns(), class_id):
+            if estimate.track_id == track_id:
+                return from_estimate(estimate), ""
+        return None, f"{class_id} track {track_id} is gone"
+
+    def may_descend(self, class_id: str, *, near=None, track_id: Optional[int] = None) -> Permission:
+        """Descending needs a CONFIRMED track no older than 0.5 s. False, with the reason, otherwise.
+
+        Give `track_id` (from `primary_target(...).track_id`) to ask about the
+        track being flown to; without it the answer is about whichever track
+        of the class is primary now, which may be another target.
+        """
+        target, why_none = self._target_to_judge(class_id, near, track_id)
+        if target is None and why_none:
+            return Permission(False, why_none, track_id)
+        return descent_permission(target)
+
+    def may_release(self, class_id: str, *, near=None, track_id: Optional[int] = None) -> Permission:
+        """Releasing needs a CONFIRMED track no older than 0.3 s. False, with the reason, otherwise. `track_id` as for `may_descend`."""
+        target, why_none = self._target_to_judge(class_id, near, track_id)
+        if target is None and why_none:
+            return Permission(False, why_none, track_id)
+        return release_permission(target)
+
+    @staticmethod
+    def _stamp_ns(message) -> Optional[int]:
+        stamp = getattr(getattr(message, "header", None), "stamp", None)
+        return None if stamp is None else int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+
+    def height_agl(self):
+        """Height above the ground as a `target_access.HeightAgl` (value and "rangefinder" or "baro"), or None.
+
+        The rangefinder's when projection v2's ground height has a healthy
+        one (use_frame_time_pose on); otherwise the height above home, which
+        is not the height above the ground wherever the ground is not at
+        home's height: read `source`. None with no pose yet, or when the
+        newest pose is more than 0.5 s from now (the vehicle has moved since);
+        `pose_age_s` says how old the pose was, for a caller near a limit.
+        """
+        pose = self._node._local_pose
+        now_ns = self._now_ns()
+        if pose is None or not within(self._stamp_ns(pose), now_ns, POSE_MAX_AGE_S):
+            return None
+        ground_height = getattr(self._node, "_ground_height", None)
+        ground = None if ground_height is None else ground_height.ground_up(now_ns)
+        return height_agl(pose.pose.position.z, ground, (now_ns - self._stamp_ns(pose)) * 1.0e-9)
+
+    def latlon_to_local_enu(self, latitude: float, longitude: float):
+        """(east, north) of a latitude and longitude in MAVROS's local frame, or None when it cannot be said now.
+
+        The GPS fix is paired with the vehicle's local position of the same
+        moment: from the pose history when there is one, otherwise the
+        newest pose if it is within 0.25 s of the fix. None with no fix (or a
+        status that says no fix), a fix more than 2 s old, or no pose of the
+        fix's moment; ask again on the next tick.
+        """
+        fix, pose = self._node._global_gps, self._node._local_pose
+        if fix is None or pose is None:
+            return None
+        if getattr(getattr(fix, "status", None), "status", 0) < 0:  # sensor_msgs/NavSatStatus: -1 is no fix
+            return None
+        fix_ns = self._stamp_ns(fix)
+        if not within(fix_ns, self._now_ns(), FIX_MAX_AGE_S):
+            return None
+        at_fix = self.pose_at(fix_ns)
+        if at_fix is not None:
+            here_east, here_north = at_fix.position[0], at_fix.position[1]
+        elif within(self._stamp_ns(pose), fix_ns, FIX_POSE_MAX_APART_S):
+            here_east, here_north = pose.pose.position.x, pose.pose.position.y
+        else:
+            return None
+        return latlon_to_local_enu(latitude, longitude, fix.latitude, fix.longitude, here_east, here_north)
 
     def seconds_since(self, start_time: Time) -> float:
         return (self.now() - start_time).nanoseconds / 1e9

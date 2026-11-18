@@ -88,6 +88,13 @@ def test_the_constants_are_the_specs():
     assert te.MAX_TRACKS_PER_CLASS == 8 and te.ACTUATION_DELAY_S == 0.08
 
 
+def test_the_missions_side_has_the_same_actuation_delay_and_state_name():
+    from drone_mission_core import target_access
+
+    assert target_access.ACTUATION_DELAY_S == te.ACTUATION_DELAY_S and target_access.CONFIRMED == te.CONFIRMED
+    assert target_access.RANGEFINDER in te.HEIGHT_SIGMA_M
+
+
 def test_a_measurement_inside_nis_9_21_is_taken_and_one_outside_is_not():
     estimator = TargetEstimator()
     track = confirmed_track(estimator, east=0.0, north=0.0, sigma=0.1)

@@ -293,9 +293,9 @@
       "land": "L07",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh -> OK; test_target_access.py 15 passed, test_context_target_access.py 8 passed (the real MissionContext on the real executor class, flags on and off); unit level only, nothing calls the new calls until CEN-01",
       "blocked_reason": ""
     },
     {

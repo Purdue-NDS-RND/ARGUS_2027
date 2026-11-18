@@ -180,6 +180,22 @@ the context calls arrive with FND-07 and the missions with CEN-01. What it needs
 - A detector publishing on the contract: for the 2026 bullseye detector, its node flags
   `features.detection_contract` and `features.stamp_from_image` on.
 
+A mission reads the estimator through its context (`MissionContext`, rules in
+`target_access.py`), never the feed itself:
+
+| Call | What it gives |
+| --- | --- |
+| `estimator_ready()` | True when the estimator is running and the pose history is live. False with the flag off |
+| `primary_target(cls, near=None)` (`near` by keyword) | The class's track to act on: `position` (east, north, up), `covariance`, `sigma_m`, `age_s`, `state`, for the actuation time. None with the flag off or no track. It may be COASTING, TENTATIVE or LOST |
+| `may_descend(cls, near=None, track_id=None)` (both by keyword) | True only on a CONFIRMED track no older than 0.5 s. Otherwise false, with `.reason`. Pass the `track_id` of the track being flown to, or the answer is about whichever track of the class is primary now |
+| `may_release(cls, near=None, track_id=None)` | True only on a CONFIRMED track no older than 0.3 s. Otherwise false, with `.reason`. `track_id` as above |
+| `pose_at(stamp_ns)` | The vehicle's pose at a past instant, from the pose history (`use_frame_time_pose`) |
+| `height_agl()` | `value_m` and `source`: `rangefinder` when its ground is healthy, else `baro`, which is the height above home and not above the ground where the ground is not at home's height. None when the newest pose is over 0.5 s old; `pose_age_s` says how old it was. Needs no flag |
+| `actuation_time_ns()` | Now + 0.08 s, the time the estimator's outputs are given for |
+| `latlon_to_local_enu(lat, lon)` | (east, north) in MAVROS's local frame, from the GPS fix and the local position of the same moment. None without a fix under 2 s old and a pose of its moment (ask again next tick). Needs no flag |
+
+The descend and release rules are answered there so that no mission has to carry them. A CONFIRMED track starts COASTING 0.3 s after its last hit, so in practice both rules say no from 0.3 s on; the 0.5 s limit for descending is the spec's and is never the one that bites.
+
 Node flags are not set here. They are ROS parameters named `features.<flag>` on the node
 that uses them, declared with default `false`. Never put `features:` at the top level of a
 params file: rcl will not parse it and no node in that launch will start.
