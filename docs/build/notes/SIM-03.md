@@ -65,7 +65,7 @@ flight-guardian did not run: nothing under `src/` and no flight config changed.
 
 ## Not done
 
-- **A payload dropping in wind** has not been flown: SIM-06 brings the release. The tool already blows on every payload and bucket a scenario lists.
+- **A payload dropping in wind** was flown under SIM-06 (`drop/release_wind`): the package came to rest 0.57 m downwind of where it was let go. `docs/results/2026-11-18-payload-release.md`.
 - **The strong level** (`delivery/wind_strong`) is in the nightly suite and was not flown in the session.
 - **Our airframe's drag area.** 0.08 m² is the Iris's until DAT-10's hover test.
 - One flight of each scenario, one seed.

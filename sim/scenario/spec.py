@@ -28,7 +28,7 @@ OBJECT_KINDS = {
     "bucket": {"mass_kg", "diameter_m", "height_m"},
     "payload": {"mass_kg", "size_m"},
 }
-OBJECT_COMMON = {"name", "kind", "at", "on_top_of", "heading_deg"}
+OBJECT_COMMON = {"name", "kind", "at", "on_top_of", "carried", "heading_deg"}
 
 # SIM-03's wind levels: mean speed, gust and one discrete gust, in m/s.
 WIND_LEVELS = {
@@ -101,8 +101,11 @@ def _check_object(item, index: int, where: str) -> dict:
     unknown = sorted(str(key) for key in set(item) - OBJECT_COMMON - OBJECT_KINDS[kind])
     if unknown:
         raise BuildError(f"{where}: object '{name}' ({kind}) has unknown key(s) {', '.join(unknown)}")
-    if ("at" in item) == ("on_top_of" in item):
-        raise BuildError(f"{where}: object '{name}' needs exactly one of 'at' and 'on_top_of'")
+    places = [key for key in ("at", "on_top_of", "carried") if key in item]
+    if len(places) != 1:
+        raise BuildError(f"{where}: object '{name}' needs exactly one of 'at', 'on_top_of' and 'carried'")
+    if "carried" in item and (item["carried"] is not True or kind != "payload"):
+        raise BuildError(f"{where}: object '{name}': only a payload can be carried, and it is 'carried: true'")
     if "at" in item:
         at = item["at"]
         fixed = isinstance(at, dict) and set(at) == {"east_m", "north_m"}

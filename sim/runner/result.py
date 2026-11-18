@@ -28,6 +28,8 @@ sys.path.insert(0, str(SIM_DIR))
 from judge.record import Record  # noqa: E402
 from estimator_check import read_estimator_check, summary_lines as estimator_summary_lines  # noqa: E402
 from estimator_check import wanted as estimator_check_wanted  # noqa: E402
+from payload_bridge import read_bridge  # noqa: E402
+from payload_bridge import wanted as bridge_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
 from wind import read_wind, tilt_problem  # noqa: E402
 from wind import wanted as wind_wanted  # noqa: E402
@@ -108,6 +110,7 @@ def run_result(run_dir: Path) -> dict:
         "projection_check": None,
         "estimator_check": None,
         "wind": None,
+        "payload_bridge": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -128,12 +131,14 @@ def run_result(run_dir: Path) -> dict:
         )
 
     trace = run_dir / "trace.jsonl"
+    commanded_real_release = False  # the mission said it was letting the payload go for real (not a fake drop)
     if trace.is_file():
         try:
             record = Record.load(trace)
         except ValueError as error:
             result["reason"] = f"the trace could not be read: {error}"
             return result
+        commanded_real_release = any(item.get("fake") is False for item in record.events_of("release"))
         armed = record.events_of("armed")
         if armed:
             t_arm = armed[0]["t"]
@@ -156,6 +161,10 @@ def run_result(run_dir: Path) -> dict:
         result["estimator_check"] = read_estimator_check(run_dir)
     estimator_check = result["estimator_check"]
 
+    bridged = bridge_wanted(manifest)
+    if bridged:
+        result["payload_bridge"] = read_bridge(run_dir)
+    bridge = result["payload_bridge"]
     windy = wind_wanted(manifest)
     if windy:
         result["wind"] = read_wind(run_dir)
@@ -176,6 +185,10 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="TIMEOUT", reason=f"the flight did not end within {manifest.get('timeout_s')} s of sim time")
     elif outcome != "DONE":
         result["reason"] = f"the flight script reported '{outcome}'"
+    elif bridged and (bridge is None or not bridge.get("servo_messages")):
+        result.update(status="INVALID", reason="the scenario has a payload or a bucket on a joint but the run left no record that the payload bridge heard the servo outputs (payload_bridge.json)")
+    elif bridged and bridge.get("carried") and commanded_real_release and not bridge.get("released"):
+        result.update(status="FAIL", reason=f"the mission commanded a release but the payload bridge never let {bridge['carried']} go: no servo output arrived at a release value")
     elif windy and (wind is None or not wind["passed"]):
         result.update(status="INVALID", reason="the scenario has wind but the run left no record that it blew (wind.json): it may have been flown calm")
     elif hover_test and tilt_problem(wind):
@@ -276,6 +289,19 @@ def _wind_rows(result: dict) -> list[str]:
     return rows
 
 
+def _payload_rows(result: dict) -> list[str]:
+    """Report rows for a run with a carried payload or a bucket: what the payload bridge did."""
+    bridge = result.get("payload_bridge")
+    if bridge is None:
+        return []
+    parts = []
+    if bridge.get("carried"):
+        parts.append(f"{bridge['carried']} {'released' if bridge.get('released') else 'not released'}")
+    if bridge.get("bucket"):
+        parts.append(f"{bridge['bucket']}: {bridge.get('grabs', 0)} grab(s), {bridge.get('grab_misses', 0)} miss(es){', still held' if bridge.get('holding') else ''}")
+    return [f"| Payload bridge | {'; '.join(parts) or 'nothing to do'} ({bridge.get('servo_messages', 0)} servo messages heard) |"]
+
+
 def render_report(result: dict) -> str:
     flags = "flags on" if result["variant"] == "on" else "flags off"
     if result["flags"]:
@@ -295,6 +321,7 @@ def render_report(result: dict) -> str:
         *_projection_check_rows(result),
         *_estimator_check_rows(result),
         *_wind_rows(result),
+        *_payload_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",
@@ -334,7 +361,8 @@ def suite_table(results: list[dict]) -> str:
     counts: dict[str, int] = {}
     for result in results:
         counts[result["status"]] = counts.get(result["status"], 0) + 1
-    order = ["OK", "INVALID", "TIMEOUT", "NEVER_ARMED", "ERROR"]
+    order = ["OK", "FAIL", "INVALID", "TIMEOUT", "NEVER_ARMED", "ERROR"]
+    order += sorted(set(counts) - set(order))  # a status this list has not heard of is still counted
     summary = ", ".join(f"{counts[status]} {status}" for status in order if status in counts)
     lines += ["", f"{len(results)} runs: {summary}"]
     return "\n".join(lines) + "\n"

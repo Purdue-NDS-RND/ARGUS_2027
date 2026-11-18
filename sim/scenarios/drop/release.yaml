@@ -1,0 +1,30 @@
+# The 2026 drop with a real release (SIM-06). A 0.5 kg package hangs under
+# the vehicle on a Gazebo detachable joint; the mission, with fake_drop off,
+# commands the sprayer as it did in 2026; sim/payload_bridge.py sees the
+# flight controller's servo output change and lets the package go; and the
+# judge scores where the package came to rest, not where the vehicle was.
+# No flags: off and on fly the same 2026 mission.
+description: 2026 drop mission releasing a real 0.5 kg package from the drop height.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+config:
+  package_drop:
+    fake_drop: false
+targets:
+  package_drop: drop_target
+payload: parcel
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+wind: {level: calm}

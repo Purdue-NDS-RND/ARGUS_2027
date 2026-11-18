@@ -96,8 +96,72 @@ def human_inputs(messages, ground_stations=GROUND_STATION_SYSTEMS) -> list[dict]
     return found
 
 
+class LandingWatcher:
+    """The impulse a released body takes when it lands, from its true poses: a `contact` event (SIM-06).
+
+    After `released(t)`, the body's velocity is followed by differencing
+    its poses. An impact is a change of velocity too large for gravity and
+    drag: the largest change seen across three consecutive poses, times the
+    body's mass, is the impulse of its hardest contact. It is reported once,
+    when the body has been still for a second: a package set down gently
+    reports a contact too, with an impulse near zero, so that "the impulse
+    was under the limit" can always be answered for a real package.
+    """
+
+    STILL_MPS = 0.05
+    STILL_FOR_S = 1.0
+    MIN_STEP_S = 0.005  # poses closer together than this are not differenced: the velocity would be noise
+
+    def __init__(self, masses_kg: dict) -> None:
+        self._masses = {name: float(mass) for name, mass in masses_kg.items()}
+        self._poses: dict = {name: [] for name in self._masses}  # the last three (t, position) of each body
+        self._velocities: dict = {name: [] for name in self._masses}  # and its last two velocities
+        self._released_at: dict = {}
+        self._largest: dict = {}
+        self._still_since: dict = {}
+        self._reported: set = set()
+
+    def released(self, t: float, name: str | None = None) -> None:
+        """A release was commanded at sim time `t`: watch the named body, or every body, from now."""
+        for body in self._masses if name is None else [name]:
+            if body in self._masses and body not in self._released_at:
+                self._released_at[body] = t
+                self._largest[body] = 0.0
+
+    def update(self, name: str, t: float, position) -> dict | None:
+        """One true pose of a body. Returns a `contact` event when its landing is over, once."""
+        if name not in self._masses:
+            return None
+        poses = self._poses[name]
+        if poses and t - poses[-1][0] < self.MIN_STEP_S:
+            return None
+        poses.append((t, tuple(float(value) for value in position)))
+        if len(poses) < 2:
+            return None
+        (t0, p0), (t1, p1) = poses[-2], poses[-1]
+        velocity = tuple((b - a) / (t1 - t0) for a, b in zip(p0, p1))
+        velocities = self._velocities[name]
+        velocities.append(velocity)
+        del poses[:-3], velocities[:-3]
+        if name not in self._released_at or name in self._reported or t < self._released_at[name]:
+            return None
+        if len(velocities) >= 3:  # across two steps: an impact inside one pose step is split over the two differences around it
+            change = sum((after - before) ** 2 for before, after in zip(velocities[-3], velocities[-1])) ** 0.5
+            self._largest[name] = max(self._largest[name], change)
+        speed = sum(component * component for component in velocity) ** 0.5
+        if speed > self.STILL_MPS:
+            self._still_since.pop(name, None)
+            return None
+        since = self._still_since.setdefault(name, t)
+        if t - since < self.STILL_FOR_S:
+            return None
+        self._reported.add(name)
+        change = self._largest[name]
+        return {"event": "contact", "name": name, "impulse_ns": round(self._masses[name] * change, 4), "velocity_change_mps": round(change, 3)}
+
+
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "record"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "record", "payload_bridge"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
@@ -113,6 +177,9 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("estimator_check")  # the estimator's bullseye track is compared with the truth
     if manifest.get("record") is True:
         needed.add("record")  # the flight's topics are recorded for replay (sim/run_scenarios.sh --record)
+    bridge = manifest.get("payload_bridge")
+    if isinstance(bridge, dict) and (bridge.get("carried") or bridge.get("bucket")):
+        needed.add("payload_bridge")  # servo outputs let the carried payload go and take hold of the bucket
     return needed
 
 
@@ -130,6 +197,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "projection_check": "it turns use_frame_time_pose on, and the check of projection v2 against the truth (sim/projection_check.py) is missing",
         "estimator_check": "it turns use_target_estimator on, and the check of the estimator against the truth (sim/estimator_check.py) is missing",
         "record": "a recording was asked for, and the recorder (sim/replay/record_run.py) is missing",
+        "payload_bridge": "it has a carried payload or a bucket to pick up, and the payload bridge (sim/payload_bridge.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

@@ -344,9 +344,9 @@
       "land": "L08",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "python3 -m pytest -q sim/test/test_payload_bridge.py -> 23 passed; sim: drop/release OK 0.17 m, drop/release_wind OK 0.40 m (package 0.57 m downwind), delivery/release (gripper on output 7, bucket standing by) OK 0.19 m, contact 0.31 N s; docs/results/2026-11-18-payload-release.md. Left: the grab flown in the sim (REC-8 hook vehicle, REC-2 mission); the aircraft's gripper and sprayer outputs and PWMs in place of the sim's own (lead, PLT-08, REC-9); servo outputs in the recording via MAVROS rc_io (PLT-08); the delivery impulse limit and judging it (CEN-05); one seed per flight",
       "blocked_reason": ""
     },
     {

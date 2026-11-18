@@ -167,6 +167,7 @@ else
     run_test "" sim/test/test_replay_record.py
     run_test "" sim/test/test_wind_model.py
     run_test "" sim/test/test_wind.py
+    run_test "" sim/test/test_payload_bridge.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
     run_test src/argus_camera src/argus_camera/test/test_capture_clock.py

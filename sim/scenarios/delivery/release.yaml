@@ -1,0 +1,39 @@
+# The 2026 delivery with a real package and a real gripper (SIM-06). A 0.5 kg
+# package hangs under the vehicle on a Gazebo detachable joint; the mission,
+# with fake_drop off, lands on the target and commands its gripper to
+# release, as it did in 2026; sim/payload_bridge.py sees the gripper's servo
+# output arrive at its release value and lets the package go; the judge
+# scores where the package rests and the impulse it landed with.
+# A bucket stands 8 m from the takeoff point as the scenario's bucket: its
+# joint to the vehicle, which Gazebo makes when the world loads, must be
+# unmade by the bridge before the flight, or the vehicle could not leave.
+# No flags: off and on fly the same 2026 mission.
+description: 2026 delivery mission setting down a real 0.5 kg package with the gripper.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+config:
+  package_delivery:
+    fake_drop: false
+targets:
+  package_delivery: delivery_target
+payload: parcel
+bucket: pail
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+  - name: pail
+    kind: bucket
+    mass_kg: 1.5
+    at: {east_m: -8.0, north_m: 0.0}
+wind: {level: calm}

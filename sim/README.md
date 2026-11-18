@@ -357,3 +357,33 @@ The run folder gets `wind.jsonl` (every update) and `wind.json`, and the report 
 sim/run_scenarios.sh hover/wind_5
 sim/run_scenarios.sh delivery/wind_moderate
 ```
+
+## Payloads and the gripper
+
+A scenario's payload can hang from the vehicle and really be let go (SIM-06):
+
+```yaml
+payload: parcel
+config:
+  package_drop:
+    fake_drop: false          # the mission sends its release command
+objects:
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true             # hangs under the vehicle on a Gazebo detachable joint
+```
+
+The builder puts the package beside the camera, between the legs, with a detachable joint to the vehicle, and gives the flight controller a gripper (servo output 7) and a sprayer (servo output 8, what the 2026 drop commands). `sim/payload_bridge.py`, started by the runner beside the flight, reads the flight controller's servo outputs and is the only thing that acts on them: when a release output arrives at its release value it detaches the package, once. The judge then scores where the package came to rest. A carried payload can be at most 0.20 x 0.10 x 0.10 m, so that it stays out of the camera's view and clear of the legs and the ground.
+
+With `fake_drop: true` (the shipped sequences) the mission sends no command, no output moves, and the judge scores the vehicle's position at the mission's fake-release log line, as before.
+
+For a bucket (`bucket: <name>` in the scenario) the bridge takes hold when the gripper output arrives at its grab value, but only if the hook is within 0.10 m of the handle horizontally and 0.15 m vertically; otherwise nothing is attached and `grab_miss` is logged. No vehicle has a hook yet (REC-8), so this half has only been tried in unit tests.
+
+The run folder gets `payload_bridge.jsonl` and `payload_bridge.json`, and the report a "Payload bridge" row.
+
+```
+sim/run_scenarios.sh drop/release
+sim/run_scenarios.sh drop/release_wind
+```

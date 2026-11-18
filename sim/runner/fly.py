@@ -46,6 +46,7 @@ TOOLS = {
     "projection_check": SIM_DIR / "projection_check.py",  # beside flights with use_frame_time_pose on (FND-05)
     "estimator_check": SIM_DIR / "estimator_check.py",  # beside flights with use_target_estimator on (FND-06)
     "record": SIM_DIR / "replay" / "record_run.py",  # beside flights started with --record (SIM-09)
+    "payload_bridge": SIM_DIR / "payload_bridge.py",  # beside flights with a carried payload or a bucket (SIM-06)
 }
 CLOCK_MARK_S = 5.0
 STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded
@@ -54,7 +55,7 @@ STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded
 class Recorder:
     """Gazebo's true poses and clock, written to the trace on sim time."""
 
-    def __init__(self, world: str, vehicle_model: str, tracked: list[str], writer: TraceWriter) -> None:
+    def __init__(self, world: str, vehicle_model: str, tracked: list[str], writer: TraceWriter, masses_kg: dict | None = None) -> None:
         from gz.msgs10.clock_pb2 import Clock
         from gz.msgs10.pose_v_pb2 import Pose_V
         from gz.transport13 import Node
@@ -62,6 +63,7 @@ class Recorder:
         self.writer = writer
         self.lock = threading.Lock()
         self.names = {vehicle_model: "vehicle", **{name: name for name in tracked}}
+        self.landing = events.LandingWatcher(masses_kg or {})  # the impulse a released payload or bucket lands with
         self.sim_now: float | None = None
         self.vehicle_up: float | None = None  # latest true height of the vehicle model
         self.vehicle_start_up: float | None = None  # and its first, standing on the ground
@@ -92,6 +94,9 @@ class Recorder:
                 name = self.names.get(pose.name)
                 if name is not None:
                     self.writer.pose(when, name, pose.position.x, pose.position.y, pose.position.z)
+                    contact = self.landing.update(name, when, (pose.position.x, pose.position.y, pose.position.z))
+                    if contact is not None:
+                        self.writer.event(when, contact.pop("event"), **contact)
                     if name == "vehicle":
                         self.vehicle_up = pose.position.z
                         if self.vehicle_start_up is None:
@@ -138,7 +143,9 @@ def fly(run_dir: Path) -> dict:
 
     tracked = [item["name"] for item in truth.get("objects", []) if item["kind"] in ("bucket", "payload")]
     writer = TraceWriter(run_dir / "trace.jsonl")
-    recorder = Recorder(manifest["site"], manifest["vehicle"]["model"], tracked, writer)
+    masses = {item["name"]: float(item.get("mass_kg", 1.5 if item["kind"] == "bucket" else 0.5)) for item in truth.get("objects", []) if item["name"] in tracked}
+    released_body = (truth.get("payload") or truth.get("bucket") or {}).get("name")  # None: every tracked body
+    recorder = Recorder(manifest["site"], manifest["vehicle"]["model"], tracked, writer, masses)
     deadline = time.monotonic() + 30.0
     while recorder.sim_now is None:
         if time.monotonic() > deadline:
@@ -171,6 +178,9 @@ def fly(run_dir: Path) -> dict:
     def on_log(message) -> None:
         if message.name == "mission_executor":
             for item in events.from_mission_log(message.msg):
+                if item["event"] == "release" and not item.get("fake"):
+                    # A real release: the landing of the mission's payload (or, with none, its bucket) is watched from here.
+                    recorder.landing.released(recorder.now(), name=released_body)
                 recorder.event(item.pop("event"), **item)
 
     def on_statustext(message) -> None:

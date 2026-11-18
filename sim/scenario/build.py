@@ -44,6 +44,7 @@ sys.path[:0] = [str(SIM_DIR), str(REPO / "src" / "drone_utils")]
 import site_file  # noqa: E402
 from drone_utils import sdf_objects  # noqa: E402  (no ROS imports: used from the source tree)
 from judge import MISSIONS, default_settings  # noqa: E402
+import payload_bridge  # noqa: E402
 from judge.geometry import point_in_polygon  # noqa: E402
 from target_placement import latlon_for  # noqa: E402
 
@@ -104,7 +105,10 @@ def place_objects(scenario: Scenario, site: site_file.Site, seed: int) -> list[d
         if item["kind"] == "marker":
             entry.setdefault("digit", None)
             entry.setdefault("size_m", 0.6 if entry["digit"] is not None else 1.2)
-        if "on_top_of" in item:
+        if item.get("carried") is True:
+            # Hanging under the vehicle where it stands: placed by `carry` once the vehicle's pose is known.
+            entry["e"], entry["n"] = site.takeoff
+        elif "on_top_of" in item:
             support = placed.get(item["on_top_of"])
             if support is None:
                 raise BuildError(f"object '{name}' is on top of '{item['on_top_of']}', which is not an object listed before it")
@@ -173,12 +177,72 @@ def _object_sdf(item: dict) -> str:
         raise BuildError(f"object '{name}': {error}") from error
 
 
-def _embedded_model(item: dict) -> str:
-    """The object's model as a child of <world>, with its pose. Heading is a compass heading."""
+# A carried payload hangs from the vehicle by a Gazebo detachable joint to the camera link, which is the vehicle
+# model's own link (a joint's link is found by name among a model's direct links). Where it hangs, in the body's
+# frame (forward, left, up from the body's origin, to the box's centre): beside the camera, between the legs, clear
+# of the ground when the vehicle stands and out of the camera's view.
+CARRY_LINK = "downcam_link"
+CARRY_OFFSET_BODY_M = (0.0, 0.13, -0.12)
+CARRY_MAX_SIZE_M = (0.20, 0.10, 0.10)  # larger than this and it shows in the camera's image, touches a leg or the ground
+_VEHICLE_INCLUDE_POSE = re.compile(r'<uri>model://(\w+)</uri>\s*<pose degrees="true">\s*(\S+)\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+(\S+)\s*</pose>')
+
+
+def vehicle_pose(world_sdf: str, model: str) -> tuple[float, float, float, float]:
+    """(x, y, z, yaw in degrees) of the vehicle's include in a world."""
+    for match in _VEHICLE_INCLUDE_POSE.finditer(world_sdf):
+        if match.group(1) == model:
+            return tuple(float(match.group(index)) for index in (2, 3, 4, 5))
+    raise BuildError(f"the base world has no <include> of model://{model} with a pose in degrees")
+
+
+def carry(item: dict, vehicle: tuple[float, float, float, float]) -> dict:
+    """A carried payload's object with its pose under the vehicle: `e`, `n`, `up` of the box's base, and its heading."""
+    size = item.get("size_m", (0.15, 0.15, 0.10))
+    size = (size, size, size) if isinstance(size, (int, float)) else tuple(float(value) for value in size)
+    if any(side > limit + 1.0e-9 for side, limit in zip(size, CARRY_MAX_SIZE_M)):
+        raise BuildError(
+            f"object '{item['name']}': a carried payload can be at most {CARRY_MAX_SIZE_M[0]} x {CARRY_MAX_SIZE_M[1]} x {CARRY_MAX_SIZE_M[2]} m "
+            f"(it hangs between the camera's view and the legs); this one is {size[0]} x {size[1]} x {size[2]} m"
+        )
+    x, y, z, yaw_deg = vehicle
+    yaw = math.radians(yaw_deg)
+    forward, left, up = CARRY_OFFSET_BODY_M
+    placed = dict(item)
+    placed["size_m"] = list(size)
+    placed["e"] = x + forward * math.cos(yaw) - left * math.sin(yaw)
+    placed["n"] = y + forward * math.sin(yaw) + left * math.cos(yaw)
+    placed["up"] = z + up - size[2] / 2.0  # the model's origin is the bottom of the box
+    placed["yaw_rad"] = yaw
+    return placed
+
+
+def _joint_to_vehicle(name: str, vehicle_model: str) -> ET.Element:
+    """The detachable joint from a body to the vehicle, made and unmade on the body's own topics (sim/payload_bridge.py)."""
+    plugin = ET.Element("plugin", {"filename": "gz-sim-detachable-joint-system", "name": "gz::sim::systems::DetachableJoint"})
+    for tag, text in (
+        ("parent_link", "link"),
+        ("child_model", vehicle_model),
+        ("child_link", CARRY_LINK),
+        ("detach_topic", payload_bridge.joint_topic(name, "detach")),
+        ("attach_topic", payload_bridge.joint_topic(name, "attach")),
+    ):
+        ET.SubElement(plugin, tag).text = text
+    return plugin
+
+
+def _embedded_model(item: dict, vehicle_model: str | None = None) -> str:
+    """The object's model as a child of <world>, with its pose. Heading is a compass heading.
+
+    `vehicle_model` is given for a body that can hang from the vehicle (a
+    carried payload, the mission's bucket): its model then has the joint.
+    """
     model = ET.fromstring(_object_sdf(item)).find("model")
     pose = ET.Element("pose")
-    pose.text = f"{item['e']:.4f} {item['n']:.4f} {item['up']:.4f} 0 0 {math.radians(-item['heading_deg']):.6f}"
+    yaw = item["yaw_rad"] if "yaw_rad" in item else math.radians(-item["heading_deg"])
+    pose.text = f"{item['e']:.4f} {item['n']:.4f} {item['up']:.4f} 0 0 {yaw:.6f}"
     model.insert(0, pose)
+    if vehicle_model is not None:
+        model.append(_joint_to_vehicle(item["name"], vehicle_model))
     return "    " + ET.tostring(model, encoding="unicode") + "\n"
 
 
@@ -190,7 +254,10 @@ _VEHICLE_POSE = re.compile(r'<uri>model://iris_downcam</uri>\s*<pose degrees="tr
 WRENCH_SYSTEM = '    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>\n'
 
 
-def build_world(base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None, windy: bool = False) -> str:
+def build_world(
+    base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None, windy: bool = False, vehicle_model: str | None = None, hung: tuple = ()
+) -> str:
+    """The run's world. `hung` names the objects that can hang from the vehicle: their models get the joint to `vehicle_model`."""
     text = site_file.site_world(base_sdf, site)
     if sun is not None:  # otherwise the base world's light, as in the 2026 sim
         elevation, azimuth = math.radians(sun["elevation_deg"]), math.radians(sun["azimuth_deg"])
@@ -199,7 +266,7 @@ def build_world(base_sdf: str, site: site_file.Site, objects: list[dict], sun: d
         text, found = _SUN_DIRECTION.subn(lambda m: f"{m.group(1)}{direction[0]:.6f} {direction[1]:.6f} {direction[2]:.6f}{m.group(2)}", text, count=1)
         if not found:
             raise BuildError("the base world has no directional light named 'sun'")
-    models = "".join(_embedded_model(item) for item in objects)
+    models = "".join(_embedded_model(item, vehicle_model if item["name"] in hung else None) for item in objects)
     head, closing, tail = text.rpartition("</world>")
     if not closing:
         raise BuildError("the base world has no </world>")
@@ -354,11 +421,25 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     base_world = BASE_WORLD.read_text()
     wind = scenario.wind or {}
     windy = bool(wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"))
-    world = build_world(base_world, site, objects, scenario.sun, windy)
     profile = SENSOR_PROFILES[scenario.sensor_profile]
+    # A carried payload hangs under the vehicle where the base world stands it; it and the mission's bucket get
+    # a detachable joint to the vehicle, which sim/payload_bridge.py makes and unmakes from the servo outputs.
+    carried = [item["name"] for item in objects if item.get("carried") is True]
+    if len(carried) > 1 or (carried and carried[0] != scenario.payload):
+        raise BuildError(f"{scenario.path}: one payload can be carried, and it is the scenario's 'payload' ({', '.join(carried)} are marked carried)")
+    if carried:
+        stood = vehicle_pose(base_world, profile["model"])
+        objects = [carry(item, stood) if item["name"] == carried[0] else item for item in objects]
+    hung = tuple(name for name in (carried[0] if carried else None, scenario.bucket) if name)
+    world = build_world(base_world, site, objects, scenario.sun, windy, profile["model"], hung)
+    bridge = None
+    if hung:
+        if scenario.driver is not None:
+            raise BuildError(f"{scenario.path}: a driver flies over the sim's tools port, which the payload bridge needs: no carried payload or bucket in a driver scenario")
+        bridge = {"carried": carried[0] if carried else None, "bucket": scenario.bucket, "capture_half_width_m": payload_bridge.CAPTURE_HALF_WIDTH_M}
 
     truth = {**site_file.truth_block(site), **mission_truth, "scenario": scenario.name}
-    truth["objects"] = [{key: value for key, value in item.items() if key != "up"} for item in objects]
+    truth["objects"] = [{key: value for key, value in item.items() if key not in ("up", "yaw_rad")} for item in objects]
     truth["markers"] = [
         {"name": item["name"], "id": item["digit"], "e": item["e"], "n": item["n"]}
         for item in objects
@@ -388,6 +469,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "node_flags": copy.deepcopy(scenario.node_flags) if flags_on else {},
         "sim_time": sim_time,
         "record": bool(record),  # true: the flight's topics are recorded for replay (sim/replay/record_run.py)
+        "payload_bridge": bridge,  # what sim/payload_bridge.py lets go and takes hold of; None when there is nothing
         "timeout_s": scenario.timeout_s,
         "launch": None
         if launch is None
@@ -418,7 +500,8 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "world.sdf").write_text(world)
     (run_dir / "bridge.yaml").write_text((SIM_DIR / profile["bridge"]).read_text())
-    sitl = {"SIM_TERRAIN": 0, **scenario.sitl_params}
+    # With something to let go or take hold of, the flight controller gets the sim's gripper and sprayer outputs.
+    sitl = {"SIM_TERRAIN": 0, **(payload_bridge.SITL_PARAMS if bridge else {}), **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))
