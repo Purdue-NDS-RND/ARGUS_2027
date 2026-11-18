@@ -222,9 +222,9 @@
       "land": "L05",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_detection_contract 19: round trip, 1280 to 4K scaling; test_contract_output 10; test_contract_node 9: the real TargetCV and LegacyAdapter classes with the flag off and on). Sim, flag on, two flights of a scratch scenario (delivery/time_base plus features.detection_contract): OK at 0.06 and 0.04 m; 1944 and 1972 contract messages, none refused by decode, all with a camera frame's stamp; the adapter's point equal to the 2026 topic's for every one. docs/results/2026-11-18-detection-contract.md",
       "blocked_reason": ""
     },
     {

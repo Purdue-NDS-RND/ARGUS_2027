@@ -61,6 +61,17 @@ class TargetCV(Node):
             .get_parameter_value()
             .bool_value
         )
+        # Off (2026): only the 2026 topics. On: also the detection contract
+        # (FND-02), a Detection2DArray on /perception/target_cv/detections.
+        self.declare_parameter("features.detection_contract", False)
+        self._detection_contract = (
+            self.get_parameter("features.detection_contract")
+            .get_parameter_value()
+            .bool_value
+        )
+        self._contract_pub = None
+        if self._detection_contract:
+            self._start_contract_output()
 
         self._image_topic = (
             self.get_parameter("image_topic").get_parameter_value().string_value
@@ -288,6 +299,51 @@ class TargetCV(Node):
         det.point.z = 0.0
         self._detection_pub.publish(det)
 
+    def _start_contract_output(self) -> None:
+        """FND-02, flag on only. If it cannot be set up, the node still runs as the 2026 detector."""
+        try:
+            # Imported only with the flag on: flag off, the node needs
+            # nothing it did not need in 2026.
+            import vision_msgs.msg as vision_messages
+            from drone_mission_core import detection_contract as contract
+
+            from drone_target_cv.contract_output import to_detection_set
+
+            self._vision_messages = vision_messages
+            self._contract = contract
+            self._to_detection_set = to_detection_set
+            self._contract_pub = self.create_publisher(
+                vision_messages.Detection2DArray,
+                contract.topic_for("target_cv"),
+                10,
+            )
+        except Exception as error:  # noqa: BLE001  (the missions wait on this node: it must start)
+            self._detection_contract = False
+            self._contract_pub = None
+            self.get_logger().error(
+                f"features.detection_contract is on but its output could not be set up ({error}): "
+                "running as the 2026 detector, with no contract topic"
+            )
+
+    def _publish_on_contract(self, result, header) -> None:
+        """FND-02, flag on only. Whatever goes wrong here must not stop the 2026 topics below it."""
+        try:
+            found = self._to_detection_set(result, header.stamp, header.frame_id)
+            if found is None:
+                self.get_logger().error(
+                    "Image without a stamp or a frame id: nothing published on the detection contract",
+                    throttle_duration_sec=5.0,
+                )
+                return
+            self._contract_pub.publish(
+                self._contract.encode(found, self._vision_messages)
+            )
+        except Exception as error:  # noqa: BLE001  (the 2026 detection still has to go out)
+            self.get_logger().error(
+                f"Detection contract output failed: {error}",
+                throttle_duration_sec=5.0,
+            )
+
     def _imgmsg_to_cv2(self, msg: Image) -> np.ndarray:
         data = np.frombuffer(msg.data, dtype=np.uint8)
 
@@ -392,6 +448,10 @@ class TargetCV(Node):
         else:
             self.last_detection = None
             self._publish_not_found_detection(header.stamp)
+
+        # After the 2026 topics, so what the missions fly on never waits for it.
+        if self._detection_contract:
+            self._publish_on_contract(result, header)
 
     def _on_image(self, msg: Image) -> None:
         try:

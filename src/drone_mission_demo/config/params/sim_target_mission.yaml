@@ -29,6 +29,7 @@ target_cv:
     min_circularity: 0.4  # 1.0 is circle-like; reject long/irregular red blobs below this.
     features:
       stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
+      detection_contract: false  # Also publish on the detection contract, /perception/target_cv/detections (FND-02).
 
 session_logger:
   ros__parameters:

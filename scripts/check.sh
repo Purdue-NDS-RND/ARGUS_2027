@@ -90,6 +90,7 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_tracking_projec
 run_test src/drone_mission_core src/drone_mission_core/test/test_features.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_time_health.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_pose_buffer.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_detection_contract.py
 run_test src/drone_target_cv src/drone_target_cv/test/test_detection_stamp.py
 run_test src/drone_utils src/drone_utils/test/test_session_log_utils.py
 run_test src/drone_utils src/drone_utils/test/test_sdf_objects.py
@@ -120,6 +121,8 @@ if ((${#missing[@]})); then
     skip "bullseye detector, feature-flag config, plumbing, rules and profile, safety limits, synth target, PR tuning-gate, sim camera, orientation-check, GPS flight-log, sim judge, sim site, sim scenario, sim runner and sim gate tests, tools/bullseye_try.py (missing: ${missing[*]})"
 else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_contract_output.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_contract_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
