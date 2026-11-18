@@ -99,6 +99,22 @@ SITL rebooted (`bind port 5760` twice in its log). One request failed while it w
 
 **4. One flight was INVALID for a reason of the tooling's own.** The time check counted the new rate-check node as "on wall time". Both checkers are on the wall clock on purpose; the time check now leaves that node out.
 
+**5. The repeat every 10 s is gone (18 Nov).** The lead pointed out that it kept a request in MAVROS's command queue for the whole flight. The keeper now asks once on connection, then only after a reboot or when the rate it measures for a message is under 80% of what was asked over 5 s, and never while a mission is in a release or actuation state. The flight on that code:
+
+```
+$ sim/run_scenarios.sh delivery/time_base --variants on
+   OK          delivery/time_base seed 1 on: 16.20 points, 0.04 m from the target
+rate check, median 5 s window (lowest window, mean):
+    pose 30.2 (20.0, 29.4)   attitude 50.0 (20.0, 47.2)   global position 20.0   rangefinder 20.0   landed state 2.0
+    GPS 20.0, battery 20.0, system status 20.0     (asked 5, 2 and 2: left where the takeoff service put them, above what was asked)
+pose stamps against the sim clock: p95 4.5 ms       MAVROS timeouts: 0
+keeper: accepted every rate / quiet while the mission is in takeoff: TAKING_OFF /
+        a rate dropped (LOCAL_POSITION_NED 21.8 Hz, ATTITUDE 25.2 Hz); requesting it again / mission out of its actuation state /
+        accepted every rate / quiet while the mission is in package_delivery: GROUND_DWELL / mission out of its actuation state
+```
+
+Ten requests in the flight (eight at the start, two after the takeoff), against about 130 with the repeat. After the review of this change the hold was extended to start with the final column, and a second flight on that code gave the same: OK at 0.06 m, pose 30.2 and attitude 50.0 Hz at the median with 3 of 31 windows low (the takeoff), `quiet while the mission is in package_delivery: FINAL_FIXED_COLUMN_DESCENT`, no timeouts (`sim/.state/suites/delivery-time_base-20261118T013221Z/`). The rate check now judges each topic on its median 5 s window, because the keeper's silence through the takeoff leaves pose and attitude at 20 Hz for those seconds. Run folder: `sim/.state/suites/delivery-time_base-20261118T011421Z/`.
+
 ## Commands
 
 ```

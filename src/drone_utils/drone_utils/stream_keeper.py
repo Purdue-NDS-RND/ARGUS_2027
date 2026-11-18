@@ -2,22 +2,28 @@
 
 The flight controller forgets a requested rate when it reboots, and anything
 else that sets rates (the takeoff service's request for all streams, a ground
-station) replaces ours. `StreamKeeper` decides when each rate has to be
-requested again: on connection, after a reboot, after a refused or
-unanswered request, and every ten seconds regardless. The node around it
-(stream_keeper_node.py) sends each request as MAV_CMD_SET_MESSAGE_INTERVAL
-through MAVROS's command service.
+station) replaces ours. `StreamKeeper` decides when a rate has to be
+requested: once on connection, after a reboot, and when the rate it measures
+for a message has dropped below what was asked. There is no periodic repeat.
+The node around it (stream_keeper_node.py) sends each request as
+MAV_CMD_SET_MESSAGE_INTERVAL through MAVROS's command service.
 
-It asks for one message at a time and waits for the answer. MAVROS serves
-every command, the gripper's and the arming request included, one after the
-other, and waits up to 5 s for the flight controller to acknowledge each. A
-burst of requests would queue ahead of a command that matters, so there is
-never more than one of ours in that queue, and after a failure the keeper
-stays quiet for a while.
+MAVROS serves every command in turn, the gripper's and the arming request
+included, and waits up to 5 s for the flight controller to acknowledge each.
+So a request of ours sitting in that queue can delay a release. Three rules
+keep it out of the way:
+
+  - nothing is sent while a mission is in a release or actuation state
+    (`ActuationWatch`, fed from the mission executor's log);
+  - one request is out at a time, and after a refused or unanswered one the
+    keeper asks for nothing for a while;
+  - a message whose rate does not come up after three accepted requests is
+    left alone (a sensor that is not fitted) until the next reboot.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Mapping, Optional, Tuple
 
 # MAVLink message id: (name, rate in Hz). PLT-06: pose 30, attitude 50,
@@ -36,10 +42,26 @@ MESSAGE_RATES_HZ: Dict[int, Tuple[str, float]] = {
     1: ("SYS_STATUS", 2.0),  # sys_status: the pre-arm health bit
 }
 SET_MESSAGE_INTERVAL = 511  # MAV_CMD_SET_MESSAGE_INTERVAL: param1 message id, param2 interval in microseconds
-REASSERT_S = 10.0  # every rate is requested again this often, whatever happened in between
+RATE_WINDOW_S = 5.0  # a message's rate is measured over this long
+DROP_FRACTION = 0.8  # a measured rate under this share of the asked rate is a drop
+MAX_FRUITLESS = 3  # accepted requests that leave the rate low before the keeper stops asking for that message
 ANSWER_TIMEOUT_S = 6.0  # an unanswered request is given up after this long (MAVROS waits 5 s for the acknowledgement)
 FAILURE_PAUSE_S = 5.0  # after a refused or unanswered request nothing is asked for this long
 REBOOT_BACKSTEP_NS = 1_000_000_000  # the flight controller's clock going back by more than this is a reboot
+
+# A mission state whose name contains one of these is a release or actuation
+# state: the mission is about to send, or is sending, a command through
+# MAVROS's command queue. Today: package_drop's DROP_PAYLOAD (the sprayer
+# release), package_delivery's GROUND_DWELL (the gripper release), and
+# takeoff's TAKING_OFF and WAITING_FOR_ALTITUDE (the takeoff service arms in
+# the first and sends the takeoff command a few seconds into the second).
+# The final column that leads into each release counts too (FINAL_FIXED...):
+# the delivery sends its release one tick after entering GROUND_DWELL, so the
+# keeper has to be quiet well before that.
+ACTUATION_MARKS = ("FINAL_FIXED", "DROP_PAYLOAD", "GROUND_DWELL", "TAKING_OFF", "WAITING_FOR_ALTITUDE", "RELEASE", "GRIPPER", "ENGAGE", "ACTUAT")
+HOLD_STALE_S = 60.0  # with nothing at all heard from the executor for this long, a hold no longer stands (the executor is gone)
+_STATE_LINE = re.compile(r"\[(?P<mission>[^\]]+)\] State: \w+ -> (?P<state>\w+)")
+_MISSION_OVER = re.compile(r"Mission '[^']*' (completed|ended with status)|Starting mission '")
 
 
 def interval_us(rate_hz: float) -> float:
@@ -47,30 +69,78 @@ def interval_us(rate_hz: float) -> float:
     return 1_000_000.0 / float(rate_hz)
 
 
+def is_actuation_state(state_name: str) -> bool:
+    return any(mark in state_name for mark in ACTUATION_MARKS)
+
+
+class ActuationWatch:
+    """Follows the mission executor's log to know when a mission is in a release or actuation state.
+
+    Every mission logs "[name] State: OLD -> NEW" when it changes state, and
+    the executor logs when a mission starts or ends. `active` is True from a
+    change into an actuation state until the next change of state or the end
+    of that mission.
+    """
+
+    def __init__(self) -> None:
+        self.active = False
+        self.state: Optional[str] = None  # "mission: STATE" while active
+        self._heard_s: Optional[float] = None
+
+    def holding(self, now_s: float) -> bool:
+        """Whether the hold stands now: an actuation state, and the executor heard from within HOLD_STALE_S."""
+        if not self.active:
+            return False
+        if self._heard_s is not None and now_s - self._heard_s > HOLD_STALE_S:
+            self.active, self.state = False, None  # the executor went silent in that state: it is not running
+        return self.active
+
+    def on_log(self, text: str, now_s: Optional[float] = None) -> None:
+        """One line of the mission executor's log, and the clock when it was heard."""
+        if now_s is not None:
+            self._heard_s = now_s
+        match = _STATE_LINE.search(text)
+        if match:
+            self.active = is_actuation_state(match.group("state"))
+            self.state = f"{match.group('mission')}: {match.group('state')}" if self.active else None
+        elif _MISSION_OVER.search(text):
+            self.active, self.state = False, None
+
+
 class StreamKeeper:
     """Tracks which rate request is due. Times are seconds on the caller's clock."""
 
-    def __init__(self, rates: Optional[Mapping[int, Tuple[str, float]]] = None, reassert_s: float = REASSERT_S) -> None:
+    def __init__(self, rates: Optional[Mapping[int, Tuple[str, float]]] = None) -> None:
         self.rates = dict(MESSAGE_RATES_HZ if rates is None else rates)
         for message_id, (name, rate) in self.rates.items():
             if not rate > 0.0:
                 raise ValueError(f"rate for {name} ({message_id}) must be above 0 Hz, got {rate}")
-        self._reassert_s = float(reassert_s)
         self._connected = False
         self._was_connected = False
         self._last_fcu_ns: Optional[int] = None
-        self._next_due: Dict[int, float] = {}
+        self._due: Dict[int, float] = {}  # message id: when its request may go out
         self._confirmed: set = set()
         self._outstanding: Optional[int] = None
         self._sent_at = 0.0
         self._quiet_until = 0.0
+        self._count: Dict[int, int] = {}
+        self._window_start: Dict[int, float] = {}
+        self._fruitless: Dict[int, int] = {}
+        self.given_up: set = set()  # messages that stayed low after MAX_FRUITLESS accepted requests
+        self.measured_hz: Dict[int, float] = {}
+        self.hold = False  # True while a mission is in a release or actuation state
         self.reboots = 0
+        self.rate_drops = 0
         self.failures = 0  # refused or unanswered requests since the last accepted one
-        self.last_failed: Optional[int] = None  # the message id of the newest failure
+        self.last_failed: Optional[int] = None
 
     def _request_all(self, now_s: float) -> None:
         self._confirmed.clear()
-        self._next_due = {message_id: now_s for message_id in self.rates}
+        self.given_up.clear()
+        self._fruitless = {}
+        self._due = {message_id: now_s for message_id in self.rates}
+        self._count = {message_id: 0 for message_id in self.rates}
+        self._window_start = {message_id: now_s for message_id in self.rates}
 
     def on_state(self, connected: bool, now_s: float) -> None:
         """MAVROS's link state to the flight controller."""
@@ -92,31 +162,68 @@ class StreamKeeper:
             self._request_all(now_s)
         self._last_fcu_ns = boot_ns
 
+    def on_message(self, message_id: int) -> None:
+        """One message of this kind arrived from the flight controller (as its MAVROS topic)."""
+        if message_id in self._count:
+            self._count[message_id] += 1
+
+    def _measure(self, now_s: float) -> None:
+        """Close each rate window that is over; a confirmed message found below its rate becomes due again."""
+        for message_id, (_name, rate) in self.rates.items():
+            started = self._window_start.get(message_id, now_s)
+            elapsed = now_s - started
+            if elapsed < 0.0 or elapsed > 3.0 * RATE_WINDOW_S:
+                # The clock stepped (or the keeper was not ticked): this window measures nothing. Start it again.
+                self._count[message_id], self._window_start[message_id] = 0, now_s
+                continue
+            if elapsed < RATE_WINDOW_S:
+                continue
+            measured = self._count.get(message_id, 0) / elapsed
+            self.measured_hz[message_id] = measured
+            self._count[message_id], self._window_start[message_id] = 0, now_s
+            if message_id in self.given_up:
+                if measured >= DROP_FRACTION * rate:  # it does come after all: watch it again
+                    self.given_up.discard(message_id)
+                    self._confirmed.add(message_id)
+                    self._fruitless[message_id] = 0
+                continue
+            if message_id not in self._confirmed or message_id == self._outstanding:
+                continue
+            if measured >= DROP_FRACTION * rate:
+                self._fruitless[message_id] = 0
+                continue
+            self._fruitless[message_id] = self._fruitless.get(message_id, 0) + 1
+            if self._fruitless[message_id] > MAX_FRUITLESS:
+                self.given_up.add(message_id)  # asked and accepted, yet it does not come: the sensor is not there
+                continue
+            self.rate_drops += 1
+            self._confirmed.discard(message_id)
+            self._due[message_id] = now_s
+
     def _failed(self, message_id: int, now_s: float) -> None:
         self.failures += 1
         self.last_failed = message_id
         self._confirmed.discard(message_id)
-        # The failed message waits a full repeat, so that after the pause the
-        # others go first: one message the flight controller will not give
-        # must not keep the rest from being asked for.
-        self._next_due[message_id] = now_s + self._reassert_s
+        self._due[message_id] = now_s + 2.0 * FAILURE_PAUSE_S  # after the pause the other messages go first
         self._quiet_until = now_s + FAILURE_PAUSE_S
 
     def due(self, now_s: float) -> List[Tuple[int, float]]:
         """The request to send now: one (message id, rate), or nothing. It is then considered sent."""
         if not self._connected:
             return []
+        self._measure(now_s)
         if self._outstanding is not None:
             if now_s - self._sent_at < ANSWER_TIMEOUT_S:
                 return []  # one at a time
             self._failed(self._outstanding, now_s)  # no answer came
             self._outstanding = None
-        if now_s < self._quiet_until:
+        if self.hold or now_s < self._quiet_until:
             return []
-        waiting = [message_id for message_id in self.rates if self._next_due.get(message_id, now_s) <= now_s]
+        waiting = [message_id for message_id, when in self._due.items() if when <= now_s]
         if not waiting:
             return []
-        message_id = min(waiting, key=lambda candidate: self._next_due.get(candidate, now_s))  # the longest overdue
+        message_id = min(waiting, key=lambda candidate: self._due[candidate])  # the longest overdue
+        del self._due[message_id]
         self._outstanding = message_id
         self._sent_at = now_s
         return [(message_id, self.rates[message_id][1])]
@@ -129,10 +236,10 @@ class StreamKeeper:
         if success:
             self.failures = 0
             self._confirmed.add(message_id)
-            self._next_due[message_id] = now_s + self._reassert_s
+            self._count[message_id], self._window_start[message_id] = 0, now_s  # measure from the acceptance on
         else:
             self._failed(message_id, now_s)
 
     def holding(self) -> bool:
-        """True while connected with every rate accepted by the flight controller."""
-        return self._connected and self._confirmed == set(self.rates)
+        """True while connected with every rate accepted by the flight controller (or given up as not available)."""
+        return self._connected and self._confirmed | self.given_up == set(self.rates)

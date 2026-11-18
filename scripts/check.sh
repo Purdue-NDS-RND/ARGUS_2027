@@ -97,6 +97,7 @@ run_test "" src/argus_interfaces/test/test_interface_files.py
 run_test "" src/drone_mission_demo/test/test_gps_waypoint_mission.py
 run_test "" src/drone_mission_demo/test/test_package_drop_mission.py
 run_test "" src/drone_mission_demo/test/test_time_guard_missions.py
+run_test "" src/drone_mission_demo/test/test_actuation_states.py
 run_test scripts scripts/test/test_pr_checks.py
 run_test scripts scripts/test/test_secret_scan.py
 run_test "" scripts/test/test_check_coverage.py

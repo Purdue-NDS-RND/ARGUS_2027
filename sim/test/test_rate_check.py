@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 SIM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM))
 
@@ -48,6 +50,24 @@ def test_a_silent_topic_fails_unless_its_sensor_is_optional():
     assert report["passed"] and report["topics"]["/mavros/rangefinder/rangefinder"]["status"] == "silent"
     # A rangefinder that is there but slow still fails.
     assert not rate_check.judge({**GOOD, "/mavros/rangefinder/rangefinder": 100}, 20.0)["passed"]
+
+
+def test_a_flight_is_judged_on_its_median_window_so_a_quiet_takeoff_does_not_fail_it():
+    # 160 s: the first 30 s at the takeoff service's 20 Hz while the keeper keeps out of the way, then 50 Hz.
+    attitude = [20.0] * 6 + [50.0] * 26
+    counts = {**{topic: count * 8 for topic, count in GOOD.items()}, "/mavros/imu/data": int(sum(rate * 5.0 for rate in attitude))}
+    assert not rate_check.judge(counts, 160.0)["passed"]  # on the mean (44.4 Hz) it would fail
+    report = rate_check.judge(counts, 160.0, {"/mavros/imu/data": attitude})
+    row = report["topics"]["/mavros/imu/data"]
+    assert report["passed"] and row["measured_hz"] == 50.0 and row["lowest_window_hz"] == 20.0 and row["windows"] == 32 and row["low_windows"] == 6
+    assert row["mean_hz"] == pytest.approx(44.4, abs=0.1)
+    # A rate that is low most of the time still fails, and so does one that is low for more than a quarter of it.
+    mostly_low = [20.0] * 20 + [50.0] * 12
+    assert not rate_check.judge(counts, 160.0, {"/mavros/imu/data": mostly_low})["passed"]
+    over_a_quarter = rate_check.judge(counts, 160.0, {"/mavros/imu/data": [20.0] * 9 + [50.0] * 23})
+    assert not over_a_quarter["passed"] and "9 of its 32 five-second windows" in over_a_quarter["problems"][0]
+    assert rate_check.judge(counts, 160.0, {"/mavros/imu/data": [20.0] * 8 + [50.0] * 24})["passed"] and rate_check.MAX_LOW_SHARE == 0.25
+    assert rate_check.median([3.0, 1.0, 2.0]) == 2.0 and rate_check.median([4.0, 1.0, 2.0, 3.0]) == 2.5 and rate_check.WINDOW_S == 5.0
 
 
 def test_report_file_round_trip(tmp_path):

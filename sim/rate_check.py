@@ -9,9 +9,13 @@ Runs inside the sim container. It counts messages on the topics below for
 prints each rate with PASS or FAIL. Given a folder it counts until it is
 interrupted and writes <folder>/rate_check.json: sim/runner/fly.py starts it
 that way beside every flight on sim time, where the stream keeper is running.
-A topic passes at 90% of its rate or more. A topic with no messages at all is
-"silent": that fails, unless the topic is optional (a sensor the vehicle may
-not carry).
+The rate is taken over windows of 5 s of sim time and a topic is judged on its
+median window: the stream keeper stays quiet while a mission is in a release
+or actuation state (the takeoff, a drop), so for those seconds a rate may sit
+where the takeoff service left it. A topic passes when its median window is
+at 90% of its rate or more and no more than a quarter of its windows are
+under that. A topic with no messages at all is "silent": that fails, unless
+the topic is optional (a sensor the vehicle may not carry).
 
 The arithmetic and the verdict are plain functions with no ROS in them.
 """
@@ -40,30 +44,49 @@ TOPICS = {
     "/mavros/rangefinder/rangefinder": ("sensor_msgs/msg/Range", "RANGEFINDER", True),
 }
 PASS_FRACTION = 0.9
+WINDOW_S = 5.0
+MAX_LOW_SHARE = 0.25  # of a topic's windows that may be under the pass line (the keeper's quiet spells)
 
 
 def expected_hz(mavlink_name: str) -> float:
     return next(rate for name, rate in MESSAGE_RATES_HZ.values() if name == mavlink_name)
 
 
-def judge(counts: dict, span_s: float) -> dict:
-    """Rates and verdicts from message counts over span_s seconds of sim time."""
+def median(values) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else 0.5 * (ordered[middle - 1] + ordered[middle])
+
+
+def judge(counts: dict, span_s: float, windows: dict | None = None) -> dict:
+    """Rates and verdicts from message counts over span_s seconds of sim time.
+
+    `windows` maps a topic to its rate in each full 5 s window; given, a topic
+    is judged on the median of them, and its lowest window is reported.
+    """
     rows, problems = {}, []
     if not span_s > 0.0:
         return {"passed": False, "problems": ["the sim clock did not advance"], "topics": {}}
     for topic, (_type, mavlink_name, optional) in TOPICS.items():
         want = expected_hz(mavlink_name)
-        got = counts.get(topic, 0) / span_s
+        rates = (windows or {}).get(topic) or []
+        got = median(rates) if rates else counts.get(topic, 0) / span_s
+        low = sum(1 for rate in rates if rate < PASS_FRACTION * want)
         if counts.get(topic, 0) == 0:
             status = "silent"
             if not optional:
                 problems.append(f"{topic} is silent ({mavlink_name}, {want:g} Hz asked)")
+        elif rates and low > MAX_LOW_SHARE * len(rates):
+            status = "FAIL"
+            problems.append(f"{topic} was under {PASS_FRACTION:.0%} of the {want:g} Hz asked in {low} of its {len(rates)} five-second windows ({mavlink_name})")
         elif got >= PASS_FRACTION * want:
             status = "PASS"
         else:
             status = "FAIL"
             problems.append(f"{topic} is at {got:.1f} Hz, under {PASS_FRACTION:.0%} of the {want:g} Hz asked ({mavlink_name})")
         rows[topic] = {"mavlink": mavlink_name, "asked_hz": want, "measured_hz": got, "count": counts.get(topic, 0), "status": status}
+        if rates:
+            rows[topic].update(lowest_window_hz=min(rates), mean_hz=counts.get(topic, 0) / span_s, windows=len(rates), low_windows=low)
     return {"passed": not problems, "problems": problems, "span_sim_s": span_s, "topics": rows}
 
 
@@ -117,13 +140,20 @@ def listen(duration_s: float | None) -> dict:
         rclpy.spin_once(node, timeout_sec=0.05)
     start = clock["now"]
     counting["on"] = True
+    windows = {topic: [] for topic in TOPICS}
+    window_start, window_counts = start, dict(counts)
     try:
         while rclpy.ok() and (duration_s is None or clock["now"] - start < duration_s):
             rclpy.spin_once(node, timeout_sec=0.05)
+            elapsed = clock["now"] - window_start
+            if elapsed >= WINDOW_S:
+                for topic in TOPICS:
+                    windows[topic].append((counts[topic] - window_counts[topic]) / elapsed)
+                window_start, window_counts = clock["now"], dict(counts)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass  # the runner interrupts it when the flight ends
     counting["on"] = False
-    return judge(counts, clock["now"] - start)
+    return judge(counts, clock["now"] - start, windows)
 
 
 def main(argv: list[str] | None = None) -> int:
