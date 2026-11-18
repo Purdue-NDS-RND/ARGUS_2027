@@ -97,7 +97,7 @@ def human_inputs(messages, ground_stations=GROUND_STATION_SYSTEMS) -> list[dict]
 
 
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
@@ -109,6 +109,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("rate_check")  # and to have the message rates the stream keeper holds
     if (manifest.get("flags") or {}).get("use_frame_time_pose") is True:
         needed.add("projection_check")  # projection v2's ground point is compared with the truth
+    if (manifest.get("flags") or {}).get("use_target_estimator") is True:
+        needed.add("estimator_check")  # the estimator's bullseye track is compared with the truth
     return needed
 
 
@@ -124,6 +126,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "time_check": "it runs on sim time, and the time check that proves it (sim/time_check.py) is missing",
         "rate_check": "it runs on sim time, and the rate check for MAVROS's messages (sim/rate_check.py) is missing",
         "projection_check": "it turns use_frame_time_pose on, and the check of projection v2 against the truth (sim/projection_check.py) is missing",
+        "estimator_check": "it turns use_target_estimator on, and the check of the estimator against the truth (sim/estimator_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

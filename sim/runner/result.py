@@ -26,6 +26,8 @@ SIM_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM_DIR))
 
 from judge.record import Record  # noqa: E402
+from estimator_check import read_estimator_check, summary_lines as estimator_summary_lines  # noqa: E402
+from estimator_check import wanted as estimator_check_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
 from projection_check import wanted as projection_check_wanted  # noqa: E402
 from rate_check import read_rate_check  # noqa: E402
@@ -98,6 +100,7 @@ def run_result(run_dir: Path) -> dict:
         "time_check": None,
         "rate_check": None,
         "projection_check": None,
+        "estimator_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -141,6 +144,10 @@ def run_result(run_dir: Path) -> dict:
     if projection_wanted:
         result["projection_check"] = read_projection_check(run_dir)
     projection_check = result["projection_check"]
+    estimator_wanted = estimator_check_wanted(manifest)
+    if estimator_wanted:
+        result["estimator_check"] = read_estimator_check(run_dir)
+    estimator_check = result["estimator_check"]
 
     outcome = (flight or {}).get("outcome")
     rtf = result["real_time_factor"]
@@ -171,6 +178,11 @@ def run_result(run_dir: Path) -> dict:
     elif projection_wanted and not projection_check["passed"]:
         problems = projection_check.get("problems") or ["no reason given"]
         result.update(status="FAIL", reason="projection v2 missed its pass line: " + "; ".join(problems))
+    elif estimator_wanted and estimator_check is None:
+        result.update(status="INVALID", reason="the run had use_target_estimator on but left no estimator check (estimator_check.json), so nothing shows where the estimator put the target")
+    elif estimator_wanted and not estimator_check["passed"]:
+        problems = estimator_check.get("problems") or ["no reason given"]
+        result.update(status="FAIL", reason="the target estimator missed a pass line: " + "; ".join(problems))
     elif result["sim_time"]:
         result["status"] = "OK"
     elif rtf is None:
@@ -219,6 +231,14 @@ def _projection_check_rows(result: dict) -> list[str]:
     return [row + " |"]
 
 
+def _estimator_check_rows(result: dict) -> list[str]:
+    """Report rows for a run with use_target_estimator on: the estimator's bullseye track against the truth, one row per pass line."""
+    check = result.get("estimator_check")
+    if check is None:
+        return []
+    return [f"| Estimator's bullseye track against the truth | {line} |" for line in estimator_summary_lines(check)]
+
+
 def render_report(result: dict) -> str:
     flags = "flags on" if result["variant"] == "on" else "flags off"
     if result["flags"]:
@@ -236,6 +256,7 @@ def render_report(result: dict) -> str:
         f"| Real-time factor while armed | {_number(result['real_time_factor'])} |",
         *_time_check_rows(result),
         *_projection_check_rows(result),
+        *_estimator_check_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",

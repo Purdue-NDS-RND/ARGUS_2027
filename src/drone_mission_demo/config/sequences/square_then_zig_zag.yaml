@@ -2,6 +2,7 @@ mission_sequence:
   on_failure: abort_and_rtl                         # Abort the remaining sequence and request RTL on failure.
   features:                                         # Mission feature flags; a missing flag means false.
     use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
+    use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
   missions:
     - type: takeoff                                # Mission type registered in the mission framework.

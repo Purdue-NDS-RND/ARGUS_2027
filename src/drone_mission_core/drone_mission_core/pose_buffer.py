@@ -199,6 +199,28 @@ class PoseBuffer:
         position = tuple(value + rate * ahead_s for value, rate in zip(p1, velocity))
         return PoseAt(stamp_ns, position, _slerp(q0, q1, 1.0 + ahead_ns / step_ns), True)
 
+    def predict_position(self, stamp_ns, max_ahead_s: float = 0.2) -> Optional[Vector]:
+        """Where the vehicle is expected to be at stamp_ns: for a forecast to the actuation time (FND-06), not for projecting a frame.
+
+        For an instant inside the history, the position `pose_at` gives. Up to
+        `max_ahead_s` past the newest pose, that pose carried on by the
+        reported velocity. None further ahead, before the history, or with no
+        recent velocity.
+        """
+        if isinstance(stamp_ns, bool) or not isinstance(stamp_ns, int):
+            return None
+        with self._lock:
+            newest = self._pose_stamps[-1] if self._pose_stamps else None
+            if newest is not None and stamp_ns > newest:
+                ahead_ns = stamp_ns - newest
+                velocity = self._velocity_for(newest)
+                if velocity is None or ahead_ns > int(round(max_ahead_s * 1.0e9)):
+                    return None
+                position, _orientation = self._poses[-1]
+                return tuple(value + rate * ahead_ns * 1.0e-9 for value, rate in zip(position, velocity))
+        pose = self.pose_at(stamp_ns)
+        return None if pose is None else pose.position
+
     def velocity_at(self, stamp_ns) -> Optional[Vector]:
         """The velocity at stamp_ns, interpolated between two samples no more than 0.12 s apart, or None."""
         if isinstance(stamp_ns, bool) or not isinstance(stamp_ns, int):

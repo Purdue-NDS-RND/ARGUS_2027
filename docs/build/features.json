@@ -275,9 +275,9 @@
       "land": "L07",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh -> OK (85 new tests); sim/run_scenarios.sh delivery/estimator --seeds 1 --variants on -> OK three times, bullseye track p95 0.10 m at 15 m (0.30), 0.02 m at 6 m (0.15), 0.01 m at 2.4 m (0.08) on the committed code; docs/results/2026-11-18-target-estimator.md",
       "blocked_reason": ""
     },
     {

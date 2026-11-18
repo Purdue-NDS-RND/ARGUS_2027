@@ -132,10 +132,15 @@ else
     run_test "" src/drone_mission_core/test/test_executor_pose_buffer.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_projection_v2.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_frame_projection.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_assignment.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_target_estimator.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_estimator_feed.py
+    run_test "" src/drone_mission_core/test/test_executor_target_estimator.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
+    run_test "" tools/test/test_estimator_step_cost.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
     run_test "" sim/test/test_sim_camera.py
@@ -152,6 +157,7 @@ else
     run_test "" sim/test/test_time_base.py
     run_test "" sim/test/test_rate_check.py
     run_test "" sim/test/test_projection_check.py
+    run_test "" sim/test/test_estimator_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
     run_test src/argus_camera src/argus_camera/test/test_capture_clock.py

@@ -163,6 +163,23 @@ gives no tracking solution. What it needs:
   better.
 - The detector's images in the size of that sensor mode: a calibration is not scaled.
 
+`use_target_estimator` (declared, off, in every sequence; needs `use_frame_time_pose`)
+runs the target estimator inside the executor (`target_estimator.py`, fed by
+`estimator_feed.py`). It listens to the detection contract
+(`/perception/<detector>/detections`, detectors named by the executor parameter
+`estimator_detectors`, default `target_cv`), projects every detection with projection v2
+onto its class's plane with the pose at the frame's capture time, and keeps one two-state
+Kalman filter per target: gate at a normalised innovation squared of 9.21, TENTATIVE →
+CONFIRMED after three hits in a second → COASTING after 0.3 s → LOST after 2 s, kept 30 s.
+The tracks are published at 10 Hz as `vision_msgs/Detection3DArray` on
+`/estimator/targets` (id `<class>/<track>/<STATE>`). No mission reads the estimator yet;
+the context calls arrive with FND-07 and the missions with CEN-01. What it needs:
+
+- Exactly one camera named by the sequence's missions (`camera_mode` and `airframe`), or
+  the executor does not start.
+- A detector publishing on the contract: for the 2026 bullseye detector, its node flags
+  `features.detection_contract` and `features.stamp_from_image` on.
+
 Node flags are not set here. They are ROS parameters named `features.<flag>` on the node
 that uses them, declared with default `false`. Never put `features:` at the top level of a
 params file: rcl will not parse it and no node in that launch will start.

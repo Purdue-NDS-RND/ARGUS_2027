@@ -1,0 +1,41 @@
+# The 2026 delivery with the target estimator running in the executor (FND-06).
+# In variant "on" the sim is on one clock as in delivery/frame_time (sim time,
+# MAVROS rates held, detections stamped with their image's time), the 2026
+# detector also publishes on the detection contract, and the mission flags
+# use_frame_time_pose and use_target_estimator are on: the executor projects
+# every contract detection with the pose at its frame's capture time and
+# keeps a Kalman track of the bullseye, published on /estimator/targets.
+# No mission reads the estimator yet (CEN-01 does), so the flight itself is
+# delivery/frame_time's. sim/estimator_check.py runs beside it and the run
+# only counts if the bullseye track is within the FND-06 lines of where the
+# scenario put the target: 0.30 m at 15 m, 0.15 m at 6 m, 0.08 m at 2.4 m.
+# The bullseye here is 1.5 m across, not the 5 m of the other delivery
+# scenarios, so that it fits inside the image at all three heights (the
+# camera sees 2.2 m of ground at 2.4 m). A box cut by the image's edge is not
+# a measurement of the target's centre and the estimator does not use it;
+# below the height where a target stops fitting, the centre comes from the
+# ring fit (CEN-13).
+# Variant "off" is the 2026 baseline on wall time, on the same small target.
+description: 2026 delivery mission with the target estimator on, its bullseye track checked against the truth.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 1.5
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}

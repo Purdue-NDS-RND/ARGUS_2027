@@ -42,7 +42,7 @@ def test_profile_with_a_missing_dependency_is_refused(tmp_path):
     done = run(profile(tmp_path, "enable: [drop_release_gates]\n"))
     assert done.returncode == 2
     assert "drop_release_gates requires use_target_estimator" in done.stderr
-    assert run(profile(tmp_path, "enable: [use_target_estimator, drop_release_gates]\n")).returncode == 0
+    assert run(profile(tmp_path, "enable: [use_frame_time_pose, use_target_estimator, drop_release_gates]\n")).returncode == 0
 
 
 def test_a_bad_profile_makes_the_launch_line_fail_instead_of_flying_with_flags_off(tmp_path):

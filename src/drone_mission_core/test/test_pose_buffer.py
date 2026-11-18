@@ -252,6 +252,30 @@ def test_stamps_are_whole_nanoseconds():
     assert buffer.pose_at(0.5) is None and len(buffer) == 0
 
 
+def test_predict_position_carries_the_newest_pose_on_by_the_velocity_for_a_forecast():
+    buffer = flying(seconds=3.0)
+    newest = buffer.newest_ns()
+    here, _ = truth(3.0)
+    ahead = buffer.predict_position(newest + 80 * MS)  # the actuation time: further than pose_at will go
+    assert buffer.pose_at(newest + 80 * MS) is None
+    assert ahead == pytest.approx((here[0] + 0.08, here[1] + 0.04, here[2] + 0.016), abs=1e-6)
+    inside, _ = truth(1.5)
+    assert buffer.predict_position(newest - 1500 * MS) == pytest.approx(inside, abs=1e-6)
+    assert buffer.predict_position(newest + 201 * MS) is None  # 0.2 s at most
+    assert buffer.predict_position(newest + 150 * MS, max_ahead_s=0.1) is None
+    assert buffer.predict_position(buffer.oldest_ns() - 1) is None
+    assert PoseBuffer().predict_position(5 * S) is None and buffer.predict_position(1.5) is None
+
+
+def test_predict_position_needs_a_recent_velocity():
+    buffer = PoseBuffer()
+    for index in range(10):
+        buffer.add_pose(index * 33 * MS, (float(index), 0.0, 10.0), yaw_quaternion(0.0))
+    buffer.add_velocity(0, (1.0, 0.0, 0.0))  # 0.3 s before the newest pose: not that moment's velocity
+    assert buffer.predict_position(9 * 33 * MS + 50 * MS) is None
+    assert buffer.predict_position(9 * 33 * MS) == pytest.approx((9.0, 0.0, 10.0))
+
+
 def test_the_module_has_no_ros_in_it():
     tree = ast.parse(Path(pose_buffer.__file__).read_text(encoding="utf-8"))
     imported = set()

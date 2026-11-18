@@ -2,6 +2,7 @@ mission_sequence:
   on_failure: abort_and_rtl
   features:
     use_frame_time_pose: false
+    use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
   missions:
     - type: takeoff
