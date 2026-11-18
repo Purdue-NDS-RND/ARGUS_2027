@@ -449,3 +449,31 @@ def judge_geofence(run: Run) -> tuple[float, dict]:
         "max_excursion_m": max_excursion,
     }
     return (0.0 if problem else 1.0), details
+
+
+# --- hover ------------------------------------------------------------------
+
+
+def judge_hover(run: Run) -> tuple[float, dict]:
+    """A hover must hold its place: 1 point if the vehicle stayed within `max_drift_m` of its takeoff point while it was up.
+
+    Not a competition mission: the flight SIM-03's wind is checked on. The
+    tilt against atan(F / mg) is judged from the wind tool's own record
+    (wind.json), which has the force; this judge only says the hover was one.
+    """
+    s = run.settings
+    e0, n0 = run.takeoff_point()
+    start = run.record.pose_at(VEHICLE, run.flight.t_arm)
+    up = [pose for pose in run.vehicle() if pose.u - start.u >= s["min_height_m"]]
+    drift = max((math.hypot(pose.e - e0, pose.n - n0) for pose in up), default=None)
+    held_s = (up[-1].t - up[0].t) if len(up) >= 2 else 0.0
+    problem = ""
+    if drift is None:
+        problem = f"the vehicle never rose {s['min_height_m']} m"
+    elif held_s < s["min_hold_s"]:
+        problem = f"the vehicle was up for {held_s:.1f} s (at least {s['min_hold_s']} s needed)"
+    elif drift > s["max_drift_m"]:
+        problem = f"the vehicle drifted {drift:.2f} m from its takeoff point (limit {s['max_drift_m']} m)"
+    if problem:
+        run.notes.append(f"hover: {problem}")
+    return (0.0 if problem else 1.0), {"passed": not problem, "max_drift_m": drift, "held_s": held_s}

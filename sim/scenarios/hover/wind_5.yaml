@@ -1,0 +1,15 @@
+# SIM-03's pass line as a scored flight: sim/hover.py takes off to 10 m and
+# holds for 40 s in a steady 5 m/s west wind, sim/wind.py pushes on the
+# vehicle with F = 1/2 rho CdA v^2, and the hover's tilt (from Gazebo's true
+# attitude) must be within 20% of atan(F / mg).
+# No mission sequence is flown, so there are no flags: off and on are the same.
+description: Hover for 40 s in a steady 5 m/s wind; the tilt must be atan(F / mg) within 20%.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+wind: {mean_mps: 5.0, direction_deg: 270.0}   # from the west: it blows east

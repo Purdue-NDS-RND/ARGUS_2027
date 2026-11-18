@@ -19,7 +19,7 @@ REQUIRED = ("mission", "site")
 
 # Tools that fly the vehicle themselves, in place of a mission launch, with
 # the settings each takes. fence_check: sim/fence_check.py.
-DRIVERS = {"fence_check": {"speed_mps", "height_m"}}
+DRIVERS = {"fence_check": {"speed_mps", "height_m"}, "hover": {"height_m", "hold_s"}}
 
 OBJECT_KINDS = {
     "bullseye": {"size_m", "rings"},
@@ -39,7 +39,9 @@ WIND_LEVELS = {
 WIND_KEYS = {"level", "mean_mps", "gust_mps", "discrete_gust_mps", "direction_deg"}
 
 # Camera and vehicle variants. SIM-05 adds the survey and still profiles.
-SENSOR_PROFILES = {"delivery": {"model": "iris_downcam", "bridge": "config/bridge.yaml"}}
+# mass_kg: the Iris's links as the sim's models give them (base 1.5, IMU 0.15, four rotors of 0.025, the camera
+# 0.005). cda_m2: its drag area for the wind (SIM-03), 0.08 m2 until the hover test on our airframe (DAT-10).
+SENSOR_PROFILES = {"delivery": {"model": "iris_downcam", "bridge": "config/bridge.yaml", "mass_kg": 1.755, "cda_m2": 0.08}}
 
 COORDINATE_ERROR_FORMS = ({"east_m", "north_m"}, {"radius_m"}, {"max_radius_m"})
 

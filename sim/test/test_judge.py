@@ -883,3 +883,41 @@ def test_geofence_limits_are_the_pass_lines():
     defaults = default_settings("geofence")
     assert (defaults["max_response_s"], defaults["max_excursion_m"]) == (2.0, 10.0)
     assert "RTL" in defaults["response_modes"] and "GUIDED" not in defaults["response_modes"]
+
+
+# --- hover (the flight SIM-03's wind is checked on) ---------------------------------------------------
+
+
+def hover_flight(drift_e=0.2, hold_s=40.0, height=10.0):
+    """Take off, hold `hold_s` seconds at `height`, drifting `drift_e` metres east and back, and land."""
+    up = 10.0 + hold_s
+    return flight([(0, 0, 0, 0), (10, 0, 0, height), (10 + hold_s / 2.0, drift_e, 0, height), (up, 0, 0, height), (up + 10, 0, 0, 0)])
+
+
+def test_hover_that_holds_its_place_scores_its_point():
+    score = judge_run("hover", record(hover_flight()), truth())
+    assert score["base_points"] == 1.0 and score["points"] == 1.0  # no autonomy bonus: it is not a competition mission
+    assert score["details"]["passed"] is True and score["details"]["max_drift_m"] == pytest.approx(0.2, abs=0.01)
+    assert score["details"]["held_s"] == pytest.approx(56.0, abs=0.3)  # above 2 m: the hold and most of the climb and descent
+
+
+@pytest.mark.parametrize(
+    "kwargs, problem",
+    [
+        ({"drift_e": 3.5}, "drifted 3.50 m from its takeoff point (limit 3.0 m)"),
+        ({"hold_s": 2.0}, "was up for"),
+        ({"height": 1.5}, "never rose 2.0 m"),
+    ],
+)
+def test_hover_that_drifts_is_too_short_or_never_rises_scores_nothing(kwargs, problem):
+    score = judge_run("hover", record(hover_flight(**kwargs)), truth())
+    assert score["base_points"] == 0.0 and score["details"]["passed"] is False
+    assert any(problem in note for note in score["notes"]), score["notes"]
+
+
+def test_hover_headline():
+    sys.path.insert(0, str(SIM))
+    from runner.result import headline
+
+    assert headline({"mission": "hover", "details": {"max_drift_m": 0.18, "held_s": 74.2}}) == "held within 0.18 m for 74 s"
+    assert headline({"mission": "hover", "details": {"max_drift_m": None}}) == "never airborne"

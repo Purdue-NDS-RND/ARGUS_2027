@@ -1,0 +1,18 @@
+# The 2026 delivery in SIM-03's moderate wind: 4 m/s from the south-west with
+# 1 m/s gusts. Both variants fly the 2026 mission; the scenario is the windy
+# baseline that the centring features are measured against.
+description: 2026 delivery mission in a 4 m/s wind with 1 m/s gusts.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: moderate, direction_deg: 225.0}

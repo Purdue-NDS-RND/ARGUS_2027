@@ -327,9 +327,9 @@
       "land": "L08",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 PR_TITLE=local PR_BODY=local scripts/check.sh -> OK (32 new tests); sim/run_scenarios.sh hover/wind_5 -> OK, hover tilt 4.10 deg against atan(F/mg) 4.10 deg in a steady 5 m/s wind (line 20%); delivery/wind_moderate -> OK, 0.04 m; docs/results/2026-11-18-wind.md. A payload dropping in wind is unit-tested only: the sim flight is owed to SIM-06 (release)",
       "blocked_reason": ""
     },
     {

@@ -448,7 +448,7 @@ def test_manifest_tells_the_runner_how_to_fly_it(tmp_path):
         "file": "package_delivery_demo.launch.py",
         "arguments": {"sequence": str(run / "sequence.yaml"), "params": str(run / "params.yaml")},
     }
-    assert manifest["vehicle"] == {"model": "iris_downcam", "bridge": str(run / "bridge.yaml"), "sensor_profile": "delivery"}
+    assert manifest["vehicle"] == {"model": "iris_downcam", "bridge": str(run / "bridge.yaml"), "sensor_profile": "delivery", "mass_kg": 1.755, "cda_m2": 0.08}
     assert manifest["timeout_s"] == 420.0
     assert manifest["wind"] == {"level": "moderate", "mean_mps": 4.0, "gust_mps": 1.0, "discrete_gust_mps": 0.0, "direction_deg": 270.0}
     assert manifest["gps_events"] == [{"at_s": 40.0, "kind": "glitch", "north_m": 5.0}]

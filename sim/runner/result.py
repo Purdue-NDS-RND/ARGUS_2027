@@ -29,6 +29,8 @@ from judge.record import Record  # noqa: E402
 from estimator_check import read_estimator_check, summary_lines as estimator_summary_lines  # noqa: E402
 from estimator_check import wanted as estimator_check_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
+from wind import read_wind, tilt_problem  # noqa: E402
+from wind import wanted as wind_wanted  # noqa: E402
 from projection_check import wanted as projection_check_wanted  # noqa: E402
 from rate_check import read_rate_check  # noqa: E402
 from time_check import read_time_check  # noqa: E402
@@ -68,6 +70,10 @@ def headline(score: dict) -> str:
         elapsed = details.get("elapsed_s")
         passed = f"{details.get('hit', 0)} of {details.get('of', 0)} waypoints"
         return passed if elapsed is None else f"{elapsed:.1f} s, {passed}"
+    if mission == "hover":
+        if details.get("max_drift_m") is None:
+            return "never airborne"
+        return f"held within {details['max_drift_m']:.2f} m for {details.get('held_s', 0.0):.0f} s"
     if mission == "geofence":
         if not details.get("passed"):
             return "fence not held"
@@ -101,6 +107,7 @@ def run_result(run_dir: Path) -> dict:
         "rate_check": None,
         "projection_check": None,
         "estimator_check": None,
+        "wind": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -149,6 +156,12 @@ def run_result(run_dir: Path) -> dict:
         result["estimator_check"] = read_estimator_check(run_dir)
     estimator_check = result["estimator_check"]
 
+    windy = wind_wanted(manifest)
+    if windy:
+        result["wind"] = read_wind(run_dir)
+    wind = result["wind"]
+    hover_test = ((manifest.get("driver") or {}).get("tool") == "hover") and windy
+
     outcome = (flight or {}).get("outcome")
     rtf = result["real_time_factor"]
     if flight is None:
@@ -163,6 +176,10 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="TIMEOUT", reason=f"the flight did not end within {manifest.get('timeout_s')} s of sim time")
     elif outcome != "DONE":
         result["reason"] = f"the flight script reported '{outcome}'"
+    elif windy and (wind is None or not wind["passed"]):
+        result.update(status="INVALID", reason="the scenario has wind but the run left no record that it blew (wind.json): it may have been flown calm")
+    elif hover_test and tilt_problem(wind):
+        result.update(status="FAIL", reason="the wind missed its pass line: " + tilt_problem(wind))
     elif result["sim_time"] and time_check is None:
         result.update(status="INVALID", reason="the run was on sim time but left no time check (time_check.json), so nothing shows its nodes shared one clock")
     elif result["sim_time"] and not time_check["passed"]:
@@ -239,6 +256,26 @@ def _estimator_check_rows(result: dict) -> list[str]:
     return [f"| Estimator's bullseye track against the truth | {line} |" for line in estimator_summary_lines(check)]
 
 
+def _wind_rows(result: dict) -> list[str]:
+    """Report rows for a windy run: what the wind was, and the hover's tilt against atan(F / mg) when there was a hover."""
+    wind = result.get("wind")
+    if wind is None:
+        return []
+    speed = wind.get("wind_speed_mps")
+    if not speed:
+        return ["| Wind | none recorded |"]
+    settings = wind.get("settings") or {}
+    rows = [f"| Wind | mean {speed['mean']:.1f} m/s, {speed['min']:.1f} to {speed['max']:.1f} m/s, from {settings.get('direction_deg', 0.0):g} degrees, over {wind['updates']} updates |"]
+    hover = wind.get("hover")
+    if hover:
+        verdict = "PASS" if hover["within_tolerance"] else "FAIL"
+        rows.append(
+            f"| Hover tilt in the wind | {verdict}: {hover['mean_tilt_deg']:.2f} degrees against atan(F / mg) = {hover['expected_tilt_deg']:.2f} degrees "
+            f"(force {hover['mean_force_n']:.2f} N, mass {hover['mass_kg']:.3f} kg, limit 20%) |"
+        )
+    return rows
+
+
 def render_report(result: dict) -> str:
     flags = "flags on" if result["variant"] == "on" else "flags off"
     if result["flags"]:
@@ -257,6 +294,7 @@ def render_report(result: dict) -> str:
         *_time_check_rows(result),
         *_projection_check_rows(result),
         *_estimator_check_rows(result),
+        *_wind_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",

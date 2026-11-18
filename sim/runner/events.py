@@ -123,7 +123,7 @@ def unsupported(manifest: dict, tools_present) -> str:
     reported as if it had them.
     """
     reasons = {
-        "wind": "it asks for wind, which the sim does not apply yet (SIM-03)",
+        "wind": "it asks for wind, and the tool that blows it (sim/wind.py) is missing",
         "gps_events": "it has GPS events, which the sim cannot inject yet (SIM-04)",
         "time_check": "it runs on sim time, and the time check that proves it (sim/time_check.py) is missing",
         "rate_check": "it runs on sim time, and the rate check for MAVROS's messages (sim/rate_check.py) is missing",

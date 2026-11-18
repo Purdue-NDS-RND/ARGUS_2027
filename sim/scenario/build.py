@@ -186,7 +186,11 @@ _SUN_DIRECTION = re.compile(r'(<light type="directional" name="sun">.*?<directio
 _VEHICLE_POSE = re.compile(r'<uri>model://iris_downcam</uri>\s*<pose degrees="true">\s*\S+\s+\S+\s+(\S+)')
 
 
-def build_world(base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None) -> str:
+# Gazebo's system that applies a force to a body on request: what sim/wind.py blows through (SIM-03).
+WRENCH_SYSTEM = '    <plugin filename="gz-sim-apply-link-wrench-system" name="gz::sim::systems::ApplyLinkWrench"/>\n'
+
+
+def build_world(base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None, windy: bool = False) -> str:
     text = site_file.site_world(base_sdf, site)
     if sun is not None:  # otherwise the base world's light, as in the 2026 sim
         elevation, azimuth = math.radians(sun["elevation_deg"]), math.radians(sun["azimuth_deg"])
@@ -199,7 +203,8 @@ def build_world(base_sdf: str, site: site_file.Site, objects: list[dict], sun: d
     head, closing, tail = text.rpartition("</world>")
     if not closing:
         raise BuildError("the base world has no </world>")
-    return f"{head}{models}  {closing}{tail}"
+    # Only a windy run's world gets the wrench system: a calm world is the base world, as before.
+    return f"{head}{models}{WRENCH_SYSTEM if windy else ''}  {closing}{tail}"
 
 
 def vehicle_ground_offset_m(base_sdf: str) -> float:
@@ -295,11 +300,15 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
     if scenario.driver is None:
         return None
     settings = {key: value for key, value in scenario.driver.items() if key != "tool"}
-    # fence_check talks MAVLink with pymavlink, which lives in the base image's user site.
-    command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / "fence_check.py"), "--site", str(site_path)]
-    command += ["--speed", str(float(settings.get("speed_mps", 5.0))), "--height", str(float(settings.get("height_m", 15.0)))]
-    command += ["--out", str(run_dir / "fence_check.json")]
-    return {"tool": scenario.driver["tool"], "command": command}
+    tool = scenario.driver["tool"]
+    # The drivers talk MAVLink with pymavlink, which lives in the base image's user site.
+    command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / f"{tool}.py"), "--site", str(site_path)]
+    if tool == "hover":
+        command += ["--height", str(float(settings.get("height_m", 10.0))), "--hold", str(float(settings.get("hold_s", 40.0)))]
+    else:
+        command += ["--speed", str(float(settings.get("speed_mps", 5.0))), "--height", str(float(settings.get("height_m", 15.0)))]
+    command += ["--out", str(run_dir / f"{tool}.json")]
+    return {"tool": tool, "command": command}
 
 
 def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str = "off", dry_run: bool = False, record: bool = False) -> Path:
@@ -343,7 +352,9 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         sequence, route, mission_truth, error = build_sequence(scenario, shipped_sequence, objects, site, seed, flags_on, run_dir)
         params = build_params(scenario, shipped_params, flags_on)
     base_world = BASE_WORLD.read_text()
-    world = build_world(base_world, site, objects, scenario.sun)
+    wind = scenario.wind or {}
+    windy = bool(wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"))
+    world = build_world(base_world, site, objects, scenario.sun, windy)
     profile = SENSOR_PROFILES[scenario.sensor_profile]
 
     truth = {**site_file.truth_block(site), **mission_truth, "scenario": scenario.name}
@@ -386,7 +397,13 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             "arguments": launch_arguments,
         },
         "driver": _driver(scenario, site_path, run_dir),
-        "vehicle": {"model": profile["model"], "bridge": str(run_dir / "bridge.yaml"), "sensor_profile": scenario.sensor_profile},
+        "vehicle": {
+            "model": profile["model"],
+            "bridge": str(run_dir / "bridge.yaml"),
+            "sensor_profile": scenario.sensor_profile,
+            "mass_kg": profile["mass_kg"],
+            "cda_m2": profile["cda_m2"],
+        },
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
         "gps_events": scenario.gps_events,

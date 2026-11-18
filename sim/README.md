@@ -337,3 +337,23 @@ ros2 launch sim/replay/play.launch.py bag:=/path/to/bag
 ```
 
 **The layouts.** The replay reads messages with its own table of layouts (`msgdefs.py`). Check the table against the installed messages whenever a message package changes: `sim/run_sim.sh --exec python3 sim/replay/check_defs.py`.
+
+## Wind
+
+A scenario's `wind:` is blown by `sim/wind.py`, which the runner starts beside the flight (SIM-03):
+
+```yaml
+wind: {level: moderate, direction_deg: 225.0}       # 4 m/s with 1 m/s gusts, from the south-west
+wind: {mean_mps: 5.0, direction_deg: 270.0}          # a steady 5 m/s from the west
+```
+
+Levels: `calm`; `moderate`, 4 m/s with 1 m/s gusts; `strong`, 7 m/s with 2 m/s gusts and one 3 m/s discrete gust. `mean_mps`, `gust_mps` and `discrete_gust_mps` override a level. `direction_deg` is the bearing the wind comes from (0 is a north wind).
+
+Twenty times a second of sim time the tool takes the true velocity of the vehicle (and of every payload and bucket in the scenario) from Gazebo, and applies our own drag force, F = ½ ρ CdA |v_rel| v_rel, through Gazebo's ApplyLinkWrench system. CdA is 0.08 m² for the Iris. Gusts are Ornstein-Uhlenbeck processes along the wind, across it and vertically, with a correlation time of 2 to 5 s drawn per flight from the seed, so the same seed gives the same wind. Only a windy run's world has the wrench system; a calm run's world is the base world.
+
+The run folder gets `wind.jsonl` (every update) and `wind.json`, and the report says what the wind was. `hover/wind_5` is the pass flight: a 40 s hover in a steady 5 m/s wind, whose tilt must be within 20% of atan(F / mg).
+
+```
+sim/run_scenarios.sh hover/wind_5
+sim/run_scenarios.sh delivery/wind_moderate
+```
