@@ -257,9 +257,9 @@
       "land": "L06",
       "proven_in": "Unit, Sim",
       "note": "New module beside tracking_projection.py, which stays unchanged for the flags-off path. Overlaps teammate issue #4",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_projection_v2 28: nadir pixel under the lens after the lever arm, round trip under 1 cm, Jacobian against a numerical derivative; test_frame_projection 18; test_frame_time_missions 16, the real drop and delivery missions with the flag off and on; vision_pipeline tests 12, the real logger node; sim/test_projection_check 10). Sim: sim/run_scenarios.sh delivery/frame_time --variants on, three flights OK (0.06, 0.04, 0.05 m at touchdown); projected bullseye against the truth at 15 m: p95 0.22, 0.22 and 0.25 m against 0.3 m. docs/results/2026-11-18-projection-v2.md. For the lead before it can be turned on for the aircraft: measure the mount (robot.yaml verified), name camera_mode and airframe in the aircraft sequences (Needs a person)",
       "blocked_reason": ""
     },
     {

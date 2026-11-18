@@ -76,6 +76,7 @@ def executor_module(monkeypatch):
         monkeypatch.setitem(sys.modules, name, module)
     for name in [n for n in sys.modules if n.split(".")[0] in ("drone_mission_core", "drone_mission_demo")]:
         monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(ROOT / "src" / "argus_camera"))  # use_frame_time_pose reads the camera's calibration and mount from it
     monkeypatch.syspath_prepend(str(ROOT / "src" / "drone_mission_demo"))
     monkeypatch.syspath_prepend(str(ROOT / "src" / "drone_mission_core"))
     from drone_mission_core import mission_executor

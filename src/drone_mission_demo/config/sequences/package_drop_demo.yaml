@@ -26,6 +26,8 @@ mission_sequence:
         camera_calibration_width_px: 3840.0        # Image width used when the camera intrinsics were calibrated.
         camera_calibration_height_px: 2160.0       # Image height used when the camera intrinsics were calibrated.
         camera_yaw_offset_deg: 0.0                 # Fixed yaw rotation between the camera and vehicle body.
+        camera_mode: sim_delivery                  # Sensor mode the detector's images come from (argus_camera modes.yaml). Read only with use_frame_time_pose on.
+        airframe: sim_iris_downcam                 # Airframe whose camera mount is used (argus_camera robot.yaml). Read only with use_frame_time_pose on.
         centering_tolerance_m: 0.22                # Ground-error threshold considered centered enough to descend.
         centering_deadband_m: 0.15                 # Small projected errors below this are treated as zero.
         tracking_low_pass_alpha: 0.12              # Low-pass filter weight; higher values react faster but noisier.

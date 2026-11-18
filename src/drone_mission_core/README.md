@@ -144,6 +144,25 @@ HEALTHY:
   frame's. With it off the detector stamps its output with its own clock, and the guard
   only notices a camera or detector that has stopped.
 
+`use_frame_time_pose` (declared, off, in every sequence) makes the executor keep five
+seconds of pose history (`pose_buffer.py`) and where the ground is by the rangefinder,
+and makes a drop or delivery mission find its target with projection v2
+(`projection_v2.py`): the pose at the frame's capture time, the sensor mode's own
+calibration and the camera's mount, in place of the 2026 latest-pose projection. The
+error steered on is the target's ground point minus the vehicle's position now; a frame
+over `frame_time_max_age_s` old (default 0.5 s), or one with no pose in the history,
+gives no tracking solution. What it needs:
+
+- `camera_mode` and `airframe` in the tracking mission's config (a sensor mode and an
+  airframe from `argus_camera`'s `modes.yaml` and `robot.yaml`). Without them, or with a
+  calibration that is a stand-in or an airframe that is not verified, the executor does
+  not start. Only the two sim sequences name them so far.
+- The detector's node flag `features.stamp_from_image` on, and the detector and MAVROS on
+  one clock, so that a detection's stamp is its frame's. Nothing checks this pairing: with
+  the detector's flag off the pose used is the one at publish time, as good as 2026 and no
+  better.
+- The detector's images in the size of that sensor mode: a calibration is not scaled.
+
 Node flags are not set here. They are ROS parameters named `features.<flag>` on the node
 that uses them, declared with default `false`. Never put `features:` at the top level of a
 params file: rcl will not parse it and no node in that launch will start.

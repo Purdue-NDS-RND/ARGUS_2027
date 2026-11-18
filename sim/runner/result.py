@@ -26,6 +26,8 @@ SIM_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM_DIR))
 
 from judge.record import Record  # noqa: E402
+from projection_check import read_projection_check  # noqa: E402
+from projection_check import wanted as projection_check_wanted  # noqa: E402
 from rate_check import read_rate_check  # noqa: E402
 from time_check import read_time_check  # noqa: E402
 
@@ -95,6 +97,7 @@ def run_result(run_dir: Path) -> dict:
         "sim_time": manifest.get("sim_time") is True,
         "time_check": None,
         "rate_check": None,
+        "projection_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -134,6 +137,10 @@ def run_result(run_dir: Path) -> dict:
         result["time_check"] = read_time_check(run_dir)
         result["rate_check"] = read_rate_check(run_dir)
     time_check, rate_check = result["time_check"], result["rate_check"]
+    projection_wanted = projection_check_wanted(manifest)
+    if projection_wanted:
+        result["projection_check"] = read_projection_check(run_dir)
+    projection_check = result["projection_check"]
 
     outcome = (flight or {}).get("outcome")
     rtf = result["real_time_factor"]
@@ -159,6 +166,11 @@ def run_result(run_dir: Path) -> dict:
     elif result["sim_time"] and not rate_check["passed"]:
         problems = rate_check.get("problems") or ["no reason given"]
         result.update(status="INVALID", reason="the run was on sim time but MAVROS's message rates were not held: " + "; ".join(problems))
+    elif projection_wanted and projection_check is None:
+        result.update(status="INVALID", reason="the run had use_frame_time_pose on but left no projection check (projection_check.json), so nothing shows where projection v2 put the target")
+    elif projection_wanted and not projection_check["passed"]:
+        problems = projection_check.get("problems") or ["no reason given"]
+        result.update(status="FAIL", reason="projection v2 missed its pass line: " + "; ".join(problems))
     elif result["sim_time"]:
         result["status"] = "OK"
     elif rtf is None:
@@ -192,6 +204,21 @@ def _time_check_rows(result: dict) -> list[str]:
     return rows
 
 
+def _projection_check_rows(result: dict) -> list[str]:
+    """Report rows for a run with use_frame_time_pose on: projection v2's ground point against the truth."""
+    check = result.get("projection_check")
+    if check is None:
+        return []
+    at_height = check.get("at_15_m")
+    if not at_height:
+        return [f"| Projected target against the truth at 15 m | FAIL: {'; '.join(check.get('problems') or ['nothing projected'])} |"]
+    row = f"| Projected target against the truth at 15 m | {'PASS' if check['passed'] else 'FAIL'}: median {at_height['median_m']:.2f} m, p95 {at_height['p95_m']:.2f} m over {at_height['count']} detections (limit {check.get('limit_m', 0.3)} m)"
+    latest = check.get("at_15_m_with_the_latest_pose")
+    if latest:
+        row += f"; with the latest pose instead, p95 {latest['p95_m']:.2f} m"
+    return [row + " |"]
+
+
 def render_report(result: dict) -> str:
     flags = "flags on" if result["variant"] == "on" else "flags off"
     if result["flags"]:
@@ -208,6 +235,7 @@ def render_report(result: dict) -> str:
         f"| Flight time, arm to disarm (sim time) | {_number(result['flight_s'], '{:.0f} s')} |",
         f"| Real-time factor while armed | {_number(result['real_time_factor'])} |",
         *_time_check_rows(result),
+        *_projection_check_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",

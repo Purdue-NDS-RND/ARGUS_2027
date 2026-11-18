@@ -6,6 +6,10 @@ subscription. With it on in the sequence, `attach_pose_buffer` gives the
 executor a `PoseBuffer` (pose_buffer.py) holding the last five seconds of
 MAVROS's pose and velocity, for whatever needs the pose at a frame's capture
 time (FND-05's projection, FND-07's context call).
+
+With the same flag on, `attach_ground_height` gives the executor a
+`GroundHeight` (projection_v2.py) fed by MAVROS's rangefinder topic, so the
+projection knows where the ground is when the rangefinder is healthy.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from .pose_buffer import PoseBuffer
 FRAME_TIME_FLAG = "use_frame_time_pose"
 POSE_TOPIC = "/mavros/local_position/pose"
 VELOCITY_TOPIC = "/mavros/local_position/velocity_local"  # linear velocity east, north, up
+RANGEFINDER_TOPIC = "/mavros/rangefinder/rangefinder"  # sensor_msgs/Range, the distance along the downward beam
 
 
 def _stamp_ns(stamp: Any) -> int:
@@ -53,3 +58,21 @@ def attach_pose_buffer(node: Any, specs: Iterable[Any]) -> Optional[PoseBuffer]:
     node.create_subscription(TwistStamped, VELOCITY_TOPIC, on_velocity, qos_profile_sensor_data)
     node.get_logger().info("Pose history on (use_frame_time_pose): keeping 5 s of pose and velocity")
     return buffer
+
+
+def attach_ground_height(node: Any, pose_buffer: Optional[PoseBuffer]) -> Optional[Any]:
+    """A GroundHeight fed by the rangefinder through `node`'s own subscription, or None when there is no pose buffer (the flag is off)."""
+    if pose_buffer is None:
+        return None
+    from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import Range
+
+    from .projection_v2 import GroundHeight  # needs numpy: imported only with the flag on
+
+    ground = GroundHeight(pose_buffer.pose_at)
+
+    def on_range(message: Any) -> None:
+        ground.add_range(_stamp_ns(message.header.stamp), message.range, message.min_range, message.max_range)
+
+    node.create_subscription(Range, RANGEFINDER_TOPIC, on_range, qos_profile_sensor_data)
+    return ground

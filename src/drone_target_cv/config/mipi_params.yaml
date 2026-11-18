@@ -17,3 +17,5 @@ mission_logger:
         mount_yaw: 180.0
         ground_altitude_m: 0.0
         show_debug_window: false
+        features:
+            projection_v2: false  # Replace the raycast with projection v2 (FND-05); needs camera_mode and airframe.

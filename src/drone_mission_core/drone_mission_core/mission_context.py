@@ -67,6 +67,34 @@ class MissionContext:
             return None
         return monitor.report(self.now().nanoseconds * 1.0e-9)
 
+    def pose_at(self, stamp_ns: int):
+        """The vehicle's pose at a past instant, from the pose history (pose_buffer.py).
+
+        None with the use_frame_time_pose flag off, and None when the history
+        has no pose for that instant. It is never the latest pose instead.
+        """
+        buffer = getattr(self._node, "_pose_buffer", None)
+        if buffer is None:
+            return None
+        return buffer.pose_at(int(stamp_ns))
+
+    def ground_projector(self, camera, mount):
+        """Projection v2 (projection_v2.py) on this executor's pose history and ground height.
+
+        None with the use_frame_time_pose flag off.
+        """
+        buffer = getattr(self._node, "_pose_buffer", None)
+        if buffer is None:
+            return None
+        from .projection_v2 import GroundProjector  # needs numpy: imported only with the flag on
+
+        return GroundProjector(
+            camera,
+            mount,
+            buffer.pose_at,
+            getattr(self._node, "_ground_height", None),
+        )
+
     def seconds_since(self, start_time: Time) -> float:
         return (self.now() - start_time).nanoseconds / 1e9
 

@@ -674,8 +674,21 @@ def test_nothing_outside_the_package_starts_the_node():
     # No flag guards argus_camera: what keeps the 2026 path as it was is that nothing shipped starts it.
     import subprocess
 
-    found = subprocess.run(
-        ["git", "grep", "-l", "-e", "argus_camera", "--", "*.py", "*.sh", "*.yaml", "*.yml", "*.xml", "*.launch", "*.service", ":!src/argus_camera/*"],
-        cwd=REPO, capture_output=True, text=True, check=True,
-    ).stdout.split()  # fmt: skip
-    assert found == ["scripts/check.sh"], found  # the search ran and found the one mention there should be
+    def mentions(pattern):
+        return subprocess.run(
+            ["git", "grep", "-l", "-E", "-e", pattern, "--", "*.py", "*.sh", "*.yaml", "*.yml", "*.xml", "*.launch", "*.service", ":!src/argus_camera/*"],
+            cwd=REPO, capture_output=True, text=True,
+        ).stdout.split()  # fmt: skip
+
+    assert "scripts/check.sh" in mentions("argus_camera")  # the search runs and finds a mention there is
+    # Other packages read its config (projection v2 reads the calibration and the mount). None starts its node:
+    # no launch file includes its launch, names its package for a Node, or runs its executables.
+    starters = mentions(r"argus_camera\.launch|package=.argus_camera.|ros2 (run|launch) argus_camera|camera_node|camera_bench")
+    assert starters == [], starters
+    readers = [path for path in mentions("argus_camera") if path.startswith("src/") and path.endswith(".py") and "/test/" not in path]  # flight code
+    assert set(readers) <= {
+        "src/drone_mission_core/drone_mission_core/frame_projection.py",
+        "src/drone_mission_core/drone_mission_core/projection_v2.py",
+        "src/vision_pipeline/vision_pipeline/logger_projection.py",
+        "src/vision_pipeline/vision_pipeline/mission_logger.py",
+    }, readers

@@ -54,6 +54,27 @@ class MissionLogger(Node):
         self.declare_parameter("mount_pitch", 0.0)
         self.declare_parameter("mount_yaw", 0.0)
         self.declare_parameter("deduplication_threshold_m", 1.0)
+        # Off (2026): the raycast below. On: projection v2 (FND-05), with the
+        # pose at the frame's stamp, the mode's own calibration and the mount
+        # from the robot description (logger_projection.py).
+        self.declare_parameter("features.projection_v2", False)
+        self.declare_parameter("camera_mode", "")
+        self.declare_parameter("airframe", "")
+        self._projection_v2 = None
+        self._projection_v2_problem = None  # why this stream's frames cannot be projected, once camera_info says
+        if self.get_parameter("features.projection_v2").get_parameter_value().bool_value:
+            from vision_pipeline.logger_projection import LoggerProjection
+
+            # Raises, so the logger does not start, on a mode that is not
+            # calibrated or an airframe nobody has measured.
+            self._projection_v2 = LoggerProjection(
+                self.get_parameter("camera_mode").get_parameter_value().string_value,
+                self.get_parameter("airframe").get_parameter_value().string_value,
+            )
+            self.get_logger().info(
+                f"Projection v2 on: mode {self._projection_v2.camera.name}, "
+                f"lens at {self._projection_v2.mount.position_m} on the body"
+            )
 
         self._mount_x = self.get_parameter("mount_x").get_parameter_value().double_value
         self._mount_y = self.get_parameter("mount_y").get_parameter_value().double_value
@@ -229,6 +250,14 @@ class MissionLogger(Node):
         if not self.camera_info_received:
             self.camera_model.fromCameraInfo(msg)
             self.camera_info_received = True
+            if self._projection_v2 is not None:
+                self._projection_v2_problem = self._projection_v2.camera_info_problem(
+                    msg.width, msg.height, msg.k, msg.d
+                )
+                if self._projection_v2_problem:
+                    self.get_logger().error(
+                        f"Projection v2 will log no target positions: {self._projection_v2_problem}"
+                    )
 
             # CRITICAL FIX: Cast elements to float/int primitives to prevent YAML serialization errors
             cam_data = {
@@ -252,6 +281,13 @@ class MissionLogger(Node):
         if not math.isnan(msg.pose.position.x):
             self._drone_pose = msg
             self._pose_history.append(msg)
+            if self._projection_v2 is not None:
+                stamp, position, orientation = msg.header.stamp, msg.pose.position, msg.pose.orientation
+                self._projection_v2.add_pose(
+                    stamp.sec * 1_000_000_000 + stamp.nanosec,
+                    (position.x, position.y, position.z),
+                    (orientation.x, orientation.y, orientation.z, orientation.w),
+                )
 
     def _on_home(self, msg: HomePosition) -> None:
         self._home = msg
@@ -358,8 +394,12 @@ class MissionLogger(Node):
             is_prime = margin_x < u < (w - margin_x) and margin_y < v < (h - margin_y)
             conf = det.results[0].hypothesis.score
 
-            gps_v1 = self._raycast_to_gps(u, v, pose_v1) if pose_v1 else None
-            gps_v2 = self._raycast_to_gps(u, v, pose_v2) if pose_v2 else None
+            if self._projection_v2 is not None:
+                # Projection v2 has one answer; both logs carry it.
+                gps_v1 = gps_v2 = self._project_v2_to_gps(u, v, msg.header.stamp, w, h)
+            else:
+                gps_v1 = self._raycast_to_gps(u, v, pose_v1) if pose_v1 else None
+                gps_v2 = self._raycast_to_gps(u, v, pose_v2) if pose_v2 else None
 
             if gps_v1 is None and gps_v2 is None:
                 continue
@@ -536,6 +576,29 @@ class MissionLogger(Node):
         interp_pose.pose.orientation.w = interp_rot[3]
 
         return interp_pose
+
+    def _project_v2_to_gps(self, u: float, v: float, stamp, width: int, height: int):
+        """Projection v2 (FND-05), flag on only: None when there is no pose for the frame's stamp."""
+        if self._projection_v2_problem:
+            return None  # not this mode's raw frames: said once, when camera_info arrived
+        ground_z = (
+            self.get_parameter("ground_altitude_m").get_parameter_value().double_value
+        )
+        gps = self._projection_v2.latlon(
+            u,
+            v,
+            stamp.sec * 1_000_000_000 + stamp.nanosec,
+            (width, height),
+            self._home.geo.latitude,
+            self._home.geo.longitude,
+            ground_z,
+        )
+        if gps is None:
+            self.get_logger().warn(
+                f"No ground projection for a detection: {self._projection_v2.last_refusal}",
+                throttle_duration_sec=3.0,
+            )
+        return gps
 
     def _raycast_to_gps(self, u: float, v: float, pose: PoseStamped):
         fx, fy = self.camera_model.fx(), self.camera_model.fy()

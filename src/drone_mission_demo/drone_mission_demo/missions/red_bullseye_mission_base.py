@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 
 from drone_mission_core.features import get_feature_flag
+from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.time_guard import (
@@ -19,6 +20,7 @@ from drone_mission_core.tracking_projection import (
     DEFAULT_CAMERA_FX_PX,
     DEFAULT_CAMERA_FY_PX,
     CameraIntrinsics,
+    GroundProjection,
     ground_offset_to_velocity,
     project_normalized_detection_to_ground_offset,
 )
@@ -26,6 +28,10 @@ from rclpy.time import Time
 
 
 EARTH_RADIUS_M = 6_371_000.0
+# Projection v2 only (use_frame_time_pose): a frame older than this gives no
+# tracking solution. A remembered ground point would otherwise let the vehicle
+# reach "centred" by its own movement, with no fresh image to say so.
+DEFAULT_FRAME_TIME_MAX_AGE_S = 0.5
 TRANSIT_YAW_DEG = 90.0
 HOLD_YAW_DEG = 90.0
 
@@ -60,6 +66,25 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 
 class RedBullseyeMissionBase(BaseMission):
     """Common targeting and centering helpers for payload missions."""
+
+    def __init__(self, spec) -> None:
+        super().__init__(spec)
+        # Projection v2 (FND-05), only with the use_frame_time_pose flag on:
+        # the camera model and mount named by the mission's config. Loaded
+        # when the sequence is built, so a sensor mode that is not calibrated
+        # or an airframe nobody has measured stops the executor on the
+        # ground, not the mission in the air.
+        self._frame_camera = None
+        self._target_offset = None
+        self._last_frame_time_refusal_log: Time | None = None
+        self._frame_time_max_age_s = DEFAULT_FRAME_TIME_MAX_AGE_S
+        if get_feature_flag(spec.features, FRAME_TIME_FLAG):
+            from drone_mission_core.frame_projection import camera_from_config
+
+            self._frame_camera = camera_from_config(spec.config, spec.name)
+            self._frame_time_max_age_s = float(
+                spec.config.get("frame_time_max_age_s", DEFAULT_FRAME_TIME_MAX_AGE_S)
+            )
 
     def _load_common_vision_config(self, config: dict) -> None:
         self._target_latitude = float(config.get("target_latitude", 0.0))
@@ -273,22 +298,26 @@ class RedBullseyeMissionBase(BaseMission):
         if image_size is None:
             return None
 
-        orientation = context.local_pose.pose.orientation
-        projection = project_normalized_detection_to_ground_offset(
-            x_norm=float(detection.point.x),
-            y_norm=float(detection.point.y),
-            image_width=int(image_size[0]),
-            image_height=int(image_size[1]),
-            intrinsics=self._camera_intrinsics,
-            qx=float(orientation.x),
-            qy=float(orientation.y),
-            qz=float(orientation.z),
-            qw=float(orientation.w),
-            altitude_m=float(context.local_pose.pose.position.z),
-            camera_yaw_offset_deg=self._camera_yaw_offset_deg,
-            min_projection_altitude_m=self._min_projection_altitude_m,
-            max_projection_distance_m=self._max_projection_distance_m,
-        )
+        if self._frame_camera is not None:
+            # use_frame_time_pose: the pose at the frame's capture time (FND-05).
+            projection = self._frame_time_projection(context, detection, image_size)
+        else:
+            orientation = context.local_pose.pose.orientation
+            projection = project_normalized_detection_to_ground_offset(
+                x_norm=float(detection.point.x),
+                y_norm=float(detection.point.y),
+                image_width=int(image_size[0]),
+                image_height=int(image_size[1]),
+                intrinsics=self._camera_intrinsics,
+                qx=float(orientation.x),
+                qy=float(orientation.y),
+                qz=float(orientation.z),
+                qw=float(orientation.w),
+                altitude_m=float(context.local_pose.pose.position.z),
+                camera_yaw_offset_deg=self._camera_yaw_offset_deg,
+                min_projection_altitude_m=self._min_projection_altitude_m,
+                max_projection_distance_m=self._max_projection_distance_m,
+            )
         if projection is None:
             return None
 
@@ -329,6 +358,73 @@ class RedBullseyeMissionBase(BaseMission):
             max_speed_mps=max_speed,
         )
         return filtered_error_m, velocity_east, velocity_north
+
+    def _frame_time_projection(
+        self,
+        context: MissionContext,
+        detection,
+        image_size,
+    ) -> GroundProjection | None:
+        """Projection v2 (FND-05), flag on only: where the target is from where the vehicle is now.
+
+        The target's point on the ground is found with the pose the vehicle
+        had when the frame was taken, the mode's own calibration and the
+        camera's mount; the error to steer on is that point minus the
+        vehicle's position now. The two 2026 limits apply as before. With
+        no pose for the frame's time there is no projection, which the
+        callers treat as no tracking solution.
+        """
+        position = context.local_pose.pose.position
+        if float(position.z) < self._min_projection_altitude_m:
+            return None
+        frame_time = Time.from_msg(detection.header.stamp)
+        frame_age_s = context.seconds_since(frame_time)
+        if frame_age_s > self._frame_time_max_age_s:
+            # The point is fixed on the ground, so the error to it shrinks as
+            # the vehicle moves: without this the mission could centre and
+            # descend on a detector that has stopped.
+            self._log_frame_time_refusal(
+                context,
+                f"the frame is {frame_age_s * 1000.0:.0f} ms old (limit {self._frame_time_max_age_s * 1000.0:.0f} ms)",
+            )
+            return None
+        if self._target_offset is None:
+            from drone_mission_core.frame_projection import TargetOffset
+
+            projector = context.ground_projector(*self._frame_camera)
+            if projector is None:
+                self._log_frame_time_refusal(context, "the executor keeps no pose history")
+                return None
+            self._target_offset = TargetOffset(projector)
+        offset = self._target_offset.offset(
+            float(detection.point.x),
+            float(detection.point.y),
+            image_size,
+            frame_time.nanoseconds,
+            (float(position.x), float(position.y)),
+        )
+        if offset is None:
+            self._log_frame_time_refusal(context, self._target_offset.last_refusal)
+            return None
+        east_m, north_m = offset
+        horizontal_error_m = math.hypot(east_m, north_m)
+        if horizontal_error_m > self._max_projection_distance_m:
+            return None
+        return GroundProjection(
+            east_m=east_m,
+            north_m=north_m,
+            horizontal_error_m=horizontal_error_m,
+        )
+
+    def _log_frame_time_refusal(self, context: MissionContext, reason) -> None:
+        """Say why projection v2 gave nothing, at most every two seconds."""
+        last = self._last_frame_time_refusal_log
+        if last is not None and context.seconds_since(last) < 2.0:
+            return
+        self._last_frame_time_refusal_log = context.now()
+        context.logger.warn(
+            f"[{self.name}] no ground projection for this detection ({reason}): no tracking solution"
+        )
 
     def _target_loss_grace_expired(self, context: MissionContext) -> bool:
         if self._target_loss_start is None:

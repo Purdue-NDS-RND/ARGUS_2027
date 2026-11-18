@@ -21,7 +21,7 @@ from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
 from .features import apply_feature_overrides
-from .frame_time import attach_pose_buffer
+from .frame_time import attach_ground_height, attach_pose_buffer
 from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
@@ -121,6 +121,9 @@ class MissionExecutorNode(Node):
         self._pose_buffer = attach_pose_buffer(
             self, [mission.spec for mission in self._sequence]
         )
+        # None without the pose buffer: with it, where the ground is by the
+        # rangefinder, for projection v2 (FND-05).
+        self._ground_height = attach_ground_height(self, self._pose_buffer)
         # None unless a mission has the time_health_guard flag on: then the
         # stale-data guard's monitor, fed by its own subscriptions.
         self._time_health = attach_time_health(
