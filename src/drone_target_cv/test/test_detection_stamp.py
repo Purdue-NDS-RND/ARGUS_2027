@@ -50,9 +50,26 @@ def test_the_node_declares_the_flag_off_and_uses_it_for_every_per_frame_detectio
     assert f"det.header.stamp = {choose}" in body and "self._publish_not_found_detection(header.stamp)" in body
     not_found = ast.unparse(functions["_publish_not_found_detection"])
     assert "det.header.stamp = detection_stamp(image_stamp, self.get_clock().now().to_msg(), self._stamp_from_image)" in not_found
-    # The image-size message and the one "not found" sent when detection is switched off keep the clock.
-    assert "dims.header.stamp = self.get_clock().now().to_msg()" in body
+    # The image-size message is made from a frame too, so it follows the same rule (FND-01).
+    assert f"dims.header.stamp = {choose}" in body
+    # Only the one "not found" sent when detection is switched off, which has no image, keeps the clock.
     assert "self._publish_not_found_detection()" in source
+
+
+def test_no_vision_node_stamps_what_it_makes_from_a_frame_with_its_own_clock():
+    # FND-01: every message made from an image copies that image's stamp. In the 2027 detector the only
+    # way to a stamp is detection_stamp (which gives the clock only with the flag off, the 2026 behaviour);
+    # the YOLO node and the mission logger copy the source stamp outright. The grabbers are sources: they
+    # are where a stamp is born. vision_pipeline/target_cv.py is the 2026 copy of the detector, kept as flown.
+    import re
+
+    repo = NODE.parents[3]
+    own_clock = re.compile(r"\.header\.stamp\s*=\s*(self\.get_clock\(\)\.now\(\)|now\b)")
+    checked = [NODE, repo / "src" / "vision_pipeline" / "vision_pipeline" / "yolo_node.py", repo / "src" / "vision_pipeline" / "vision_pipeline" / "mission_logger.py"]
+    for path in checked:
+        offending = [line.strip() for line in path.read_text().splitlines() if own_clock.search(line)]
+        assert offending == [], f"{path.name}: {offending}"
+    assert "det_array_msg.header.stamp = msg.header.stamp" in checked[1].read_text()
 
 
 def test_flag_off_reads_the_clock_where_2026_read_it():
@@ -65,6 +82,8 @@ def test_flag_off_reads_the_clock_where_2026_read_it():
     body = lines[start:end]
     mask_publish = max(i for i, line in enumerate(body) if "self._mask_pub.publish(" in line)
     clock_reads = [i for i, line in enumerate(body) if "self.get_clock().now()" in line]
-    assert len(clock_reads) == 2  # the image-size message, and the detection
+    assert len(clock_reads) == 2  # the image-size message, and the detection; each read where 2026 read it
+    size_publish = next(i for i, line in enumerate(body) if "self._image_size_pub.publish(" in line)
+    assert clock_reads[0] < size_publish < clock_reads[1]
     assert clock_reads[1] > mask_publish
     assert any("det = PointStamped()" in line for line in body[clock_reads[1] - 6 : clock_reads[1]])  # it is the detection's own read

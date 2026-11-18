@@ -259,6 +259,74 @@ def test_report_file_round_trip(tmp_path):
     assert time_check.read_time_check(tmp_path) is None
 
 
+# --- frame stamps (FND-01) ----------------------------------------------------------------------------------
+
+
+def stamps(count=300, lag_ms=9.0, detection_lag_ms=120.0, own_clock=False):
+    """Frames at 30 Hz heard lag_ms after their stamp, and one detection per frame heard detection_lag_ms after it."""
+    frames = time_check.FrameStamps()
+    for index in range(count):
+        stamp = 10_000_000_000 + index * 33_333_333
+        frames.on_frame(stamp + int(lag_ms * 1e6), stamp)
+        heard = stamp + int(detection_lag_ms * 1e6)
+        frames.on_detection(heard, heard - 2_000_000 if own_clock else stamp)  # 2026: stamped by the detector as it publishes
+    return frames
+
+
+def test_frames_stamped_at_capture_and_detections_carrying_those_stamps_pass():
+    summary = stamps().summary()
+    assert summary["frames"]["count"] == 300 and summary["frames"]["p95_abs_ms"] == pytest.approx(9.0, abs=0.01)
+    assert summary["detections"] == summary["detections_with_a_frame_stamp"] == 300
+    assert summary["detection_age"]["median_ms"] == pytest.approx(120.0, abs=0.01)  # how old the frame is when the mission hears of it
+    assert time_check.frame_problems(summary, require_image_stamps=True) == []
+    assert time_check.FRAME_PERIOD_MS == pytest.approx(33.33, abs=0.01)
+
+
+def test_a_frame_stamp_more_than_a_frame_period_from_the_clock_fails():
+    problems = time_check.frame_problems(stamps(lag_ms=40.0).summary(), require_image_stamps=False)
+    assert len(problems) == 1 and "one frame period" in problems[0]
+    assert time_check.frame_problems(stamps(lag_ms=30.0).summary(), require_image_stamps=False) == []
+
+
+def test_detections_stamped_with_the_detectors_own_clock_fail_only_where_the_flag_is_on():
+    own = stamps(own_clock=True).summary()
+    assert own["detections_with_a_frame_stamp"] == 0 and own["detection_age"]["median_ms"] == pytest.approx(2.0, abs=0.01)
+    assert time_check.frame_problems(own, require_image_stamps=False) == []  # flags off: the 2026 stamps are not judged
+    problems = time_check.frame_problems(own, require_image_stamps=True)
+    assert len(problems) == 1 and "its own clock" in problems[0]
+
+
+def test_too_few_frames_or_detections_to_judge_is_said():
+    assert "only 10 frames" in time_check.frame_problems(stamps(count=10).summary(), True)[0]
+    few = stamps()
+    few.detections, few.from_a_frame = 5, 5
+    assert "only 5 detections" in time_check.frame_problems(few.summary(), True)[0]
+    assert time_check.frame_problems(time_check.FrameStamps().summary(), False) == []  # no camera heard and nothing required
+
+
+def test_the_scenario_says_whether_detections_must_carry_frame_stamps(tmp_path):
+    assert not time_check.detector_stamps_from_image(tmp_path)
+    (tmp_path / "scenario.json").write_text(json.dumps({"node_flags": {"target_cv": {"stamp_from_image": True}}}))
+    assert time_check.detector_stamps_from_image(tmp_path)
+    (tmp_path / "scenario.json").write_text(json.dumps({"node_flags": {}}))
+    assert not time_check.detector_stamps_from_image(tmp_path)
+    run = build_run(TIME_BASE, tmp_path / "run", variant="on")
+    assert time_check.detector_stamps_from_image(run)
+    assert not time_check.detector_stamps_from_image(build_run(TIME_BASE, tmp_path / "off", variant="off"))
+
+
+def test_the_report_carries_the_frame_section_and_its_problems_fail_it():
+    agreement, synced, sync = time_check.StampAgreement(), time_check.StampAgreement(), time_check.TimesyncLog()
+    for index in range(150):
+        agreement.add(1.0 + index * 0.05, 1.0 + index * 0.05 - 0.004)
+        synced.add(1.0 + index * 0.05, 1.0 + index * 0.05 - 0.004)
+        sync.add(43_000_000 + index * 13_000, 3.0)
+    good = time_check.build_report(agreement, synced, sync, {"/mission_executor": True}, 10.0, 7.5, stamps(), True)
+    assert good["passed"] and good["frames"]["detections"] == 300
+    bad = time_check.build_report(agreement, synced, sync, {"/mission_executor": True}, 10.0, 7.5, stamps(own_clock=True), True)
+    assert not bad["passed"] and "its own clock" in bad["problems"][0]
+
+
 # --- scenarios and the runner ---------------------------------------------------------------------------------
 
 

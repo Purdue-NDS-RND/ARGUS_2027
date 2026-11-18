@@ -26,8 +26,17 @@ MIN_RATE_FRACTION = 0.9
 MAX_GAP_PERIODS = 3.0
 
 
-def measure(source: FrameSource, seconds: float, sleep: Callable[[float], None] = time.sleep) -> List[int]:
-    """Capture times, in nanoseconds, of the frames read from an open source over `seconds` of its own clock."""
+def measure(
+    source: FrameSource,
+    seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Optional[Callable[[], int]] = None,
+    ages_ns: Optional[List[int]] = None,
+) -> List[int]:
+    """Capture times, in nanoseconds, of the frames read from an open source over `seconds` of its own clock.
+
+    With `now` (the source's clock) and a list, each frame's age when it was read is appended to the list.
+    """
     stamps: List[int] = []
     misses = 0
     while True:
@@ -40,6 +49,8 @@ def measure(source: FrameSource, seconds: float, sleep: Callable[[float], None] 
             continue
         misses = 0
         stamps.append(frame.capture_ns)
+        if now is not None and ages_ns is not None:
+            ages_ns.append(int(now()) - frame.capture_ns)
         if frame.capture_ns - stamps[0] >= seconds * 1.0e9:
             break
     return stamps
@@ -83,6 +94,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--mode", required=True)
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--synthetic", action="store_true", help="use the test pattern instead of a camera (tries the tool itself)")
+    parser.add_argument("--csi-backend", choices=("opencv", "gstreamer"), default="opencv", help="how a CSI camera is read; gstreamer stamps frames from their PTS")
     parser.add_argument("--config", type=Path, default=default_config_dir(), help="folder with modes.yaml (default: the package's own)")
     args = parser.parse_args(argv)
     mode = get_mode(load_modes(args.config / "modes.yaml"), args.mode)
@@ -90,7 +102,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         measured: Optional[bool] = for_mode(mode, args.config).measured
     except CalibrationError:
         measured = None
-    source = open_source(mode, clock=time.time_ns, synthetic=args.synthetic)  # wall clock: only intervals are used
+    source = open_source(mode, clock=time.time_ns, synthetic=args.synthetic, csi_backend=args.csi_backend)  # wall clock: only intervals are used
+    ages_ns: List[int] = []
     with source:
         if args.synthetic:
             stamps = []
@@ -99,11 +112,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                 stamps.append(source.read().capture_ns)
                 time.sleep(1.0 / mode.fps)
         else:
-            stamps = measure(source, args.seconds)
+            stamps = measure(source, args.seconds, now=time.time_ns, ages_ns=ages_ns)
+        clock = source.capture_clock
     report = judge(mode, stamps, measured)
     fps = "n/a" if report["fps"] is None else f"{report['fps']:.1f}"
     gap = "n/a" if report["longest_gap_s"] is None else f"{report['longest_gap_s'] * 1000.0:.0f} ms"
     print(f"{mode.name}: {mode.width} x {mode.height}, {report['frames']} frames, {fps} fps (mode {mode.fps:g}), longest gap {gap}")
+    kind = type(source).__name__
+    print(f"  source {kind}; frames stamped at the read because their own time was unusable: {clock.fallbacks}; dropped as over a second old: {clock.stale}" + (f" (last: {clock.last_problem})" if clock.last_problem else ""))
+    if ages_ns:
+        ordered = sorted(ages_ns)
+        print(f"  age of a frame when read, by its own stamp: median {ordered[len(ordered) // 2] / 1.0e6:.1f} ms, largest {ordered[-1] / 1.0e6:.1f} ms")
+    if kind == "CaptureSource" and mode.driver == "csi":
+        print("  this is OpenCV's capture: frames are stamped when read. Use --csi-backend gstreamer for capture times from the PTS")
     for problem in report["problems"]:
         print(f"  {problem}")
     print("camera bench: PASS" if report["passed"] else "camera bench: FAIL")

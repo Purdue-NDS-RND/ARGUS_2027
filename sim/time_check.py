@@ -24,7 +24,11 @@ It passes (FND-03) when
     onto the ROS clock by MAVROS's time sync, not the time MAVROS received
     the message (which would agree with /clock whatever the link did),
   - MAVROS's time synchroniser is running at the rate the ARGUS config asks for,
-  - every ROS node it can see has use_sim_time true.
+  - every ROS node it can see has use_sim_time true,
+  - camera frames, if any were heard, are stamped within one frame period of
+    the sim clock (FND-01: the stamp is the frame's capture time), and, where
+    the scenario turns the detector's stamp_from_image flag on, every
+    detection carries the stamp of a frame.
 
 MAVROS only applies its offset once the synchroniser has converged (500
 samples, 50 s at 10 Hz, and longer in the sim: see docs/results). The sim's
@@ -65,6 +69,11 @@ SWEEP_EVERY_S = 10.0  # wall seconds between looks at the nodes' parameters
 # wall clock on purpose and takes its time from Gazebo.
 IGNORED_NODE_PREFIXES = ("/launch_ros_", "/_", "/transform_listener_impl_", "/mavros/param", "/argus_rate_check")
 SYNCED_IN_A_ROW = 20  # poses, for --wait-synced
+FRAME_TOPIC = "/camera/camera_info"  # published with every frame, with the frame's stamp, and small
+DETECTION_TOPIC = "/drone_package_drop/target_detection"
+FRAME_PERIOD_MS = 1000.0 / 30.0  # the sim camera's update rate
+MIN_FRAMES = 50
+MIN_DETECTIONS = 20
 
 
 def percentile(values, fraction: float) -> float:
@@ -159,9 +168,77 @@ def verdict(pose: dict, synced: dict, timesync: dict, nodes: dict, timesync_rate
     return {"passed": not problems, "problems": problems}
 
 
-def build_report(agreement: StampAgreement, synced: StampAgreement, timesync: TimesyncLog, nodes: dict, timesync_rate_param, listened_s: float) -> dict:
+class FrameStamps:
+    """Camera frames and the detections made from them: are the stamps the frames' own?"""
+
+    def __init__(self, keep: int = 400) -> None:
+        self.frames = StampAgreement()  # sim clock when a frame's stamp was heard, against the stamp
+        self.detection_age = StampAgreement()  # sim clock when a detection was heard, against its stamp
+        self._recent: list[int] = []
+        self._keep = keep
+        self.detections = 0
+        self.from_a_frame = 0
+
+    def on_frame(self, clock_ns: int, stamp_ns: int) -> None:
+        self.frames.add(clock_ns * 1.0e-9, stamp_ns * 1.0e-9)
+        self._recent.append(stamp_ns)
+        if len(self._recent) > self._keep:
+            del self._recent[: len(self._recent) - self._keep]
+
+    def on_detection(self, clock_ns: int, stamp_ns: int) -> None:
+        self.detections += 1
+        self.detection_age.add(clock_ns * 1.0e-9, stamp_ns * 1.0e-9)
+        if stamp_ns in self._recent:
+            self.from_a_frame += 1
+
+    def summary(self) -> dict:
+        return {"frames": self.frames.summary(), "detections": self.detections, "detections_with_a_frame_stamp": self.from_a_frame, "detection_age": self.detection_age.summary()}
+
+
+def frame_problems(frames: dict, require_image_stamps: bool) -> list:
+    """What is wrong with the frame stamps, given FrameStamps.summary(). No frames heard is not a problem by itself."""
+    problems = []
+    heard = frames["frames"]
+    if heard["count"] >= MIN_FRAMES and heard["p95_abs_ms"] > FRAME_PERIOD_MS:
+        problems.append(f"frame stamps are {heard['p95_abs_ms']:.1f} ms from the sim clock at the 95th percentile (limit one frame period, {FRAME_PERIOD_MS:.1f} ms)")
+    if require_image_stamps:
+        if heard["count"] < MIN_FRAMES:
+            problems.append(f"only {heard['count']} frames on {FRAME_TOPIC}, so the detections' stamps could not be checked against them")
+        elif frames["detections"] < MIN_DETECTIONS:
+            problems.append(f"only {frames['detections']} detections on {DETECTION_TOPIC} (at least {MIN_DETECTIONS} are needed)")
+        elif frames["detections_with_a_frame_stamp"] < 0.99 * frames["detections"]:
+            problems.append(
+                f"only {frames['detections_with_a_frame_stamp']} of {frames['detections']} detections carry the stamp of a frame: "
+                "the detector is stamping with its own clock"
+            )
+    return problems
+
+
+def detector_stamps_from_image(folder) -> bool:
+    """Whether the run folder's scenario turns the detector's stamp_from_image flag on."""
+    try:
+        manifest = json.loads((Path(folder) / "scenario.json").read_text())
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+    return ((manifest.get("node_flags") or {}).get("target_cv") or {}).get("stamp_from_image") is True
+
+
+def build_report(
+    agreement: StampAgreement,
+    synced: StampAgreement,
+    timesync: TimesyncLog,
+    nodes: dict,
+    timesync_rate_param,
+    listened_s: float,
+    frames: FrameStamps | None = None,
+    require_image_stamps: bool = False,
+) -> dict:
     pose, pose_synced, sync = agreement.summary(), synced.summary(), timesync.summary()
     report = verdict(pose, pose_synced, sync, nodes, timesync_rate_param)
+    if frames is not None:
+        report["frames"] = frames.summary()
+        report["problems"] += frame_problems(report["frames"], require_image_stamps)
+        report["passed"] = not report["problems"]
     report.update(
         limit_ms=LIMIT_MS,
         listened_sim_s=listened_s,
@@ -233,11 +310,12 @@ def listen(folder: Path | None, duration_s: float | None, wait_synced_s: float |
     import collections
 
     import rclpy
-    from geometry_msgs.msg import PoseStamped
+    from geometry_msgs.msg import PointStamped, PoseStamped
     from gz.msgs10.clock_pb2 import Clock as GzClock
     from gz.transport13 import Node as GzNode
     from mavros_msgs.msg import TimesyncStatus
     from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import CameraInfo
 
     rclpy.init()
     # On the wall clock on purpose: a node on sim time handles every /clock
@@ -275,6 +353,9 @@ def listen(folder: Path | None, duration_s: float | None, wait_synced_s: float |
         raise RuntimeError("could not subscribe to Gazebo's /clock")
     node.create_subscription(PoseStamped, POSE_TOPIC, on_pose, qos_profile_sensor_data)
     node.create_subscription(TimesyncStatus, TIMESYNC_TOPIC, on_timesync, qos_profile_sensor_data)
+    frames = FrameStamps()
+    node.create_subscription(CameraInfo, FRAME_TOPIC, lambda m: state["clock"] is not None and frames.on_frame(state["clock"], _stamp_ns(m.header.stamp)), qos_profile_sensor_data)
+    node.create_subscription(PointStamped, DETECTION_TOPIC, lambda m: state["clock"] is not None and frames.on_detection(state["clock"], _stamp_ns(m.header.stamp)), 50)
 
     def listened() -> float:
         return 0.0 if state["first_clock"] is None else (state["clock"] - state["first_clock"]) * 1.0e-9
@@ -297,7 +378,7 @@ def listen(folder: Path | None, duration_s: float | None, wait_synced_s: float |
                     sweep, next_sweep = None, time.monotonic() + SWEEP_EVERY_S
         except (KeyboardInterrupt, ExternalShutdownException):
             pass  # the runner interrupts it when the flight ends
-        result = build_report(agreement, synced, timesync, nodes, found.get("timesync_rate"), listened())
+        result = build_report(agreement, synced, timesync, nodes, found.get("timesync_rate"), listened(), frames, detector_stamps_from_image(folder))
         (folder / "time_check.json").write_text(json.dumps(result, indent=2) + "\n")
     node.destroy_node()
     rclpy.try_shutdown()
@@ -317,6 +398,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.folder is None:
         parser.error("a folder is needed unless --wait-synced is given")
     report = listen(args.folder.resolve(), args.duration)
+    heard = report["frames"]
+    if heard["frames"]["count"]:
+        print(f"frame stamps against the sim clock: {heard['frames']['count']} frames, median {heard['frames']['median_ms']:+.1f} ms, p95 {heard['frames']['p95_abs_ms']:.1f} ms")
+    if heard["detections"]:
+        age = heard["detection_age"]
+        print(f"detections: {heard['detections']}, {heard['detections_with_a_frame_stamp']} with a frame's stamp; age when heard median {age['median_ms']:.0f} ms, p95 {age['p95_abs_ms']:.0f} ms")
     for label, pose in (("all", report["pose"]), ("synchronised", report["pose_synced"])):
         if pose["count"]:
             print(f"pose stamps against the sim clock, {label}: {pose['count']} poses, median {pose['median_ms']:+.1f} ms, p95 {pose['p95_abs_ms']:.1f} ms, max {pose['max_abs_ms']:.1f} ms")

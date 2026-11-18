@@ -15,7 +15,7 @@ from typing import Dict, Optional
 import yaml
 
 DRIVERS = ("csi", "v4l2", "ros_topic")
-MODE_KEYS = {"camera", "driver", "width", "height", "fps", "calibration", "use", "sensor_id", "device", "pixel_format", "in_process_only", "exposure_time_s", "wb_mode"}
+MODE_KEYS = {"camera", "driver", "width", "height", "fps", "calibration", "use", "sensor_id", "device", "pixel_format", "in_process_only", "exposure_time_s", "wb_mode", "capture_offset_s"}
 
 
 class ModeError(ValueError):
@@ -39,6 +39,7 @@ class SensorMode:
     in_process_only: bool = False  # True: read through FrameSource in the process that uses it, never published as topics
     exposure_time_s: Optional[float] = None  # csi: a fixed exposure; None leaves the sensor on auto
     wb_mode: Optional[int] = None  # csi: nvarguscamerasrc's wbmode; None leaves it on auto
+    capture_offset_s: float = 0.0  # how long before its buffer timestamp the sensor exposes; measured by the LED probe (PLT-05)
 
 
 def load_modes(path) -> Dict[str, SensorMode]:
@@ -76,6 +77,9 @@ def load_modes(path) -> Dict[str, SensorMode]:
             raise ModeError(f"{where}: exposure_time_s must be a time in seconds between 0 and 1")
         if wb_mode is not None and (isinstance(wb_mode, bool) or not isinstance(wb_mode, int) or not 0 <= wb_mode <= 9):
             raise ModeError(f"{where}: wb_mode must be a whole number from 0 to 9")
+        capture_offset = entry.get("capture_offset_s", 0.0)
+        if isinstance(capture_offset, bool) or not isinstance(capture_offset, (int, float)) or not 0.0 <= capture_offset < 0.5:
+            raise ModeError(f"{where}: capture_offset_s must be a time in seconds from 0 to under half a second (the sensor exposes before the buffer is stamped, never after)")
         modes[str(name)] = SensorMode(
             name=str(name),
             camera=str(camera),
@@ -92,6 +96,7 @@ def load_modes(path) -> Dict[str, SensorMode]:
             in_process_only=entry.get("in_process_only", False) is True,
             exposure_time_s=None if exposure is None else float(exposure),
             wb_mode=wb_mode,
+            capture_offset_s=float(capture_offset),
         )
     return modes
 

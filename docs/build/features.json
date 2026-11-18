@@ -205,9 +205,9 @@
       "land": "L05",
       "proven_in": "Sim, Bench",
       "note": "PLT-05 supplies the measured camera offset later (default 0 until then). Overlaps teammate issue #4: check main and open PRs first",
-      "status": "DOING",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_capture_clock 30, test_detection_stamp 7, sim/test_time_base 59). Sim: sim/run_scenarios.sh delivery/time_base --variants on, two flights OK (0.03 and 0.06 m): frame stamps 2.0 and 3.0 ms from the sim clock at p95 against one frame period (33.3 ms); 2002 of 2003 and 1953 of 1954 detections carry a frame's stamp. docs/results/2026-11-18-capture-time.md. Left for the lead (bench, Needs a person): install python3-gi on the Jetson and run camera_bench with --csi-backend gstreamer; the LED probe (PLT-05) for capture_offset_s and the 5 ms residual line. Left for the session: PLT-07 makes argus_camera the driver on the aircraft",
       "blocked_reason": ""
     },
     {

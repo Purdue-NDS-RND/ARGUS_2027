@@ -273,7 +273,7 @@ def test_the_csi_camera_is_opened_with_its_pipeline_through_gstreamer(monkeypatc
             return True
 
     monkeypatch.setattr(frame_source.cv2, "VideoCapture", Recorder)
-    open_source(MODES["imx519_720p60"], clock=FakeClock()).open()
+    open_source(MODES["imx519_720p60"], clock=FakeClock()).open()  # the default backend is OpenCV's capture
     assert calls["open"] == (csi_pipeline(MODES["imx519_720p60"]), cv2.CAP_GSTREAMER)
 
 
@@ -581,6 +581,20 @@ def test_bench_measures_a_source_through_the_same_interface_the_node_uses():
     assert bench.judge(MODES["imx519_720p60"], stamps, True)["passed"]
 
 
+def test_bench_records_how_old_each_frame_was_when_it_was_read():
+    now = {"t": 5_000_000_000}
+
+    def clock():
+        now["t"] += 4_000_000
+        return now["t"]
+
+    source = SyntheticSource(MODES["imx519_720p60"], clock)
+    ages = []
+    with source:
+        bench.measure(source, 0.2, now=clock, ages_ns=ages)
+    assert ages and all(age == 4_000_000 for age in ages)  # read one clock tick after it was stamped
+
+
 def test_bench_gives_up_on_a_camera_that_stops():
     source = CaptureSource(MODES["imx519_720p60"], FakeClock(), opener=lambda mode: FakeCapture([np.zeros((720, 1280, 3), dtype=np.uint8)] * 3))
     source.open()
@@ -606,12 +620,13 @@ def test_bench_command_runs_on_the_test_pattern(capsys):
     assert bench.main(["--mode", "imx519_720p60", "--seconds", "0.5", "--synthetic"]) == 1  # 720p60 is not measured yet
     out = capsys.readouterr().out
     assert "imx519_720p60: 1280 x 720" in out and "calibration is not measured" in out and "camera bench: FAIL" in out
+    assert "source SyntheticSource; frames stamped at the read because their own time was unusable: 0; dropped as over a second old: 0" in out
 
 
 # --- the package ------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["modes", "calibration", "frame_source", "robot_description", "frame_log", "bench", "publishing"])
+@pytest.mark.parametrize("name", ["modes", "calibration", "frame_source", "robot_description", "frame_log", "bench", "publishing", "capture_clock"])
 def test_the_library_has_no_ros_in_it(name):
     tree = ast.parse((PACKAGE / "argus_camera" / f"{name}.py").read_text())
     imported = set()
@@ -620,7 +635,10 @@ def test_the_library_has_no_ros_in_it(name):
             imported |= {alias.name.split(".")[0] for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
-    assert imported <= {"__future__", "abc", "argparse", "dataclasses", "json", "math", "pathlib", "queue", "sys", "threading", "time", "typing", "numpy", "cv2", "yaml"}
+    allowed = {"__future__", "abc", "argparse", "dataclasses", "json", "math", "pathlib", "queue", "sys", "threading", "time", "typing", "numpy", "cv2", "yaml"}
+    if name == "frame_source":
+        allowed.add("gi")  # GStreamer's bindings, imported inside load_gst and only if present
+    assert imported <= allowed
 
 
 def test_the_node_is_a_thin_wrapper_around_the_library():
@@ -638,7 +656,9 @@ def test_the_node_is_a_thin_wrapper_around_the_library():
     assert "TEST PATTERN" in source and "no frame from the camera in the last 5 s" in source
     setup = (PACKAGE / "setup.py").read_text()
     assert "'camera_node = argus_camera.camera_node:main'" in setup
-    assert len(source.splitlines()) < 210
+    assert "capture time from {self._stamp_source}" in source and "capture_clock.fallbacks" in source  # the log says where stamps come from
+    assert 'self.declare_parameter("csi_backend", "opencv")' in source and "csi_backend=str(self.get_parameter" in source
+    assert len(source.splitlines()) < 225
 
 
 def test_the_launch_file_leaves_the_2026_names_off_and_reads_the_sims_bridge():

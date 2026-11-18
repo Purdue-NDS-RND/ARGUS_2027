@@ -47,6 +47,7 @@ class CameraNode(Node):
         self.declare_parameter("legacy_rate_hz", publishing.LEGACY_RATE_HZ)
         self.declare_parameter("legacy_jpeg_quality", publishing.LEGACY_JPEG_QUALITY)
         self.declare_parameter("input_topic", "/camera/image")  # ros_topic modes only: where the sim's bridge publishes
+        self.declare_parameter("csi_backend", "opencv")  # "gstreamer": frames stamped from their PTS (needs python3-gi)
         config_dir = self.get_parameter("config_dir").value or str(Path(get_package_share_directory("argus_camera")) / "config")
         self._mode = get_mode(load_modes(Path(config_dir) / "modes.yaml"), self.get_parameter("mode").value)
         if self._mode.in_process_only:
@@ -70,6 +71,7 @@ class CameraNode(Node):
         self._thread = None
         self._failure = None
         self._published = 0
+        self._stamp_source = "the input's own stamp"
         self._synthetic = bool(self.get_parameter("synthetic").value)
         self._started = time.monotonic()
         self.create_timer(5.0, self._log_rate)
@@ -79,7 +81,7 @@ class CameraNode(Node):
             self.create_subscription(Image, topic, self._on_input, qos_profile_sensor_data)
             self.get_logger().info(f"argus_camera: mode {self._mode.name} from {topic}")
         else:
-            self._source = open_source(self._mode, clock=self._now_ns, synthetic=self._synthetic)
+            self._source = open_source(self._mode, clock=self._now_ns, synthetic=self._synthetic, csi_backend=str(self.get_parameter("csi_backend").value))
             self._source.open()
             self._thread = threading.Thread(target=self._capture_loop, name="argus_camera_capture", daemon=True)
             self._thread.start()
@@ -95,7 +97,11 @@ class CameraNode(Node):
         if count == 0:
             self.get_logger().warn("argus_camera: no frame from the camera in the last 5 s")
         else:
-            self.get_logger().info(f"argus_camera: {count / 5.0:.1f} frames a second published (mode {self._mode.fps:g})")
+            fallbacks = 0 if self._source is None else self._source.capture_clock.fallbacks
+            stale = 0 if self._source is None else self._source.capture_clock.stale
+            note = f", {fallbacks} frames stamped at the read because their own time was unusable" if fallbacks else ""
+            note += f", {stale} frames dropped as over a second old" if stale else ""
+            self.get_logger().info(f"argus_camera: {count / 5.0:.1f} frames a second published (mode {self._mode.fps:g}), capture time from {self._stamp_source}{note}")
 
     def _watch(self) -> None:
         """Stop the node, loudly, if the capture thread failed, or if at start-up someone else publishes on the 2026 names.
@@ -128,6 +134,7 @@ class CameraNode(Node):
                 # which takes a third of a second for one 720p frame.
                 message.data = array.array("B", frame.image.tobytes())
                 stamp = Time(sec=frame.capture_ns // 1_000_000_000, nanosec=frame.capture_ns % 1_000_000_000)
+                self._stamp_source = {"pts": "the buffer's PTS", "kernel": "the kernel's buffer time", "read": "the read (no better time)"}[frame.stamp_source]
                 self._publish(message, stamp, frame.capture_ns, frame.image)
                 if pacer is not None:
                     pacer.wait()

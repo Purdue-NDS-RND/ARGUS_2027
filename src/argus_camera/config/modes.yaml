@@ -1,6 +1,8 @@
 # Sensor modes for argus_camera (PLT-03). One entry per way of running a sensor.
 # Each mode has its own calibration file, measured in that mode; a mode whose
 # calibration is null has not been calibrated and cannot publish camera_info yet.
+# capture_offset_s is how long before a buffer's timestamp the sensor exposed the
+# frame; it is subtracted from every capture time (capture_clock.py). 0 where not set.
 
 cameras:
   down:                     # the IMX519, looking straight down
@@ -18,6 +20,7 @@ modes:
     fps: 17
     exposure_time_s: 0.001  # 1/1000 s, as flown in 2026 (shutter_speed 1000 in live_target_mission.yaml)
     wb_mode: 6              # as flown in 2026 (wb_mode 6 in live_target_mission.yaml)
+    capture_offset_s: 0.0   # not measured yet: the LED probe (PLT-05) gives it
     calibration: calibration/imx519_4k.yaml
     in_process_only: true   # 25 MB a frame: no 4K images over ROS topics
     use: localisation (markers and digit crops); stays inside one process
@@ -31,6 +34,7 @@ modes:
     fps: 60
     exposure_time_s: 0.001  # 1/1000 s, as flown in 2026: the detector's colour thresholds were tuned with it
     wb_mode: 6              # as flown in 2026
+    capture_offset_s: 0.0   # not measured yet: the LED probe (PLT-05) gives it
     calibration: calibration/imx519_720p60.yaml
     use: drop and delivery, published as topics
 

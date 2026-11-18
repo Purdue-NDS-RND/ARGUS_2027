@@ -317,7 +317,11 @@ class TargetCV(Node):
         if self._image_size != (width, height):
             self._image_size = (width, height)
             dims = PointStamped()
-            dims.header.stamp = self.get_clock().now().to_msg()
+            dims.header.stamp = detection_stamp(
+                header.stamp,
+                self.get_clock().now().to_msg(),
+                self._stamp_from_image,
+            )
             dims.header.frame_id = "camera"
             dims.point.x = float(width)
             dims.point.y = float(height)

@@ -19,6 +19,7 @@ def generate_launch_description() -> LaunchDescription:
         "legacy_topics": ("false", "Also serve the 2026 names /camera/image, /camera/image/compressed and /camera/camera_info"),
         "input_topic": ("/camera/image", "Where a ros_topic mode (the sim) takes its frames from"),
         "use_sim_time": ("false", "Take time from /clock (the sim started with SIM_TIME=1)"),
+        "csi_backend": ("opencv", "How a CSI camera is read: opencv (stamped when read) or gstreamer (stamped from the buffer's PTS)"),
     }
     node = Node(
         package="argus_camera",
@@ -31,6 +32,7 @@ def generate_launch_description() -> LaunchDescription:
                 "synthetic": ParameterValue(LaunchConfiguration("synthetic"), value_type=bool),
                 "legacy_topics": ParameterValue(LaunchConfiguration("legacy_topics"), value_type=bool),
                 "input_topic": LaunchConfiguration("input_topic"),
+                "csi_backend": LaunchConfiguration("csi_backend"),
                 "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
             }
         ],
