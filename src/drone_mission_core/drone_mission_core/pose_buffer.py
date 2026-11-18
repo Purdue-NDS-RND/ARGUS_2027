@@ -12,6 +12,10 @@ and velocities from MAVROS and answers `pose_at(stamp)`:
   - None otherwise. It never answers with the latest pose as a stand-in.
 
 Stamps are whole nanoseconds on the clock the samples were stamped with.
+Samples may arrive a little out of order. A sample stamped well before the
+newest one is not put among them: one such sample is ignored, and three in a
+row mean the clock itself stepped back, so the history, which is on the old
+clock, is dropped and started again.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from typing import List, Optional, Tuple
 HISTORY_S = 5.0
 MAX_GAP_S = 0.12
 MAX_EXTRAPOLATION_S = 0.030
+MIN_TURN_SPAN_S = 0.010  # the attitude is carried on from two poses at least this far apart
+CLOCK_STEP_SAMPLES = 3  # this many samples in a row from well before the newest: the clock stepped back
 
 Vector = Tuple[float, float, float]
 Quaternion = Tuple[float, float, float, float]  # x, y, z, w
@@ -74,6 +80,9 @@ class PoseBuffer:
         self._poses: List[Tuple[Vector, Quaternion]] = []
         self._velocity_stamps: List[int] = []
         self._velocities: List[Vector] = []
+        self._min_turn_span_ns = int(round(MIN_TURN_SPAN_S * 1.0e9))
+        self._behind = {"pose": 0, "velocity": 0}  # samples in a row from well before the newest
+        self.clock_steps = 0
 
     def __len__(self) -> int:
         return len(self._pose_stamps)
@@ -84,10 +93,18 @@ class PoseBuffer:
     def newest_ns(self) -> Optional[int]:
         return self._pose_stamps[-1] if self._pose_stamps else None
 
-    @staticmethod
-    def _insert(stamps: List[int], values: list, stamp_ns: int, value, history_ns: int) -> bool:
-        if stamps and stamp_ns < stamps[-1] - history_ns:
-            return False  # older than anything the buffer keeps
+    def _insert(self, kind: str, stamps: List[int], values: list, stamp_ns: int, value, history_ns: int) -> bool:
+        if stamps and stamp_ns < stamps[-1] - self._max_gap_ns:
+            # From well before the newest: a stray stamp, or the clock has stepped back.
+            self._behind[kind] += 1
+            if self._behind[kind] < CLOCK_STEP_SAMPLES:
+                return False
+            self.clock_steps += 1  # the clock stepped: what is stored is on the old clock
+            self._pose_stamps.clear()
+            self._poses.clear()
+            self._velocity_stamps.clear()
+            self._velocities.clear()
+        self._behind[kind] = 0
         index = bisect.bisect_left(stamps, stamp_ns)
         if index < len(stamps) and stamps[index] == stamp_ns:
             return False  # that stamp is already stored
@@ -115,7 +132,7 @@ class PoseBuffer:
         orientation = tuple(value / norm for value in orientation)
         position = tuple(float(value) for value in position)
         with self._lock:
-            return self._insert(self._pose_stamps, self._poses, stamp_ns, (position, orientation), self._history_ns)
+            return self._insert("pose", self._pose_stamps, self._poses, stamp_ns, (position, orientation), self._history_ns)
 
     def add_velocity(self, stamp_ns, linear) -> bool:
         """Store one velocity (east, north, up, in m/s), as MAVROS's local_position/velocity_local gives it."""
@@ -128,7 +145,7 @@ class PoseBuffer:
         if len(linear) != 3 or not _finite(linear):
             return False
         with self._lock:
-            return self._insert(self._velocity_stamps, self._velocities, stamp_ns, tuple(float(value) for value in linear), self._history_ns)
+            return self._insert("velocity", self._velocity_stamps, self._velocities, stamp_ns, tuple(float(value) for value in linear), self._history_ns)
 
     def _velocity_for(self, stamp_ns: int) -> Optional[Vector]:
         """The newest velocity at or before stamp_ns, if it is recent enough to belong to that moment."""
@@ -166,13 +183,18 @@ class PoseBuffer:
         ahead_ns = stamp_ns - newest
         if ahead_ns > self._max_extrapolation_ns or len(stamps) < 2:
             return None
-        step_ns = newest - stamps[-2]
+        # The turn to carry on is taken from the newest pose and the nearest one at least 10 ms before it:
+        # two poses a few ms apart (one stamped late) would turn a small difference into a large rate.
+        earlier = bisect.bisect_right(stamps, newest - self._min_turn_span_ns) - 1
+        if earlier < 0:
+            return None
+        step_ns = newest - stamps[earlier]
         if step_ns > self._max_gap_ns:
             return None
         velocity = self._velocity_for(newest)
         if velocity is None:
             return None
-        (_p0, q0), (p1, q1) = self._poses[-2], self._poses[-1]
+        (_p0, q0), (p1, q1) = self._poses[earlier], self._poses[-1]
         ahead_s = ahead_ns * 1.0e-9
         position = tuple(value + rate * ahead_s for value, rate in zip(p1, velocity))
         return PoseAt(stamp_ns, position, _slerp(q0, q1, 1.0 + ahead_ns / step_ns), True)

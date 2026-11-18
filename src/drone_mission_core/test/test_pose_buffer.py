@@ -191,10 +191,47 @@ def test_samples_may_arrive_out_of_order_and_a_repeated_stamp_is_ignored():
     assert len(buffer) == 3
 
 
-def test_a_stamp_far_in_the_past_does_not_wipe_the_history():
+def test_one_stray_stamp_from_the_past_does_not_wipe_the_history():
     buffer = flying()
-    assert not buffer.add_pose(1 * S, (0.0, 0.0, 0.0), yaw_quaternion(0.0))  # older than the 5 s window
-    assert len(buffer) == 91 and buffer.pose_at(101 * S) is not None
+    assert not buffer.add_pose(1 * S, (0.0, 0.0, 0.0), yaw_quaternion(0.0))  # far older than the 5 s window
+    assert not buffer.add_pose(102 * S + 1, (0.0, 0.0, 0.0), yaw_quaternion(0.0))  # and one from a second ago
+    assert len(buffer) == 91 and buffer.pose_at(101 * S) is not None and buffer.clock_steps == 0
+    position, orientation = truth(3.0 + 1 / 30.0)
+    assert buffer.add_pose(103 * S + S // 30, position, orientation)  # the next good sample clears the count
+
+
+def test_a_clock_that_steps_back_starts_the_history_again_instead_of_mixing_two_timelines():
+    buffer = flying()  # 100.0 to 103.0 s
+    restart = 101 * S + 500 * MS  # the clock went back 1.5 s
+    taken = []
+    for index in range(6):
+        t = index / 30.0
+        position, orientation = truth(10.0 + t)  # somewhere else by now
+        taken.append(buffer.add_pose(restart + int(round(t * S)), position, orientation))
+        buffer.add_velocity(restart + int(round(t * S)), (1.0, 0.5, 0.2))
+    assert taken == [False, False, True, True, True, True]  # two ignored as strays, then the step is recognised
+    assert buffer.clock_steps == 1 and len(buffer) == 4
+    assert buffer.oldest_ns() == restart + int(round(2 / 30.0 * S))
+    assert buffer.pose_at(101 * S) is None and buffer.pose_at(102 * S + 900 * MS) is None  # nothing from the old clock is left
+    middle = buffer.pose_at(restart + 100 * MS)
+    assert math.dist(middle.position, truth(10.1)[0]) < 1e-6  # and the new timeline answers on its own
+
+
+def test_the_turn_is_not_carried_on_from_two_poses_a_few_milliseconds_apart():
+    # A pose stamped 30 ms late lands 3 ms before the next one. Yawing 30 deg/s.
+    buffer = PoseBuffer()
+    for stamp_ms, yaw_time_ms in ((0, 0), (33, 33), (96, 66), (99, 99)):
+        buffer.add_pose(stamp_ms * MS, (0.0, 0.0, 10.0), yaw_quaternion(30.0 * yaw_time_ms / 1000.0))
+    buffer.add_velocity(99 * MS, (0.0, 0.0, 0.0))
+    ahead = buffer.pose_at(129 * MS)
+    yaw = math.degrees(2.0 * math.atan2(ahead.orientation[2], ahead.orientation[3]))
+    assert abs(yaw - 30.0 * 0.129) < 1.5  # from the 3 ms pair it would be about 13 degrees
+    lonely = PoseBuffer()
+    lonely.add_pose(0, (0.0, 0.0, 0.0), yaw_quaternion(0.0))
+    lonely.add_pose(3 * MS, (0.0, 0.0, 0.0), yaw_quaternion(0.1))
+    lonely.add_velocity(3 * MS, (0.0, 0.0, 0.0))
+    assert lonely.pose_at(10 * MS) is None  # no pose far enough back to take a turn rate from
+    assert pose_buffer.MIN_TURN_SPAN_S == 0.010
 
 
 def test_velocity_is_kept_and_interpolated_under_the_same_gap_rule():

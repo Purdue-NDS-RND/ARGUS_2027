@@ -239,9 +239,9 @@
       "land": "L06",
       "proven_in": "Unit",
       "note": "Overlaps teammate issue #4: check main and open PRs first",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_pose_buffer.py 21 passed (1 m/s and 30 deg/s rebuilt to under 1 cm and 0.2 deg at 30, 20 and 10 Hz; gap, extrapolation, clock-step and no-fallback cases); test_executor_pose_buffer.py 4 passed (real executor class: flag off no buffer and no extra subscription, flag on fed from MAVROS). Unit level, as the row asks. Nothing reads the buffer until FND-05 and FND-07",
       "blocked_reason": ""
     },
     {
