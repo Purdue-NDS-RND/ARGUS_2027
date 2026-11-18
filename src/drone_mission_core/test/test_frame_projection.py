@@ -67,6 +67,27 @@ def test_a_mode_on_a_camera_the_airframe_does_not_carry_is_refused(tmp_path):
         load_camera("sim_delivery", "sim_iris_downcam", config_dir=tmp_path)
 
 
+def test_a_sim_camera_is_refused_on_an_airframe_that_is_not_the_sims(tmp_path):
+    import shutil
+
+    import yaml
+
+    config = ROOT / "src" / "argus_camera" / "config"
+    shutil.copytree(config, tmp_path, dirs_exist_ok=True)
+    robot = yaml.safe_load((config / "robot.yaml").read_text())
+    robot["airframes"]["argus_2027"]["verified"] = True  # the day the aircraft's mounts are measured
+    (tmp_path / "robot.yaml").write_text(yaml.safe_dump(robot))
+    # The sim's survey and 4K cameras are ideal pinholes at the aircraft's own image sizes: the size check would not tell them apart.
+    for mode in ("sim_survey", "sim_still4k", "sim_delivery", "sim_flow"):
+        with pytest.raises(FrameProjectionError, match=f"{mode} is a sim camera .* argus_2027 is not a sim vehicle"):
+            load_camera(mode, "argus_2027", config_dir=tmp_path)
+    # And the other way: the aircraft's calibrated camera is not flown on the sim vehicle's mount (a lens at the body origin).
+    with pytest.raises(FrameProjectionError, match="imx519_4k is a real camera .* sim_iris_downcam is a sim vehicle"):
+        load_camera("imx519_4k", "sim_iris_downcam", config_dir=tmp_path)
+    assert load_camera("imx519_4k", "argus_2027", config_dir=tmp_path)[0].width == 3840  # the aircraft's own pair loads once verified
+    assert load_camera("sim_survey", "sim_iris_downcam", config_dir=tmp_path)[0].width == 1280  # in the sim it loads
+
+
 def test_a_mission_config_must_name_both_once_the_flag_is_on():
     assert camera_from_config({"camera_mode": "sim_delivery", "airframe": "sim_iris_downcam"}, "package_delivery")[0].name == "sim_delivery"
     with pytest.raises(FrameProjectionError, match="package_delivery.*camera_mode and airframe"):

@@ -1,0 +1,35 @@
+# SIM-05's pass lines as a scored flight: the vehicle with the survey camera
+# (1280 x 720 at 10 Hz) takes off to 10 m and holds for 40 s, headless, while
+# sim/sensor_check.py counts the camera's frames and compares MAVROS's
+# rangefinder with the true height. The run passes when the camera gave at
+# least 8 frames a second of sim time, the real-time factor stayed at 0.8 or
+# above, and the rangefinder was within 0.1 m of the true height in the hover.
+# With --variants on the sim is on sim time, where MAVROS runs with the sim's
+# own plugin list (sim/config/mavros_sim.yaml). True poses go out on
+# /sim/truth/poses throughout.
+description: Hover for 40 s with the survey camera; frame rate, real-time factor and rangefinder are checked.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sim_time: true
+sensor_profile: survey
+sensor_check: true
+truth_poses: true
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+# Things on the field, for the camera to see and for the true poses to name:
+# one that never moves (Gazebo reports it apart from the moving ones) and one that could.
+objects:
+  - name: field_target
+    kind: bullseye
+    size_m: 1.5
+    at: {east_m: 3.0, north_m: 2.0}
+  - name: field_parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    at: {east_m: -2.0, north_m: 3.0}
+wind: {level: calm}

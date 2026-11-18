@@ -448,7 +448,11 @@ def test_manifest_tells_the_runner_how_to_fly_it(tmp_path):
         "file": "package_delivery_demo.launch.py",
         "arguments": {"sequence": str(run / "sequence.yaml"), "params": str(run / "params.yaml")},
     }
-    assert manifest["vehicle"] == {"model": "iris_downcam", "bridge": str(run / "bridge.yaml"), "sensor_profile": "delivery", "mass_kg": 1.755, "cda_m2": 0.08}
+    assert manifest["vehicle"] == {
+        "model": "iris_downcam", "bridge": str(run / "bridge.yaml"), "sensor_profile": "delivery", "mass_kg": 1.755, "cda_m2": 0.08,
+        "min_rate_hz": None, "min_real_time_factor": None, "flow_camera": False, "headless_only": False,
+    }  # fmt: skip
+    assert manifest["sensor_check"] is False and manifest["truth_poses"] is False
     assert manifest["timeout_s"] == 420.0
     assert manifest["wind"] == {"level": "moderate", "mean_mps": 4.0, "gust_mps": 1.0, "discrete_gust_mps": 0.0, "direction_deg": 270.0}
     assert manifest["gps_events"] == [{"at_s": 40.0, "kind": "glitch", "north_m": 5.0}]
@@ -511,7 +515,8 @@ def test_mission_scenario_still_needs_its_sequence_and_params(tmp_path):
         ({"mission": "juggling"}, "juggling"),
         ({"site": "atlantis"}, "atlantis"),
         ({"sequence": "nope.yaml"}, "nope.yaml"),
-        ({"sensor_profile": "still4k"}, "still4k"),
+        ({"sensor_profile": "thermal"}, "thermal"),
+        ({"sensor_check": "yes"}, "sensor_check must be true or false"),
         ({"wind": {"level": "hurricane"}}, "hurricane"),
         ({"targets": {"package_delivery": "nothing_here"}}, "nothing_here"),
         ({"targets": {"takeoff": "delivery_target"}}, "target_latitude"),

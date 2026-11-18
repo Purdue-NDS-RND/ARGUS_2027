@@ -49,9 +49,9 @@ from judge.geometry import point_in_polygon  # noqa: E402
 from target_placement import latlon_for  # noqa: E402
 
 if __package__ in (None, ""):
-    from scenario.spec import SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from scenario.spec import MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 else:
-    from .spec import SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from .spec import MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 
 CONFIG_DIR = REPO / "src" / "drone_mission_demo" / "config"
 LAUNCH_DIR = REPO / "src" / "drone_mission_demo" / "launch"
@@ -247,6 +247,11 @@ def _embedded_model(item: dict, vehicle_model: str | None = None) -> str:
 
 
 _SUN_DIRECTION = re.compile(r'(<light type="directional" name="sun">.*?<direction>)[^<]*(</direction>)', re.DOTALL)
+# Every built run's SITL: flat ground. The rangefinder stays the default parameters' analog one (RNGFND1_TYPE 1),
+# which reads the height above that flat ground. SITL's own type 100, which FEATURES.md names, has no data with
+# the Gazebo backend (it takes ranges Gazebo would have to send) and fails the pre-arm check: tried under SIM-05.
+SITL_BASE_PARAMS = {"SIM_TERRAIN": 0}
+BASE_VEHICLE_MODEL = "iris_downcam"  # the vehicle the base world includes: the delivery profile's
 _VEHICLE_POSE = re.compile(r'<uri>model://iris_downcam</uri>\s*<pose degrees="true">\s*\S+\s+\S+\s+(\S+)')
 
 
@@ -266,6 +271,10 @@ def build_world(
         text, found = _SUN_DIRECTION.subn(lambda m: f"{m.group(1)}{direction[0]:.6f} {direction[1]:.6f} {direction[2]:.6f}{m.group(2)}", text, count=1)
         if not found:
             raise BuildError("the base world has no directional light named 'sun'")
+    if vehicle_model not in (None, BASE_VEHICLE_MODEL):  # another camera profile: the same Iris, standing where the base world stands it
+        if text.count(f"<uri>model://{BASE_VEHICLE_MODEL}</uri>") != 1:
+            raise BuildError(f"the base world does not include model://{BASE_VEHICLE_MODEL} exactly once")
+        text = text.replace(f"<uri>model://{BASE_VEHICLE_MODEL}</uri>", f"<uri>model://{vehicle_model}</uri>")
     models = "".join(_embedded_model(item, vehicle_model if item["name"] in hung else None) for item in objects)
     head, closing, tail = text.rpartition("</world>")
     if not closing:
@@ -428,7 +437,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     if len(carried) > 1 or (carried and carried[0] != scenario.payload):
         raise BuildError(f"{scenario.path}: one payload can be carried, and it is the scenario's 'payload' ({', '.join(carried)} are marked carried)")
     if carried:
-        stood = vehicle_pose(base_world, profile["model"])
+        stood = vehicle_pose(base_world, BASE_VEHICLE_MODEL)
         objects = [carry(item, stood) if item["name"] == carried[0] else item for item in objects]
     hung = tuple(name for name in (carried[0] if carried else None, scenario.bucket) if name)
     world = build_world(base_world, site, objects, scenario.sun, windy, profile["model"], hung)
@@ -485,7 +494,13 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             "sensor_profile": scenario.sensor_profile,
             "mass_kg": profile["mass_kg"],
             "cda_m2": profile["cda_m2"],
+            "min_rate_hz": profile["min_rate_hz"],  # the frame rate the sensor check holds this profile's camera to, or None
+            "min_real_time_factor": MIN_REAL_TIME_FACTOR if profile["min_rate_hz"] is not None else None,
+            "flow_camera": profile["flow_camera"],
+            "headless_only": profile["headless_only"],  # sim/container/start.sh refuses to open a window on it
         },
+        "sensor_check": scenario.sensor_check,  # true: sim/sensor_check.py runs beside the flight, which must pass it
+        "truth_poses": scenario.truth_poses,  # true: sim/truth_poses.py publishes true poses during the flight
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
         "gps_events": scenario.gps_events,
@@ -501,7 +516,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     (run_dir / "world.sdf").write_text(world)
     (run_dir / "bridge.yaml").write_text((SIM_DIR / profile["bridge"]).read_text())
     # With something to let go or take hold of, the flight controller gets the sim's gripper and sprayer outputs.
-    sitl = {"SIM_TERRAIN": 0, **(payload_bridge.SITL_PARAMS if bridge else {}), **scenario.sitl_params}
+    sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))

@@ -30,6 +30,10 @@ class FrameProjectionError(ValueError):
     """A camera or airframe that projection v2 cannot be flown with. The message says what to do."""
 
 
+SIM_DRIVER = "ros_topic"  # argus_camera's driver for the sim's bridged cameras (modes.yaml)
+SIM_AIRFRAME_PREFIX = "sim_"  # and how robot.yaml names the sim's vehicles
+
+
 def load_camera(mode_name: str, airframe_name: str, config_dir: Optional[Path] = None) -> Tuple[CameraModel, CameraMount]:
     """The camera model of a sensor mode and the mount of its camera on an airframe, from argus_camera's config."""
     try:
@@ -47,6 +51,14 @@ def load_camera(mode_name: str, airframe_name: str, config_dir: Optional[Path] =
         if not measured.measured:
             raise FrameProjectionError(f"sensor mode {mode_name} is not calibrated yet (its file is a stand-in): calibrate the camera in this mode first")
         airframe = robot_description.get_airframe(robot_description.load(config_dir / "robot.yaml"), airframe_name)
+        # A sim camera goes with a sim vehicle and a real one with the aircraft, never across. The sim's cameras are
+        # ideal pinholes, some at the aircraft's own image sizes; the sim vehicle's mount is not the aircraft's.
+        sim_mode, sim_airframe = mode.driver == SIM_DRIVER, airframe_name.startswith(SIM_AIRFRAME_PREFIX)
+        if sim_mode != sim_airframe:
+            raise FrameProjectionError(
+                f"sensor mode {mode_name} is {'a sim camera' if sim_mode else 'a real camera'} (driver {mode.driver}) and airframe {airframe_name} is "
+                f"{'a sim vehicle' if sim_airframe else 'not a sim vehicle'} (their names start with '{SIM_AIRFRAME_PREFIX}'): name a sensor mode and an airframe of the same kind"
+            )
         if mode.camera not in airframe.cameras:
             raise FrameProjectionError(f"airframe {airframe_name} has no camera '{mode.camera}', which sensor mode {mode_name} is on")
         return CameraModel.from_calibration(measured, name=mode_name), CameraMount.from_description(airframe.cameras[mode.camera])

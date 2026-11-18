@@ -1,0 +1,20 @@
+# The flow profile in a flight (SIM-05): the delivery camera plus the
+# global-shutter flow camera, 640 x 400 mono at 60 Hz, bridged to
+# /argus/camera/flow/image_raw. The same hover as hover/survey_camera;
+# sim/sensor_check.py must hear the flow camera's frames, and the rangefinder
+# must be within 0.1 m of the true height. No floor is set on the frame rates.
+# Not in the nightly suite: on a club laptop the two cameras (90 frames per sim
+# second) hold the sim to a real-time factor near 0.6, under the runner's 0.8
+# line, so the flight is INVALID there (docs/results/2026-11-18-sim-sensors.md).
+description: Hover for 40 s with the flow camera beside the delivery camera; the sensor check must hear both.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sensor_profile: flow
+sensor_check: true
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+wind: {level: calm}

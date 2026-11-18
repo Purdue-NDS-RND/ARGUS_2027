@@ -1,0 +1,39 @@
+# MAVROS in the sim (SIM-05): the flight's settings (config/mavros/argus_mavros.yaml)
+# with four more plugins, so that sim work on optical flow, a vision pose and a
+# companion rangefinder has somewhere to send its messages before the aircraft's
+# own list takes them (PLT-06 owns that file; a plugin moves there when a flight
+# node uses it). sim/container/start.sh gives this file to
+# config/mavros/argus_mavros.launch.py as config:= on sim-time runs; it then
+# stands in for argus_mavros.yaml, so everything that file sets is repeated here
+# and sim/test/test_sensors.py holds the two together.
+/**:
+  ros__parameters:
+    plugin_denylist: ["*"]
+    plugin_allowlist:
+      # The flight's twelve, as in argus_mavros.yaml.
+      - sys_status
+      - sys_time
+      - command
+      - local_position
+      - global_position
+      - home_position
+      - imu
+      - setpoint_raw
+      - setpoint_position
+      - rangefinder
+      - gps_status
+      - gimbal_control
+      # The sim's four more.
+      - optical_flow        # OPTICAL_FLOW_RAD to and from the flight controller
+      - vision_pose         # a pose from vision, to the flight controller's estimator
+      - vision_speed        # a velocity from vision
+      - distance_sensor     # DISTANCE_SENSOR both ways: a companion rangefinder (the Gazebo lidar, when it comes)
+
+# Time sync, as on the aircraft (argus_mavros.yaml has the reasons).
+/**/time:
+  ros__parameters:
+    timesync_mode: MAVLINK
+    timesync_rate: 10.0
+    timesync_avg_alpha: 0.6
+    system_time_rate: 1.0
+    time_ref_source: "fcu"

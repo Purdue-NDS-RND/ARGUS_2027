@@ -161,7 +161,7 @@ class LandingWatcher:
 
 
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "record", "payload_bridge"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "record", "payload_bridge", "sensor_check", "truth_poses"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
@@ -180,6 +180,10 @@ def tools_needed(manifest: dict) -> set[str]:
     bridge = manifest.get("payload_bridge")
     if isinstance(bridge, dict) and (bridge.get("carried") or bridge.get("bucket")):
         needed.add("payload_bridge")  # servo outputs let the carried payload go and take hold of the bucket
+    if manifest.get("sensor_check") is True:
+        needed.add("sensor_check")  # the camera's rate and the rangefinder are checked against the truth
+    if manifest.get("truth_poses") is True:
+        needed.add("truth_poses")  # true poses go out on /sim/truth/poses
     return needed
 
 
@@ -198,6 +202,8 @@ def unsupported(manifest: dict, tools_present) -> str:
         "estimator_check": "it turns use_target_estimator on, and the check of the estimator against the truth (sim/estimator_check.py) is missing",
         "record": "a recording was asked for, and the recorder (sim/replay/record_run.py) is missing",
         "payload_bridge": "it has a carried payload or a bucket to pick up, and the payload bridge (sim/payload_bridge.py) is missing",
+        "sensor_check": "it asks for the sensor check, and the tool (sim/sensor_check.py) is missing",
+        "truth_poses": "it asks for true poses on a topic, and the tool that publishes them (sim/truth_poses.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

@@ -59,5 +59,33 @@ modes:
     calibration: calibration/sim_delivery.yaml
     use: the sim's downward camera
 
+  # The sim's other camera profiles (sim/sensor_profiles.py generates their models and calibrations).
+  sim_survey:
+    camera: down
+    driver: ros_topic
+    width: 1280
+    height: 720
+    fps: 10
+    calibration: calibration/sim_survey.yaml
+    use: the sim's downward camera in the survey profile
+
+  sim_still4k:
+    camera: down
+    driver: ros_topic
+    width: 3840
+    height: 2160
+    fps: 1
+    calibration: calibration/sim_still4k.yaml
+    use: the sim's downward camera in the still4k profile (headless only), for digit crops
+
+  sim_flow:
+    camera: flow
+    driver: ros_topic       # input_topic is the bridged flow camera's (sim/config/bridge_flow.yaml)
+    width: 640
+    height: 400
+    fps: 60                 # the real camera's 120 is too heavy for the club laptops
+    calibration: calibration/sim_flow.yaml
+    use: the sim's flow camera
+
 # The 12 MP spare is not listed: its sensor, CSI port and modes are not known
 # here. Adding it is one more entry above and its calibration file.

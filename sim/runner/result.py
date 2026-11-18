@@ -29,6 +29,8 @@ from judge.record import Record  # noqa: E402
 from estimator_check import read_estimator_check, summary_lines as estimator_summary_lines  # noqa: E402
 from estimator_check import wanted as estimator_check_wanted  # noqa: E402
 from payload_bridge import read_bridge  # noqa: E402
+from sensor_check import read_sensor_check, summary_lines as sensor_lines  # noqa: E402
+from sensor_check import wanted as sensor_check_wanted  # noqa: E402
 from payload_bridge import wanted as bridge_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
 from wind import read_wind, tilt_problem  # noqa: E402
@@ -111,6 +113,7 @@ def run_result(run_dir: Path) -> dict:
         "estimator_check": None,
         "wind": None,
         "payload_bridge": None,
+        "sensor_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -165,6 +168,11 @@ def run_result(run_dir: Path) -> dict:
     if bridged:
         result["payload_bridge"] = read_bridge(run_dir)
     bridge = result["payload_bridge"]
+    sensors_wanted = sensor_check_wanted(manifest)
+    if sensors_wanted:
+        result["sensor_check"] = read_sensor_check(run_dir)
+    sensors = result["sensor_check"]
+    min_rtf = (manifest.get("vehicle") or {}).get("min_real_time_factor") if sensors_wanted else None
     windy = wind_wanted(manifest)
     if windy:
         result["wind"] = read_wind(run_dir)
@@ -189,6 +197,12 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="INVALID", reason="the scenario has a payload or a bucket on a joint but the run left no record that the payload bridge heard the servo outputs (payload_bridge.json)")
     elif bridged and bridge.get("carried") and commanded_real_release and not bridge.get("released"):
         result.update(status="FAIL", reason=f"the mission commanded a release but the payload bridge never let {bridge['carried']} go: no servo output arrived at a release value")
+    elif sensors_wanted and sensors is None:
+        result.update(status="INVALID", reason="the scenario asks for the sensor check but the run left none (sensor_check.json)")
+    elif sensors_wanted and not sensors["passed"]:
+        result.update(status="FAIL", reason="the sensor check failed: " + "; ".join(sensors.get("problems") or ["no reason given"]))
+    elif min_rtf is not None and (rtf is None or rtf < min_rtf):
+        result.update(status="FAIL", reason=f"the real-time factor was {'unknown' if rtf is None else format(rtf, '.2f')} (at least {min_rtf} needed with this camera profile)")
     elif windy and (wind is None or not wind["passed"]):
         result.update(status="INVALID", reason="the scenario has wind but the run left no record that it blew (wind.json): it may have been flown calm")
     elif hover_test and tilt_problem(wind):
@@ -289,6 +303,14 @@ def _wind_rows(result: dict) -> list[str]:
     return rows
 
 
+def _sensor_rows(result: dict) -> list[str]:
+    """Report rows for a run with the sensor check: the camera's rate and the rangefinder against the truth."""
+    report = result.get("sensor_check")
+    if report is None:
+        return []
+    return [f"| Sensors | {line} |" for line in sensor_lines(report)]
+
+
 def _payload_rows(result: dict) -> list[str]:
     """Report rows for a run with a carried payload or a bucket: what the payload bridge did."""
     bridge = result.get("payload_bridge")
@@ -322,6 +344,7 @@ def render_report(result: dict) -> str:
         *_estimator_check_rows(result),
         *_wind_rows(result),
         *_payload_rows(result),
+        *_sensor_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",

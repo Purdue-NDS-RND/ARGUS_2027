@@ -20,6 +20,8 @@ nightly:
     - delivery/wind_moderate
     - delivery/wind_strong
     - hover/wind_5
+    - hover/survey_camera
+    - hover/still4k_camera
     - drop/baseline
     - drop/release
     - drop/release_wind

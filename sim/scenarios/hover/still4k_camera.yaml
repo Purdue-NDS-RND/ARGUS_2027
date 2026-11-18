@@ -1,0 +1,15 @@
+# The still4k profile in a flight (SIM-05): the downward camera at
+# 3840 x 2160, one frame a second, for digit crops. Headless only. The same
+# hover as hover/survey_camera; no floor is set on the frame rate.
+description: Hover for 40 s with the 4K still camera at one frame a second.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sensor_profile: still4k
+sensor_check: true
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+wind: {level: calm}

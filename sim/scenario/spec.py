@@ -7,13 +7,19 @@ typo is an error that names the key and never a silently ignored setting.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import sensor_profiles  # noqa: E402  (sim/sensor_profiles.py: the camera profiles)
 
 KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
+    "sensor_check", "truth_poses",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 
@@ -38,10 +44,25 @@ WIND_LEVELS = {
 }
 WIND_KEYS = {"level", "mean_mps", "gust_mps", "discrete_gust_mps", "direction_deg"}
 
-# Camera and vehicle variants. SIM-05 adds the survey and still profiles.
+# Camera and vehicle variants: the profiles sim/sensor_profiles.py generates from one template (SIM-05).
 # mass_kg: the Iris's links as the sim's models give them (base 1.5, IMU 0.15, four rotors of 0.025, the camera
-# 0.005). cda_m2: its drag area for the wind (SIM-03), 0.08 m2 until the hover test on our airframe (DAT-10).
-SENSOR_PROFILES = {"delivery": {"model": "iris_downcam", "bridge": "config/bridge.yaml", "mass_kg": 1.755, "cda_m2": 0.08}}
+# 0.005; the flow camera's 0.005 more is not counted). cda_m2: its drag area for the wind (SIM-03), 0.08 m2 until
+# the hover test on our airframe (DAT-10). min_rate_hz: the frame rate, in sim time, a flight's sensor check
+# holds the profile's camera to (survey: 8 of its 10 Hz), or None.
+MIN_RATE_HZ = {"survey": 8.0}
+MIN_REAL_TIME_FACTOR = 0.8  # and the real-time factor such a flight must keep
+SENSOR_PROFILES = {
+    name: {
+        "model": profile["model"],
+        "bridge": profile["bridge"],
+        "mass_kg": 1.755,
+        "cda_m2": 0.08,
+        "min_rate_hz": MIN_RATE_HZ.get(name),
+        "flow_camera": profile["flow"],
+        "headless_only": profile["headless_only"],
+    }
+    for name, profile in sensor_profiles.PROFILES.items()
+}
 
 COORDINATE_ERROR_FORMS = ({"east_m", "north_m"}, {"radius_m"}, {"max_radius_m"})
 
@@ -79,6 +100,8 @@ class Scenario:
     list_file: str | None = None  # where the mission writes its judges' list (localisation)
     driver: dict | None = None  # {"tool": ..., settings}: flies the vehicle in place of a mission launch
     sim_time: bool = False  # variant on runs the whole sim on Gazebo's clock (FND-03); off is wall time, as in 2026
+    sensor_check: bool = False  # the flight is run beside sim/sensor_check.py and must pass it (SIM-05)
+    truth_poses: bool = False  # true poses go out on /sim/truth/poses during the flight (sim/truth_poses.py)
     description: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -214,7 +237,10 @@ def parse_scenario(data, path: Path) -> Scenario:
 
     sensor_profile = data.get("sensor_profile", "delivery")
     if sensor_profile not in SENSOR_PROFILES:
-        raise BuildError(f"{where}: sensor profile '{sensor_profile}' does not exist (profiles: {', '.join(SENSOR_PROFILES)})")
+        raise BuildError(f"{where}: sensor_profile '{sensor_profile}' does not exist (profiles: {', '.join(SENSOR_PROFILES)})")
+    for key in ("sensor_check", "truth_poses"):
+        if not isinstance(data.get(key, False), bool):
+            raise BuildError(f"{where}: {key} must be true or false, got {data[key]!r}")
 
     return Scenario(
         path=path,
@@ -244,6 +270,8 @@ def parse_scenario(data, path: Path) -> Scenario:
         list_file=None if data.get("list_file") is None else str(data["list_file"]),
         driver=driver,
         sim_time=sim_time,
+        sensor_check=data.get("sensor_check", False),
+        truth_poses=data.get("truth_poses", False),
         description=str(data.get("description", "")),
     )
 

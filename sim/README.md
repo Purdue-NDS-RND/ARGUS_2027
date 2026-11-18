@@ -387,3 +387,32 @@ The run folder gets `payload_bridge.jsonl` and `payload_bridge.json`, and the re
 sim/run_scenarios.sh drop/release
 sim/run_scenarios.sh drop/release_wind
 ```
+
+## Sensors
+
+The vehicle comes in four camera profiles, all generated from one template (`sim/models/iris_camera.sdf.template`) by `sim/sensor_profiles.py` (SIM-05). A scenario picks one with `sensor_profile:`.
+
+| Profile | Model | Downward camera | Also |
+| --- | --- | --- | --- |
+| `delivery` (the default) | `iris_downcam` | 640 x 360 at 30 Hz | today's model, byte for byte |
+| `survey` | `iris_survey` | 1280 x 720 at 10 Hz | a flight's sensor check holds it to 8 Hz of sim time and a real-time factor of 0.8 |
+| `still4k` | `iris_still4k` | 3840 x 2160 at 1 Hz | headless only: the sim refuses to open a window on it |
+| `flow` | `iris_flow` | 640 x 360 at 30 Hz | a flow camera, 640 x 400 mono at 60 Hz, on `/argus/camera/flow/image_raw` |
+
+Every downward camera has the IMX519's calibrated field of view (1.37635 rad). The models, their bridge files (`sim/config/bridge_<profile>.yaml`) and the camera driver's calibrations (`src/argus_camera/config/calibration/sim_<profile>.yaml`, modes `sim_survey`, `sim_still4k`, `sim_flow`) are committed. After changing the template or a profile:
+
+```bash
+python3 sim/sensor_profiles.py           # write the generated files
+python3 sim/sensor_profiles.py --check   # exit 1 if one is out of date (a test does this too)
+```
+
+Two scenario keys go with them:
+
+- `sensor_check: true` runs `sim/sensor_check.py` beside the flight. It counts the camera's frames as they arrive in ROS (by their sim-time stamps) and compares MAVROS's rangefinder with the true height (how far the vehicle has risen from where it stood) over the readings taken in a hover: above 2 m, slower than 0.3 m/s, tilted less than 5 degrees. The run fails if the 95th percentile is over 0.1 m, if the profile's frame-rate floor is missed, or if a flow camera gave no frames. The report gets "Sensors" rows.
+- `truth_poses: true` runs `sim/truth_poses.py`, which publishes the true pose of the vehicle and of every object of the scenario on `/sim/truth/poses` (`tf2_msgs/TFMessage`, 30 Hz of sim time; `child_frame_id` is the model's name). Nothing on the aircraft has such a topic: it is for the sim's checks and the sim-only oracle detector.
+
+```bash
+sim/run_scenarios.sh hover/survey_camera --seeds 1 --variants on   # the pass flight
+```
+
+The rangefinder is SITL's, from the default parameters (`RNGFND1_TYPE 1`): it reads the height above the flat ground and sees no bucket or target. On sim-time runs MAVROS starts with the sim's own plugin list, `sim/config/mavros_sim.yaml`: the flight's twelve plugins plus `optical_flow`, `vision_pose`, `vision_speed` and `distance_sensor`. Wall-time runs start MAVROS as in 2026.

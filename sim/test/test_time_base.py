@@ -104,7 +104,7 @@ def test_start_script_is_on_wall_time_unless_asked():
     assert "use_sim_time:=true" in START and "argus_mavros.launch.py" in START and "--wait-synced" in START
     # On sim time MAVROS is on SITL's own second serial port, with the stream keeper (PLT-06).
     assert "MAVROS_PORT=5762" in START
-    assert '"fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" use_sim_time:=true stream_keeper:=true' in START
+    assert '"fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" "config:=$ARGUS_SIM/config/mavros_sim.yaml" use_sim_time:=true stream_keeper:=true' in START
     assert START.count("stream_keeper:=true") == 1 and START.count("tcp://") == 1
     assert "SIM_TIME: ${SIM_TIME:-0}" in (SIM / "compose.yaml").read_text()
 

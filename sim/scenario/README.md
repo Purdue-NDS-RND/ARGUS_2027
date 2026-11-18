@@ -29,7 +29,9 @@ RUN_DIR=sim/.state/runs/delivery-clutter-s7-on HEADLESS=1 sim/run_sim.sh      # 
 | `wind` | `{level: calm, moderate or strong}`, with `direction_deg` and optional numbers; passed to the runner |
 | `gps_events` | `[{at_s, kind, ...}]`; passed to the runner |
 | `sun` | `{elevation_deg, azimuth_deg}`; left out, the world keeps the 2026 sim's light |
-| `sensor_profile` | Camera and vehicle variant; only `delivery` exists so far |
+| `sensor_profile` | Camera and vehicle variant: `delivery` (the default), `survey`, `still4k` (headless only) or `flow`; see "Sensors" in `sim/README.md` |
+| `sensor_check` | `true`: `sim/sensor_check.py` runs beside the flight, which must pass it (camera frame rate, rangefinder against the true height) |
+| `truth_poses` | `true`: true poses of the vehicle and the objects go out on `/sim/truth/poses` during the flight |
 | `sitl_params` | Extra SITL parameters for the run |
 | `judge` | Settings for the judge |
 | `driver` | `{tool: fence_check, speed_mps, height_m}`: a tool flies the vehicle in place of a mission launch. Such a scenario has no `sequence`, `params`, `config`, `targets`, `flags` or `waypoints` |

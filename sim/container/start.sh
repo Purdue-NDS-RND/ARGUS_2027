@@ -51,6 +51,11 @@ if [[ -n $RUN_DIR ]]; then
     SIM_TIME=$(python3 -c 'import json, sys; print(1 if json.load(open(sys.argv[1])).get("sim_time") is True else 0)' "$RUN_DIR/scenario.json")
     SITE_FILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["site_file"])' "$RUN_DIR/scenario.json")
     BRIDGE_FILE="$RUN_DIR/bridge.yaml"
+    # A camera profile too heavy to render beside a window (still4k) is flown headless or not at all.
+    if [[ ${HEADLESS:-0} != 1 ]] && python3 -c 'import json, sys; sys.exit(0 if (json.load(open(sys.argv[1])).get("vehicle") or {}).get("headless_only") is True else 1)' "$RUN_DIR/scenario.json"; then
+        echo "ERROR: this run's camera profile is headless only. Start it with HEADLESS=1 (sim/run_scenarios.sh does)." >&2
+        exit 1
+    fi
 fi
 GAZEBO_STARTUP_TIMEOUT=${GAZEBO_STARTUP_TIMEOUT:-90}
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
@@ -250,9 +255,11 @@ if [[ $SIM_TIME == 1 ]]; then
         fi
         sleep 1
     done
-    echo "== Starting MAVROS on sim time (config/mavros/argus_mavros.yaml) with the stream keeper"
+    # The sim's own plugin list: the flight's, plus optical flow, vision pose
+    # and speed, and distance sensor (sim/config/mavros_sim.yaml, SIM-05).
+    echo "== Starting MAVROS on sim time (sim/config/mavros_sim.yaml) with the stream keeper"
     start mavros ros2 launch "$ARGUS_REPO/config/mavros/argus_mavros.launch.py" \
-        "fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" use_sim_time:=true stream_keeper:=true
+        "fcu_url:=tcp://127.0.0.1:$MAVROS_PORT" "config:=$ARGUS_SIM/config/mavros_sim.yaml" use_sim_time:=true stream_keeper:=true
 else
     echo "== Starting MAVROS"
     start mavros "$ARGUS_REPO/mavros_boot.sh" sim
