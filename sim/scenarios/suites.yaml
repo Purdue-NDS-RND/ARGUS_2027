@@ -22,6 +22,7 @@ nightly:
     - hover/wind_5
     - hover/survey_camera
     - hover/still4k_camera
+    - hover/gps_glitch
     - drop/baseline
     - drop/release
     - drop/release_wind

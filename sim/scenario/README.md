@@ -27,7 +27,7 @@ RUN_DIR=sim/.state/runs/delivery-clutter-s7-on HEADLESS=1 sim/run_sim.sh      # 
 | `objects` | The things on the field (below) |
 | `waypoints` | `{mission: <name>, points: [{name, east_m, north_m, height_m}]}`: written as that mission's waypoint file |
 | `wind` | `{level: calm, moderate or strong}`, with `direction_deg` and optional numbers; passed to the runner |
-| `gps_events` | `[{at_s, kind, ...}]`; passed to the runner |
+| `gps_events` | GPS faults, each at `at_s` seconds after arming (sim time): `{at_s, kind: glitch, north_m, east_m, up_m, for_s}`, `{kind: noise, amplitude_m, for_s}`, `{kind: satellites, count, for_s}`, `{kind: jam, for_s}`, `{kind: dropout, for_s}`, `{kind: clear}`. `sim/inject.py` makes them during the flight; see "GPS faults" in `sim/README.md` |
 | `sun` | `{elevation_deg, azimuth_deg}`; left out, the world keeps the 2026 sim's light |
 | `sensor_profile` | Camera and vehicle variant: `delivery` (the default), `survey`, `still4k` (headless only) or `flow`; see "Sensors" in `sim/README.md` |
 | `sensor_check` | `true`: `sim/sensor_check.py` runs beside the flight, which must pass it (camera frame rate, rangefinder against the true height) |

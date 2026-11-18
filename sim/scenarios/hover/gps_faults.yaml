@@ -1,0 +1,25 @@
+# The other GPS faults, each made once in a hover (SIM-04): altitude noise,
+# a low satellite count, jamming and a dropout, a few seconds each, by
+# sim/inject.py. The run counts if every change was made and confirmed by the
+# flight controller; the injector's log has the raw fix's satellite count and
+# fix type a second after each. What the autopilot does about them is not
+# judged: the hover judge's drift limit is widened in case it wanders.
+# Not in the nightly suite: jamming and a dropout may end the hover in a
+# failsafe, which is the autopilot's business, not this check's.
+description: Hover for 40 s with GPS noise, a low satellite count, jamming and a dropout, a few seconds each.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+wind: {level: calm}
+gps_events:
+  - {at_s: 16.0, kind: noise, amplitude_m: 2.0, for_s: 5.0}
+  - {at_s: 23.0, kind: satellites, count: 5, for_s: 5.0}
+  - {at_s: 30.0, kind: jam, for_s: 3.0}
+  - {at_s: 36.0, kind: dropout, for_s: 3.0}
+judge:
+  max_drift_m: 15.0

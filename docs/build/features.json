@@ -379,9 +379,9 @@
       "land": "L08",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "python3 -m pytest -q sim/test/test_inject.py -> 18 passed; sim: hover/gps_glitch OK, a 5 m north glitch moved the raw GPS fix 4.998 m north, 0.000 m east, 0.23 s after the command (5 +/- 0.5 m within 1 s); hover/gps_faults OK, noise, satellite count, jamming and dropout each confirmed by the flight controller and seen in the raw fix; names read from the running 4.6.3 SITL (SIM_GPS_GLITCH_X family); docs/results/2026-11-18-gps-faults.md. Not done: a mission reacting to a fault (REC-8); a later ArduPilot's names unchecked",
       "blocked_reason": ""
     },
     {

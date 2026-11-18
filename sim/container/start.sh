@@ -43,6 +43,7 @@ SITE_FILE=${ARGUS_SITE_FILE:-}
 RUN_DIR=${ARGUS_RUN_DIR:-}
 BRIDGE_FILE="$ARGUS_SIM/config/bridge.yaml"
 TOOLS_PORT=14552
+FAULTS_PORT=14553  # a second MAVLink output, for sim/inject.py, on runs whose scenario has gps_events (SIM-04)
 MAVROS_PORT=5762  # SITL's SERIAL1, used by MAVROS on sim time
 SIM_TIME=${SIM_TIME:-0}
 if [[ -n $RUN_DIR ]]; then
@@ -229,6 +230,10 @@ if [[ -n $SITE_FILE ]]; then
         site_parm="$RUN_DIR/sitl.parm"  # the scenario's own, which also has SIM_TERRAIN 0
     fi
     sitl_args+=(--add-param-file "$site_parm" --out "udp:127.0.0.1:$TOOLS_PORT")
+    # The fault injector gets a port of its own: a driver or the payload bridge is already listening on the tools port.
+    if [[ -n $RUN_DIR ]] && python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("gps_events") else 1)' "$RUN_DIR/scenario.json"; then
+        sitl_args+=(--out "udp:127.0.0.1:$FAULTS_PORT")
+    fi
 fi
 echo "== Starting ArduCopter SITL (home $location; QGC on 14550, MAVROS on 14551)"
 export SITL_RITW_TERMINAL=/usr/local/bin/sitl-process-wrapper.sh

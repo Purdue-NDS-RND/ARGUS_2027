@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import inject  # noqa: E402  (sim/inject.py: what a GPS event may be)
 import sensor_profiles  # noqa: E402  (sim/sensor_profiles.py: the camera profiles)
 
 KEYS = {
@@ -215,9 +216,10 @@ def parse_scenario(data, path: Path) -> Scenario:
     gps_events = data.get("gps_events") or []
     if not isinstance(gps_events, list):
         raise BuildError(f"{where}: gps_events must be a list")
-    for index, event in enumerate(gps_events):
-        if not isinstance(event, dict) or "at_s" not in event or "kind" not in event:
-            raise BuildError(f"{where}: gps_events[{index}] needs at_s and kind")
+    try:
+        inject.check_events(gps_events)  # each has a time, a kind the injector knows and only that kind's settings
+    except inject.InjectError as error:
+        raise BuildError(f"{where}: {error}") from None
 
     sun = _mapping(data, "sun", where)
     if set(sun) - {"elevation_deg", "azimuth_deg"}:

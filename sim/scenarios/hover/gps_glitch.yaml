@@ -1,0 +1,20 @@
+# SIM-04's pass line as a flight: the vehicle takes off to 10 m and holds for
+# 40 s; 25 s after arming sim/inject.py steps the simulated GPS 5 m north for
+# 10 s, and the raw GPS fix must show the step, 5 m to within 0.5 m, inside a
+# second. What the autopilot does with it is not judged here; the hover judge's
+# drift limit is widened in case it follows the false position.
+# No mission sequence is flown, so there are no flags: off and on are the same.
+description: Hover for 40 s; a 5 m north GPS glitch for 10 s must show in the raw fix within 1 s.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 40.0
+wind: {level: calm}
+gps_events:
+  - {at_s: 25.0, kind: glitch, north_m: 5.0, for_s: 10.0}
+judge:
+  max_drift_m: 8.0

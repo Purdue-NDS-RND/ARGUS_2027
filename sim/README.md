@@ -416,3 +416,25 @@ sim/run_scenarios.sh hover/survey_camera --seeds 1 --variants on   # the pass fl
 ```
 
 The rangefinder is SITL's, from the default parameters (`RNGFND1_TYPE 1`): it reads the height above the flat ground and sees no bucket or target. On sim-time runs MAVROS starts with the sim's own plugin list, `sim/config/mavros_sim.yaml`: the flight's twelve plugins plus `optical_flow`, `vision_pose`, `vision_speed` and `distance_sensor`. Wall-time runs start MAVROS as in 2026.
+
+## GPS faults
+
+Two different things can be wrong with GPS in a scenario (SIM-04):
+
+- **The coordinates the mission is given are off.** `coordinate_error:` in the scenario (`{east_m, north_m}`, `{radius_m}` or `{max_radius_m}`) moves the target coordinates written into the mission's sequence when the run is built. The vehicle's own GPS is untouched.
+- **The vehicle's GPS misbehaves in flight.** `gps_events:` lists faults, each at `at_s` seconds after arming, in sim time. `sim/inject.py`, the one fault tool, runs beside the flight and sets SITL's simulated-GPS parameters at those times:
+
+```yaml
+gps_events:
+  - {at_s: 25.0, kind: glitch, north_m: 5.0, for_s: 10.0}   # the fix steps 5 m north, and back after 10 s
+  - {at_s: 40.0, kind: satellites, count: 5, for_s: 10.0}
+  - {at_s: 55.0, kind: dropout, for_s: 3.0}                 # also: noise (amplitude_m), jam, clear
+```
+
+Without `for_s` a fault stays until a `clear`. The injector asks the running SITL which parameter names it has (`SIM_GPS_GLITCH_X` in ArduPilot 4.6, `SIM_GPS1_GLTCH_X` later) and stops if it finds neither. It listens on a MAVLink port of its own (UDP 14553), which the sim opens only for runs with `gps_events`, so it can run beside a driver or the payload bridge. When the flight ends it puts every parameter back.
+
+The run folder gets `gps_events.jsonl` and `gps_events.json`, and the report a "GPS faults" row. For each glitch the injector watches the raw GPS fix: it must show the step, to within 0.5 m, inside a second. A run whose events were not all made, or whose glitch did not show, is INVALID: it is not counted as a flight with faults.
+
+```bash
+sim/run_scenarios.sh hover/gps_glitch --seeds 1 --variants off   # the pass flight
+```
