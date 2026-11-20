@@ -1,0 +1,46 @@
+# Gate G1's hold at 2 m in moderate wind: drop/hold_2m (the 2026 drop mission
+# made to hold over a 1.5 m bullseye for 20 s on TRACK_AND_DESCEND's centring)
+# with the wind blowing and, in variant "on", the retuned controller as well
+# (centring_retune, CEN-02): soft deadband, Kp 0.6, a speed cap that follows
+# the height, a slew limit. The judge reports the vehicle's true distance
+# from the target while it held (details.hold_error_p95_m); G1 allows
+# 0.20 m in this wind.
+# The mission must be centred within its tolerance for 20 s without a break
+# before it releases, and the hold has a number only once it has released:
+# a hold the wind keeps breaking is a hold that failed.
+# Variant "off" is the 2026 centring in the same wind.
+description: Hold over the bullseye at 2 m for 20 s in moderate wind; the true error while holding is reported.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+config:
+  package_drop:
+    drop_altitude_m: 2.2          # with the tolerance, never commanded under 1.9 m: above the 1.83 m floor
+    drop_altitude_tolerance_m: 0.3
+    drop_column_handoff_altitude_m: 0.0
+    centering_dwell_s: 20.0
+    drop_hover_dwell_s: 0.0
+judge:
+  hold_height_m: 2.0
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 1.0     # smaller than the calm holds' 1.5 m: in wind the vehicle tilts, and at 2 m that moves the
+    rings: 2        # camera's view by a few tenths of a metre; a target cut by the image's edge is not tracked
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: moderate, direction_deg: 225.0}

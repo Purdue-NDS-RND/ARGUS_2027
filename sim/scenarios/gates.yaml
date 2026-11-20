@@ -22,7 +22,10 @@ G0:
 G1:
   proves: Estimator and centring
   pass: "Hold at 6 m and 2 m: p95 true error ≤ 0.20 m in moderate wind, ≤ 0.30 m in strong"
-  needs: hold scenarios at 6 m and 2 m and a judge that reports details.hold_error_p95_m (CEN-01, CEN-02); wind (SIM-03)
+  # The 2026 drop mission made to hold for 20 s on its centring (CEN-01), with the estimator, centring on it
+  # and the retuned controller on (CEN-02). One flight of each: the pass line asks for no more.
+  scenarios: [drop/hold_6m_moderate, drop/hold_6m_strong, drop/hold_2m_moderate, drop/hold_2m_strong]
+  seeds: [1]
   variants: ["on"]
   rules:
     - name: p95 hold error within 0.20 m in moderate wind
@@ -39,6 +42,12 @@ G1:
     - name: flown in strong wind
       where: {wind.level: strong}
       flown: {at_least: 1}
+    - name: held at 6 m twice (once in each wind)
+      metric: settings.hold_height_m
+      count: {equals: 6.0, at_least: 2}
+    - name: held at 2 m twice (once in each wind)
+      metric: settings.hold_height_m
+      count: {equals: 2.0, at_least: 2}
 
 G2:
   proves: Drop

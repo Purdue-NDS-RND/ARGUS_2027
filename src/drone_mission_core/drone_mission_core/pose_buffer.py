@@ -221,6 +221,13 @@ class PoseBuffer:
         pose = self.pose_at(stamp_ns)
         return None if pose is None else pose.position
 
+    def newest_velocity(self, now_ns: int, max_age_s: float = 0.2) -> Optional[Vector]:
+        """The newest reported velocity (east, north, up), or None when there is none within `max_age_s` of `now_ns`."""
+        with self._lock:
+            if not self._velocity_stamps or abs(int(now_ns) - self._velocity_stamps[-1]) > int(round(max_age_s * 1.0e9)):
+                return None
+            return self._velocities[-1]
+
     def velocity_at(self, stamp_ns) -> Optional[Vector]:
         """The velocity at stamp_ns, interpolated between two samples no more than 0.12 s apart, or None."""
         if isinstance(stamp_ns, bool) or not isinstance(stamp_ns, int):

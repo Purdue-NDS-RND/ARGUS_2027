@@ -221,16 +221,21 @@ def blow(run_dir: Path) -> dict:
             state["last"] = t_s
             air = wind.at(t_s - state["t0"])
             line = {"t": round(t_s, 3), "wind": [round(value, 3) for value in air], "bodies": {}}
+            if state["start_up"] is None:
+                state["start_up"] = poses[vehicle_name].position.z
             for name, velocity in moving.items():
                 force = wind_model.drag_force(air, velocity, targets[name]["cda_m2"])
+                if name == vehicle_name:
+                    # The vehicle only: near the ground the wind fades out, so it can be seen to have landed.
+                    factor = wind_model.near_ground_factor(poses[name].position.z - state["start_up"])
+                    force = tuple(component * factor for component in force)
                 for kind, value in plans[name].update(force, t_s):
                     publish(name, kind, value)
                 line["bodies"][name] = {"v": [round(value, 3) for value in velocity], "f": [round(value, 4) for value in force]}
             pose = poses[vehicle_name]
-            if state["start_up"] is None:
-                state["start_up"] = pose.position.z
             velocity = moving[vehicle_name]
-            force = wind_model.drag_force(air, velocity, targets[vehicle_name]["cda_m2"])
+            factor = wind_model.near_ground_factor(pose.position.z - state["start_up"])
+            force = tuple(component * factor for component in wind_model.drag_force(air, velocity, targets[vehicle_name]["cda_m2"]))
             sample = {
                 "speed_mps": math.hypot(air[0], air[1]),
                 "force_n": math.hypot(force[0], force[1]),

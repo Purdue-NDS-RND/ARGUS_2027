@@ -190,6 +190,7 @@ A mission reads the estimator through its context (`MissionContext`, rules in
 | `may_descend(cls, near=None, track_id=None)` (both by keyword) | True only on a CONFIRMED track no older than 0.5 s. Otherwise false, with `.reason`. Pass the `track_id` of the track being flown to, or the answer is about whichever track of the class is primary now |
 | `may_release(cls, near=None, track_id=None)` | True only on a CONFIRMED track no older than 0.3 s. Otherwise false, with `.reason`. `track_id` as above |
 | `tracked_target(cls, track_id)` | The track with that id, whichever track is the class's primary one now; None when it is gone or the flag is off |
+| `vehicle_velocity()` | The vehicle's newest velocity (east, north, up) from the pose history; None when it is over 0.2 s old or `use_frame_time_pose` is off |
 | `pose_at(stamp_ns)` | The vehicle's pose at a past instant, from the pose history (`use_frame_time_pose`) |
 | `height_agl(ground_below_home_m=0.0)` | `value_m` and `source`: `rangefinder` when its ground is healthy, else `baro`, which is the height above home plus `ground_below_home_m` (how far the ground here is known to be below home; 0 when nothing is known, and then it is not the height above the ground wherever the ground is not at home's height). None when the newest pose is over 0.5 s old; `pose_age_s` says how old it was. Needs no flag; with `use_height_estimator` on the answer is the height estimator's (below) |
 | `actuation_time_ns()` | Now + 0.08 s, the time the estimator's outputs are given for |
@@ -213,6 +214,28 @@ mission's own GPS target, it is kept to by its id (`tracked_target`), and if it 
 another track of the class is not taken over until the recovery climb has started. From
 the fixed column down, the 2026 code is unchanged and asks nothing of the estimator. An
 airframe that is not `verified` stops the executor at start-up.
+
+`centring_retune` (declared, off, in the same eight sequences; needs
+`centre_on_estimator`) replaces the 2026 gain and speed cap in that centring with the 2027
+controller (`centring_controller.py`, CEN-02): the error less a soft deadband of 0.03 m,
+times Kp 0.6, capped at clamp(0.08 × h, 0.25, 1.0) m/s where h is `height_agl()` (the
+lowest cap when the height is not known, and never over `safety_limits`' cap for
+centring), and changed by no more than 0.5 m/s². Before that the error is given a lead,
+which the spec does not have: it is taken for where the vehicle will be 0.5 s on at the
+velocity `vehicle_velocity()` reports, which damps the loop's swing against the vehicle's
+slow answer to a velocity command. A height from the barometer is taken as 2 m lower than
+it says for the cap, since it is above home and not above the ground. On a lost target
+the command is zero at once, as in 2026, and the next one starts from rest. The numbers
+are the defaults in code; a 2027 sequence may set its own under `centring_kp`,
+`centring_soft_deadband_m`, `centring_speed_cap_per_m_height`,
+`centring_speed_cap_min_mps`, `centring_speed_cap_max_mps`, `centring_slew_mps2` and
+`centring_lead_s`, and a value that is not usable (a Kp over 1.0, or over 0.6 with a lead
+under 0.5 s; a lead over 1 s) stops the executor at start-up. If the velocity stops coming the
+lead is left out, the gain is held to 0.6 and the log says so. The 2026 keys
+(`centering_gain_mps_per_m`, `max_centering_speed_mps`) are not read with the flag on;
+`centering_tolerance_m` and `centering_dwell_s` still decide "centred".
+`python3 tools/cen_loop_sim.py` runs the same class in a simulated loop, to try a gain
+before it is flown.
 
 `use_height_estimator` (declared, off, in the eight sequences that fly a drop or
 delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height

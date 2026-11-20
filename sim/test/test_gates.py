@@ -67,6 +67,18 @@ def test_g0_flies_the_2026_delivery_five_times_with_flags_off():
     assert gate.flights("G0-W2") == flights
 
 
+def test_g1_flies_a_hold_at_6_m_and_at_2_m_in_moderate_and_in_strong_wind_with_the_flags_on():
+    flights = gate.flights("G1")
+    assert sorted(flight["scenario"].name for flight in flights) == ["hold_2m_moderate.yaml", "hold_2m_strong.yaml", "hold_6m_moderate.yaml", "hold_6m_strong.yaml"]
+    assert {(flight["seed"], flight["variant"]) for flight in flights} == {(1, "on")}
+    import yaml as real_yaml
+
+    for flight in flights:
+        scenario = real_yaml.safe_load(flight["scenario"].read_text())
+        assert scenario["flags"] == {"use_frame_time_pose": True, "use_target_estimator": True, "centre_on_estimator": True, "centring_retune": True}
+        assert scenario["wind"]["level"] in flight["scenario"].name and scenario["judge"]["hold_height_m"] in (6.0, 2.0)
+
+
 def test_gates_without_scenarios_yet_say_what_they_wait_for():
     gates = gate.load_gates()
     for name in ("G1", "G2", "G3", "G4", "G5", "G6"):
@@ -142,7 +154,7 @@ def test_g0_fails_when_a_flight_is_missing_or_was_flown_with_flags_on():
 
 def test_gate_with_nothing_to_fly_yet_cannot_be_checked():
     with pytest.raises(gate.GateError, match="cannot run yet"):
-        gate.check("G1", [])
+        gate.check("G2", [])
     with pytest.raises(gate.GateError, match="field"):
         gate.check("G7", [])
 
@@ -273,7 +285,7 @@ def test_cli_exit_codes_tell_pass_fail_and_invalid_apart(tmp_path):
     assert run_cli("check", "G0", suite_folder(tmp_path / "a", [0.02, 0.03, 0.02, 0.09, 0.4])).returncode == 1
     invalid = run_cli("check", "G0", suite_folder(tmp_path / "b", [0.02, 0.03, 0.02, 0.09, 0.1], slow_seed=3))
     assert invalid.returncode == 3 and "G0: INVALID" in invalid.stdout
-    assert run_cli("check", "G1", suite_folder(tmp_path / "c", [0.1])).returncode == 2
+    assert run_cli("check", "G2", suite_folder(tmp_path / "c", [0.1])).returncode == 2
     assert run_cli("check", "G9", tmp_path).returncode == 2
 
 
@@ -313,6 +325,8 @@ SHIPPED_RULE_CASES = {
     ("G1", "p95 hold error within 0.30 m in strong wind"): ([run(wind="strong", hold_error_p95_m=0.30)], [run(wind="strong", hold_error_p95_m=0.31)]),
     ("G1", "flown in moderate wind"): ([run(wind="moderate")], [run(wind="strong")]),
     ("G1", "flown in strong wind"): ([run(wind="strong")], [run(wind="moderate")]),
+    ("G1", "held at 6 m twice (once in each wind)"): ([run(settings={"hold_height_m": 6.0})] * 2, [run(settings={"hold_height_m": 6.0}), run(settings={"hold_height_m": 2.0})]),
+    ("G1", "held at 2 m twice (once in each wind)"): ([run(settings={"hold_height_m": 2.0})] * 2, [run(settings={"hold_height_m": 2.0}), run(settings={"hold_height_m": 6.0})]),
     ("G2", "median drop distance within 0.15 m in calm"): (deliveries([0.10, 0.15, 0.90]), deliveries([0.10, 0.16, 0.90])),
     ("G2", "median drop distance within 0.30 m in strong wind"): (deliveries([0.2, 0.30, 0.5], wind="strong"), deliveries([0.2, 0.31, 0.5], wind="strong")),
     ("G2", "no drop further than 1.0 m"): (deliveries([0.1, 1.0]), deliveries([0.1, 1.01])),

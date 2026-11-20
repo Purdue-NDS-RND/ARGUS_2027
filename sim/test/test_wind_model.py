@@ -26,6 +26,16 @@ def test_the_drag_force_is_half_rho_cda_v_squared_along_the_relative_wind():
     assert (wind_model.IRIS_CDA_M2, wind_model.UPDATE_HZ, wind_model.GUST_TAU_S) == (0.08, 20.0, (2.0, 5.0))
 
 
+def test_the_wind_on_the_vehicle_fades_out_in_the_last_half_metre_above_the_ground():
+    # Standing on the ground in a 7 m/s wind the sim's vehicle slides and the flight controller never sees it
+    # landed, so a flight in strong wind ended in a timeout as often as not. Below 0.5 m the force fades to nothing.
+    assert (wind_model.GROUND_CALM_BELOW_M, wind_model.GROUND_FULL_ABOVE_M) == (0.1, 0.5)
+    assert wind_model.near_ground_factor(0.0) == 0.0 and wind_model.near_ground_factor(0.1) == 0.0 and wind_model.near_ground_factor(-0.02) == 0.0
+    assert wind_model.near_ground_factor(0.3) == pytest.approx(0.5)
+    assert wind_model.near_ground_factor(0.5) == 1.0 and wind_model.near_ground_factor(2.0) == 1.0 and wind_model.near_ground_factor(15.0) == 1.0
+    assert wind_model.near_ground_factor(float("nan")) == 1.0  # a height that is not known does not switch the wind off
+
+
 def test_the_hover_tilt_is_atan_of_force_over_weight():
     assert wind_model.hover_tilt_deg(5.0, 1.755) == pytest.approx(math.degrees(math.atan(1.225 / (1.755 * 9.80665))))
     assert 4.0 < wind_model.hover_tilt_deg(5.0, 1.755) < 4.2 and wind_model.hover_tilt_deg(0.0, 1.755) == 0.0

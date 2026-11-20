@@ -107,6 +107,8 @@ run_test "" scripts/test/test_guardian_read_guard.py
 run_test "" sim/test/test_target_placement.py
 run_test "" tools/test/test_build_ledger.py
 run_test "" sim/test/test_nightly.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_centring_controller.py
+run_test "" tools/test/test_cen_loop_sim.py
 
 # The 2027 build ledger must stay valid (see docs/build/SESSION.md).
 echo "== docs/build/features.json"

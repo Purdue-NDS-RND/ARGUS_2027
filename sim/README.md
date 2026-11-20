@@ -340,7 +340,7 @@ ros2 launch sim/replay/play.launch.py bag:=/path/to/bag
 
 ## Wind
 
-A scenario's `wind:` is blown by `sim/wind.py`, which the runner starts beside the flight (SIM-03):
+A scenario's `wind:` is blown by `sim/wind.py`, which the runner starts beside the flight (SIM-03). On the vehicle the force fades out in the last half metre above where it stood (nothing below 0.1 m): standing in a strong wind the sim's vehicle is pushed about on its skids, the flight controller never sees it landed, and the flight ends in a timeout instead of a disarm. Payloads and buckets get the whole wind at any height.
 
 ```yaml
 wind: {level: moderate, direction_deg: 225.0}       # 4 m/s with 1 m/s gusts, from the south-west

@@ -513,9 +513,10 @@ def test_run_scenarios_parses_and_lists_a_suite_without_starting_anything():
     listed = run_script("--list", "gates")
     assert listed.returncode == 0, listed.stderr
     lines = listed.stdout.strip().splitlines()
-    assert len(lines) == 5
-    assert all(line.endswith(" off") and "delivery/baseline.yaml" in line for line in lines)
-    assert [line.split()[1] for line in lines] == ["1", "2", "3", "4", "5"]
+    assert len(lines) == 9  # G0's five deliveries and G1's four holds: the gates that have scenarios
+    assert all(line.endswith(" off") and "delivery/baseline.yaml" in line for line in lines[:5])
+    assert [line.split()[1] for line in lines[:5]] == ["1", "2", "3", "4", "5"]
+    assert all(line.endswith(" 1 on") and "drop/hold_" in line for line in lines[5:])
 
 
 def test_run_scenarios_takes_seeds_and_variants():

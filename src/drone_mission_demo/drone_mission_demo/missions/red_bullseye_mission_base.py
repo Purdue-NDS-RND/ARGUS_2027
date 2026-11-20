@@ -6,6 +6,12 @@ import math
 from dataclasses import dataclass
 
 from drone_mission_core.centring import CENTRE_FLAG, EstimatorCentring
+from drone_mission_core.centring_controller import (
+    BARO_HEIGHT_MARGIN_M,
+    RETUNE_FLAG,
+    CentringController,
+    CentringGains,
+)
 from drone_mission_core.features import get_feature_flag
 from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
@@ -99,6 +105,18 @@ class RedBullseyeMissionBase(BaseMission):
 
             self._estimator_centring = EstimatorCentring(
                 frame_projection.payload_offset_from_config(spec.config, spec.name)
+            )
+        # The retuned controller (CEN-02), only with the centring_retune flag
+        # on: soft deadband, Kp, a speed cap that follows the height above the
+        # ground, and a slew limit, in place of the 2026 gain and speed cap.
+        # Its gains are read (the spec's, or the sequence's `centring_` keys)
+        # when the sequence is built, so a bad one stops the executor on the
+        # ground.
+        self._centring_controller: CentringController | None = None
+        self._last_centring_lead_log: Time | None = None
+        if get_feature_flag(spec.features, RETUNE_FLAG):
+            self._centring_controller = CentringController(
+                CentringGains.from_config(spec.config)
             )
 
     def _load_common_vision_config(self, config: dict) -> None:
@@ -425,20 +443,30 @@ class RedBullseyeMissionBase(BaseMission):
         remembers. No track that can be steered on is no solution, which the
         callers treat as a lost target.
         """
-        if self._time_is_unhealthy(context):
-            return None
-        solution = self._estimator_solution(context)
+        solution = None
+        if not self._time_is_unhealthy(context):
+            solution = self._estimator_solution(context)
         if solution is None:
+            if self._centring_controller is not None:
+                # The mission holds still on a lost target: what was being
+                # commanded is no guide to the next command.
+                self._centring_controller.reset()
             return None
-        max_speed = self._max_centering_speed_mps
-        if max_centering_speed_mps is not None:
-            max_speed = max(0.0, float(max_centering_speed_mps))
-        velocity_east, velocity_north = ground_offset_to_velocity(
-            east_error_m=solution.east_m,
-            north_error_m=solution.north_m,
-            gain_mps_per_m=self._centering_gain_mps_per_m,
-            max_speed_mps=max_speed,
-        )
+        if self._centring_controller is not None:
+            # centring_retune (CEN-02).
+            velocity_east, velocity_north = self._retuned_velocity(
+                context, solution, max_centering_speed_mps
+            )
+        else:
+            max_speed = self._max_centering_speed_mps
+            if max_centering_speed_mps is not None:
+                max_speed = max(0.0, float(max_centering_speed_mps))
+            velocity_east, velocity_north = ground_offset_to_velocity(
+                east_error_m=solution.east_m,
+                north_error_m=solution.north_m,
+                gain_mps_per_m=self._centering_gain_mps_per_m,
+                max_speed_mps=max_speed,
+            )
         if not solution.may_descend:
             last = self._last_centring_log
             if last is None or context.seconds_since(last) >= 2.0:
@@ -448,6 +476,44 @@ class RedBullseyeMissionBase(BaseMission):
                 )
             return math.inf, velocity_east, velocity_north
         return solution.error_m, velocity_east, velocity_north
+
+    def _retuned_velocity(
+        self,
+        context: MissionContext,
+        solution,
+        max_centering_speed_mps: float | None,
+    ) -> tuple[float, float]:
+        """centring_retune only: this tick's command from the retuned controller.
+
+        The speed cap follows the height above the ground, from
+        `context.height_agl()`. A rangefinder's height is used as it is; a
+        barometer's, which is above home and not above the ground, is taken
+        as BARO_HEIGHT_MARGIN_M lower; with no height the cap is the lowest.
+        A caller's own speed limit applies as well. If the vehicle's
+        velocity is not there for the controller's lead, the log says so.
+        """
+        height = context.height_agl()
+        cap_height_m = None
+        if height is not None:
+            cap_height_m = height.value_m
+            if height.source != "rangefinder":
+                cap_height_m = max(0.0, cap_height_m - BARO_HEIGHT_MARGIN_M)
+        command = self._centring_controller.step(
+            solution.east_m,
+            solution.north_m,
+            cap_height_m,
+            context.now().nanoseconds * 1.0e-9,
+            speed_limit_mps=max_centering_speed_mps,
+            velocity_en_mps=context.vehicle_velocity(),
+        )
+        if not self._centring_controller.lead_applied:
+            last = self._last_centring_lead_log
+            if last is None or context.seconds_since(last) >= 2.0:
+                self._last_centring_lead_log = context.now()
+                context.logger.warn(
+                    f"[{self.name}] centring without its lead: no velocity from the pose history"
+                )
+        return command
 
     def _frame_time_projection(
         self,

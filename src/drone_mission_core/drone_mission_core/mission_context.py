@@ -95,6 +95,17 @@ class MissionContext:
             return None
         return buffer.pose_at(int(stamp_ns))
 
+    def vehicle_velocity(self):
+        """The vehicle's newest velocity (east, north, up) in m/s from the pose history, or None.
+
+        None with the use_frame_time_pose flag off, or when the newest
+        velocity is more than 0.2 s from now.
+        """
+        buffer = getattr(self._node, "_pose_buffer", None)
+        if buffer is None:
+            return None
+        return buffer.newest_velocity(self._now_ns())
+
     def ground_projector(self, camera, mount):
         """Projection v2 (projection_v2.py) on this executor's pose history and ground height.
 

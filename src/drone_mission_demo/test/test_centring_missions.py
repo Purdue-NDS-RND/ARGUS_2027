@@ -132,6 +132,8 @@ class Context(stand_ins.FakeContext):
         self.track = None  # the primary track
         self.others = {}  # other tracks of the class, by id
         self.asked = []
+        self.height = None
+        self.velocity = None
         self.place(vehicle, yaw_deg)
 
     def place(self, vehicle, yaw_deg=90.0):
@@ -178,6 +180,12 @@ class Context(stand_ins.FakeContext):
 
     def latlon_to_local_enu(self, latitude, longitude):
         return (40.0, -7.0)  # where the mission's GPS target is in the local frame
+
+    def height_agl(self, ground_below_home_m=0.0):
+        return self.height  # what MissionContext.height_agl() gives; the test sets it
+
+    def vehicle_velocity(self):
+        return self.velocity  # (east, north, up), or None; the test sets it
 
     def tick(self, mission):
         self.advance(0.05)
@@ -405,3 +413,138 @@ def test_flag_on_without_an_airframe_the_mission_is_refused_when_the_sequence_is
     spec = MissionSpec(type_name="package_drop", name="package_drop", config={**BASE, "airframe": ""}, base_dir=Path("."), features={FLAG: True})
     with pytest.raises(frame_projection.FrameProjectionError, match="airframe"):
         PackageDropMission(spec)
+
+
+# --- the retuned controller (CEN-02) ----------------------------------------------
+
+RETUNE = "centring_retune"
+RETUNE_ON = {**FLAGS_ON, RETUNE: True}
+
+
+def settle(context, mission, ticks=200):
+    for _ in range(ticks):
+        context.tick(mission)
+    return context.local_velocity_commands[-1]
+
+
+def test_the_retune_flag_needs_centring_on_the_estimator_and_is_declared_off():
+    import yaml as real_yaml
+
+    from drone_mission_core import centring_controller
+
+    assert centring_controller.RETUNE_FLAG == RETUNE and FLAG_REQUIRES[RETUNE] == (FLAG,)
+    declaring = [
+        path.name
+        for path in sorted((SRC / "drone_mission_demo" / "config" / "sequences").glob("*.yaml"))
+        if real_yaml.safe_load(path.read_text())["mission_sequence"]["features"].get(RETUNE, "missing") is False
+    ]
+    assert len(declaring) == 8
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_on_the_command_is_the_new_controllers_not_the_2026_gain(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height = target_access.HeightAgl(12.0, "baro")
+    mission = make(kind, context, features=RETUNE_ON)
+    context.see(0.33, 0.0)
+    context.tick(mission)
+    east, north, _up, _yaw = context.local_velocity_commands[-1]
+    assert (east, north) == pytest.approx((0.025, 0.0))  # the slew limit: 0.5 m/s2 over one 50 ms tick
+    east, north, _up, _yaw = settle(context, mission)
+    assert (east, north) == pytest.approx((0.6 * 0.30, 0.0))  # Kp 0.6 on the error less the 0.03 m soft deadband; the sequence's 0.25 is not read
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+@pytest.mark.parametrize(
+    "height, source, cap",
+    [
+        (12.0, "rangefinder", 0.96),
+        (6.0, "rangefinder", 0.48),
+        (2.4, "rangefinder", 0.25),
+        (None, None, 0.25),
+        # A barometer height is above home, not above the ground: it is taken as 2 m lower than it says.
+        (15.0, "baro", 1.0),
+        (12.0, "baro", 0.80),
+        (6.0, "baro", 0.32),
+        (4.0, "baro", 0.25),
+    ],
+)
+def test_retune_on_the_speed_cap_follows_the_height_above_the_ground(kind, height, source, cap):
+    context = Context(vehicle=(0.0, 0.0, 12.0))  # 12 m above home, whatever the ground is doing
+    context.height = None if height is None else target_access.HeightAgl(height, source)
+    mission = make(kind, context, features=RETUNE_ON)
+    context.see(6.0, 8.0)
+    east, north, _up, _yaw = settle(context, mission)
+    assert math.hypot(east, north) == pytest.approx(cap) and east / north == pytest.approx(0.75)
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_on_the_vehicles_velocity_gives_the_controller_its_lead(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height = target_access.HeightAgl(12.0, "baro")
+    context.velocity = (0.0, 0.3, 0.0)  # over the target, drifting north at 0.3 m/s
+    mission = make(kind, context, features=RETUNE_ON)
+    context.see(0.0, 0.0)
+    east, north, _up, _yaw = settle(context, mission)
+    assert (east, north) == pytest.approx((0.0, 0.6 * -(0.3 * 0.5 - 0.03)))
+    still = Context(vehicle=(0.0, 0.0, 12.0))
+    still.height = target_access.HeightAgl(12.0, "baro")
+    mission = make(kind, still, features=RETUNE_ON, centring_lead_s=0.0)
+    still.velocity = (0.0, 0.3, 0.0)
+    still.see(0.0, 0.0)
+    assert settle(still, mission)[:2] == (0.0, 0.0)
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_on_a_lead_that_cannot_be_applied_is_said_in_the_log(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height = target_access.HeightAgl(12.0, "rangefinder")
+    mission = make(kind, context, features=RETUNE_ON)
+    context.see(0.33, 0.0)
+    context.velocity = (0.0, 0.0, 0.0)
+    settle(context, mission, 20)
+    assert not any("lead" in text for text in context.warnings)
+    context.velocity = None  # MAVROS's velocity has stopped coming
+    settle(context, mission, 100)  # 5 s
+    said = [text for text in context.warnings if "lead" in text]
+    assert 2 <= len(said) <= 4 and "no velocity" in said[0]  # every 2 s, not every tick
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_on_a_lost_target_stops_at_once_and_the_next_command_starts_from_rest(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height = target_access.HeightAgl(12.0, "baro")
+    mission = make(kind, context, features=RETUNE_ON)
+    context.see(3.0, 0.0)
+    assert settle(context, mission, 100)[0] == pytest.approx(0.80)
+    context.also(3.0, 0.0, state="LOST", age_s=2.5, track_id=1)
+    context.track = None
+    context.tick(mission)
+    assert context.local_velocity_commands[-1][:3] == (0.0, 0.0, 0.0)  # the 2026 hold on a lost target, not a slow ramp down
+    context.see(3.0, 0.0, track_id=1)
+    context.tick(mission)
+    assert context.local_velocity_commands[-1][0] == pytest.approx(0.025)
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_on_the_sequences_own_gains_are_used_and_bad_ones_stop_the_sequence_being_built(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height = target_access.HeightAgl(12.0, "baro")
+    mission = make(kind, context, features=RETUNE_ON, centring_kp=0.4, centring_soft_deadband_m=0.0)
+    context.see(0.5, 0.0)
+    assert settle(context, mission)[0] == pytest.approx(0.2)
+    mission_class = KINDS[kind][0]
+    spec = MissionSpec(type_name=f"package_{kind}", name=f"package_{kind}", config={**BASE, "centring_kp": 3.0}, base_dir=Path("."), features=dict(RETUNE_ON))
+    with pytest.raises(ValueError, match="centring_kp"):
+        mission_class(spec)
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_retune_off_centring_on_the_estimator_keeps_the_2026_gain(kind):
+    context = Context(vehicle=(0.0, 0.0, 12.0))
+    context.height_agl = lambda ground_below_home_m=0.0: (_ for _ in ()).throw(AssertionError("the height was asked with the retune off"))
+    mission = make(kind, context, features=FLAGS_ON, centring_kp=3.0)  # not read, so not refused either
+    assert mission._centring_controller is None
+    context.see(0.33, 0.0)
+    context.tick(mission)
+    assert context.local_velocity_commands[-1][:2] == pytest.approx((GAIN * 0.33, 0.0))

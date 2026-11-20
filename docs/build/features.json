@@ -444,9 +444,9 @@
       "land": "L09",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_centring_controller.py -> 11 passed, test_cen_loop_sim.py + test_centring_missions.py -> 72 passed; sim/run_scenarios.sh G1 -> 4 OK: hold error p95 0.103 m and 0.100 m in moderate wind (6 m, 2 m), 0.270 m and 0.266 m in strong wind; docs/results/2026-11-20-centring-retune.md",
       "blocked_reason": ""
     },
     {

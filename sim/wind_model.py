@@ -53,6 +53,20 @@ def drag_force(wind: Vector, velocity: Vector, cda_m2: float, air_density: float
     return (scale * relative[0], scale * relative[1], scale * relative[2])
 
 
+# The wind on the vehicle fades out near the ground: nothing at or below GROUND_CALM_BELOW_M above where it
+# stood, all of it from GROUND_FULL_ABOVE_M up. Standing in a strong wind the sim's vehicle is pushed about on
+# its skids, the flight controller never sees it landed, and the flight ends in a timeout instead of a disarm.
+GROUND_CALM_BELOW_M = 0.1
+GROUND_FULL_ABOVE_M = 0.5
+
+
+def near_ground_factor(height_m: float) -> float:
+    """How much of the wind's force the vehicle gets at this height above where it stood: 0 on the ground, 1 from half a metre up."""
+    if not math.isfinite(height_m):
+        return 1.0
+    return max(0.0, min(1.0, (float(height_m) - GROUND_CALM_BELOW_M) / (GROUND_FULL_ABOVE_M - GROUND_CALM_BELOW_M)))
+
+
 def hover_tilt_deg(wind_speed_mps: float, mass_kg: float, cda_m2: float = IRIS_CDA_M2) -> float:
     """The tilt a hovering vehicle of this mass holds against a steady wind: atan(F / mg)."""
     force = 0.5 * AIR_DENSITY_KG_M3 * cda_m2 * wind_speed_mps * wind_speed_mps

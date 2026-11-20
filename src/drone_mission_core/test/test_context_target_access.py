@@ -123,6 +123,21 @@ def test_flag_on_the_pose_at_a_past_instant_and_the_actuation_time(executor_modu
     assert context.actuation_time_ns() == wiring.now_ns + 80 * MS
 
 
+def test_the_vehicles_newest_velocity_from_the_pose_history_and_none_when_it_is_stale_or_the_flag_is_off(executor_module, monkeypatch, wiring):
+    off = start(executor_module, monkeypatch)
+    assert off._mission_context.vehicle_velocity() is None  # no pose history with the flag off
+    node = start(executor_module, monkeypatch, feature_overrides="use_frame_time_pose")
+    context = node._mission_context
+    assert context.vehicle_velocity() is None  # nothing heard yet
+    velocity = SimpleNamespace(header=SimpleNamespace(stamp=stamp(wiring.now_ns)), twist=SimpleNamespace(linear=SimpleNamespace(x=0.3, y=-0.2, z=0.05)))
+    wiring.callbacks(VELOCITY_TOPIC)[-1](velocity)
+    assert context.vehicle_velocity() == pytest.approx((0.3, -0.2, 0.05))
+    wiring.now_ns += 200 * MS
+    assert context.vehicle_velocity() == pytest.approx((0.3, -0.2, 0.05))
+    wiring.now_ns += 1 * MS  # over 0.2 s old: the vehicle may be doing something else by now
+    assert context.vehicle_velocity() is None
+
+
 def test_height_above_ground_is_the_rangefinders_when_it_is_healthy(executor_module, monkeypatch, wiring):
     node = start(executor_module, monkeypatch, feature_overrides=FLAGS)
     context = node._mission_context
