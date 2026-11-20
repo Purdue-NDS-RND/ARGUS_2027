@@ -354,7 +354,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -734,3 +734,78 @@ def test_a_digit_reader_that_cannot_start_does_not_take_the_detections_with_it(r
     on = importlib.import_module("argus_localisation.loc_node").LocNode()
     ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
     assert on.runtime is not None and "could not be declared" in on.runtime.status()["digits"]["error"]
+
+
+def test_the_vote_is_behind_its_flag_and_a_tracks_digit_goes_out_with_the_track(ros, tmp_path):
+    """LOC-8 through the node: the detector boxes a marker in four frames, the reader reads each, and the track's digit is their vote."""
+    sys.path.insert(0, str(SRC.parent / "tools"))
+    import synth_targets
+
+    with_vision_msgs(ros)
+    options = synth_targets.RenderOptions(width=1280, height=720, mpp=0.0045, rotation_deg=25.0, background="noise", supersample=2)
+    picture, _drawn = synth_targets.render(synth_targets.SurveyMarker(digit=7), options, seed=3)
+
+    class Boxer(Model):
+        def __call__(self, image, conf, verbose):
+            box = types.SimpleNamespace(xyxy=[[640.0 - 95.0, 360.0 - 95.0, 640.0 + 95.0, 360.0 + 95.0]], conf=[0.9], cls=[0])
+            return [types.SimpleNamespace(boxes=[box])]
+
+    def fly(frames=4, **flags):
+        file = tmp_path / "yolo.engine"
+        file.write_bytes(b"stand-in")
+        ros.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=lambda path, task: Boxer()))
+        settings = {"camera_mode": "sim_survey", "airframe": "sim_iris_downcam", "detector": "engine", "engine_path": str(file), "sim_only": True, "use_sim_time": True}
+        node = node_with(ros, **{**settings, "features.loc_node": True, "start_enabled": True, **flags})
+        for frame in range(frames):
+            ns = T0 + frame * 100_000_000
+            for index in range(-3, 1):
+                node.subscriptions[POSE_TOPIC](pose(ns + index * 33_000_000))
+            RecordingNode.now_ns = ns + 10_000_000
+            message = image(ns)
+            message.data = picture.tobytes()
+            node.subscriptions[IMAGE_TOPIC](message)
+            tick(node)
+        return node
+
+    reading = {"features.marker_tracker": True, "features.digit_reader": True, "features.template_digit_classifier": True}
+    plain = fly(**reading)
+    assert plain.runtime.pipeline.digit_votes is None and plain.runtime.pipeline.tracker.digit_votes is None
+    assert plain.publishers["/loc/tracks"].sent[-1].tracks[0].digit == -1 and "vote" not in status_of(plain)["digits"]
+    node = fly(**reading, **{"features.digit_vote": True})
+    said = lambda made: [call[0][0] for call in made.logger.info.call_args_list]  # noqa: E731
+    assert node.logger.error.call_args is None and any("one digit to one track" in line for line in said(node))
+    sent = node.publishers["/loc/tracks"].sent
+    assert [message.tracks[0].state for message in sent] == [MarkerTrack.TENTATIVE, MarkerTrack.TENTATIVE, MarkerTrack.CONFIRMED, MarkerTrack.CONFIRMED]
+    assert [message.tracks[0].digit for message in sent] == [-1, -1, 7, 7]  # a digit once the track is on the list
+    last = sent[-1].tracks[0]
+    assert int(np.argmax(last.digit_log_prob)) == 7 and min(last.digit_log_prob) < -10.0  # four readings, summed
+    status = status_of(node)
+    vote = status["digits"]["vote"]
+    assert status["digits"]["read"] == 4 and (vote["tracks"], vote["decided"], vote["contested"], vote["unique_ids"]) == (1, {str(last.track_id): 7}, [], True)
+    json.dumps(status)
+    # IDs that may repeat: the assignment over tracks and digits is switched off, and the node says so.
+    repeats = fly(**reading, **{"features.digit_vote": True, "digit_ids_unique": False})
+    assert any("the assignment over tracks and digits is off" in line for line in said(repeats))
+    assert status_of(repeats)["digits"]["vote"]["unique_ids"] is False and repeats.publishers["/loc/tracks"].sent[-1].tracks[0].digit == 7
+    assert (vote["faults"], vote["fault"]) == (0, "") and vote["solves"] >= 1 and vote["last_solve_ms"] >= 0.0
+    # The vote's setting of the wrong kind leaves the reader alone: the vote takes IDs to be unique, and says what happened.
+    class Strict(RecordingNode):
+        def declare_parameter(self, name, default=None):
+            if name == "digit_ids_unique" and not isinstance(self.overrides.get(name, True), bool):
+                raise TypeError("digit_ids_unique: expected a boolean")
+            return super().declare_parameter(name, default)
+
+    import importlib
+
+    ros.setitem(sys.modules, "rclpy.node", types.SimpleNamespace(Node=Strict))
+    ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+    ros.setattr(Strict, "overrides", {**node.overrides, "digit_ids_unique": 1})
+    slip = importlib.import_module("argus_localisation.loc_node").LocNode()
+    ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+    assert slip.runtime is not None and slip.runtime.pipeline.digit_reader is not None and slip.runtime.pipeline.digit_votes.unique_ids is True
+    assert "digit_ids_unique could not be declared" in slip.logger.error.call_args[0][0]
+    # The vote without the tracker, or without a reader that started: said, and the node runs as it would without the vote.
+    for missing, needs in (({"features.digit_reader": True, "features.template_digit_classifier": True}, "features.marker_tracker"), ({"features.marker_tracker": True}, "a digit reader that started")):
+        short = fly(frames=1, **missing, **{"features.digit_vote": True})
+        assert short.runtime is not None and short.runtime.pipeline.digit_votes is None and needs in short.logger.error.call_args[0][0]
+        assert len(short.publishers["/loc/detections"].sent) == 1

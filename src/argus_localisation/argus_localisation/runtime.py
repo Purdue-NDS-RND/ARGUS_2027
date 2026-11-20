@@ -165,6 +165,20 @@ class LocRuntime:
                 "last_ms": round(float(getattr(reader, "last_ms", 0.0)), 2),  # what the last frame's crops took
                 "classifier": str(getattr(reader.classifier, "name", "")),
             }
+        votes = getattr(self.pipeline, "digit_votes", None)
+        if votes is not None and tracker is not None and hasattr(tracker, "tracks"):
+            decided = {str(state.track_id): int(state.digit) for state in tracker.tracks() if getattr(state, "digit", -1) >= 0}
+            vote = {
+                "tracks": len(votes.tracks()),
+                "decided": decided,
+                "contested": votes.contested(),
+                "unique_ids": bool(votes.unique_ids),
+                "solves": int(getattr(votes, "solves", 0)),
+                "last_solve_ms": round(float(getattr(votes, "last_solve_ms", 0.0)), 2),  # what giving the digits out last took
+                "faults": int(getattr(tracker, "vote_faults", 0)),
+                "fault": str(getattr(tracker, "vote_fault", "")),  # the last one: the tracks went out without digits
+            }
+            digits = {**(digits or {}), "vote": vote}  # which tracks have a digit, and which claims the assignment could not settle
         return {
             "enabled": self.enabled,
             "detector": str(getattr(self.pipeline.detector, "name", type(self.pipeline.detector).__name__)),

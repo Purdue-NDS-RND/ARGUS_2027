@@ -258,3 +258,83 @@ def test_there_is_a_limit_to_how_many_tracks_are_held():
     for index in range(mt.MAX_TRACKS + 20):
         tracker.update(int((100 + index * 0.001) * S), [seen(10.0 + 3.0 * (index % 50), 10.0 + 3.0 * (index // 50))])
     assert len(tracker.tracks()) == mt.MAX_TRACKS and tracker.refused_full == 20
+
+
+# --- the digit vote's side of the tracker (LOC-8) ---------------------------------------------
+
+
+def test_the_tracker_says_which_track_took_each_of_a_frames_sightings():
+    tracker = mt.MarkerTracker()
+    ground = [seen(35.0, 20.0), seen(60.0, 60.0, class_id="boundary_marker"), seen(40.0, 20.0)]
+    tracker.update(100 * S, ground)
+    assert set(tracker.last_assignment) == {0, 1, 2}  # index into the frame's ground points -> track id
+    first = dict(tracker.last_assignment)
+    assert len(set(first.values())) == 3
+    # The next frame, in another order and with a box cut by the edge: the same tracks, by the new indices.
+    cut = seen(35.0, 20.0)
+    cut = type(cut)(cut.class_id, cut.score, cut.east_m, cut.north_m, cut.detection, cut.point, cut=True)
+    tracker.update(int(100.1 * S), [seen(40.0, 20.0), cut, seen(35.0, 20.0)])
+    assert tracker.last_assignment == {0: first[2], 2: first[0]}
+    tracker.update(int(100.2 * S), [])
+    assert tracker.last_assignment == {}
+
+
+def test_a_listed_track_carries_the_digit_its_votes_give_it():
+    import math
+
+    from argus_localisation import digit_vote
+
+    def reading(digit):
+        scores = [math.log(0.03 / 9.0)] * 10
+        scores[digit] = math.log(0.97)
+        return scores
+
+    assert mt.MarkerTracker().digit_votes is None
+    votes = digit_vote.DigitVotes()
+    tracker = mt.MarkerTracker(digit_votes=votes)
+    corners = [(0.0, 0.0), (70.0, 0.0), (70.0, 40.0), (0.0, 40.0)]
+    track(tracker, 3, *corners, class_id="boundary_marker")
+    track(tracker, 3, (35.0, 20.0), (90.0, 20.0), start_s=101.0)  # one marker inside the corners, one outside
+    track(tracker, 1, (50.0, 30.0), start_s=102.0)  # and one seen once
+    by_place = {(round(state.east_m), round(state.north_m)): state for state in tracker.tracks() if state.class_id == "marker"}
+    inside, outside, tentative = by_place[(35, 20)], by_place[(90, 20)], by_place[(50, 30)]
+    assert all(state.digit == -1 and state.digit_log_prob == (0.0,) * 10 for state in (inside, outside, tentative))  # nothing read yet
+    for state, digit in ((inside, 4), (outside, 4), (tentative, 4)):
+        for _ in range(5):
+            votes.add(state.track_id, reading(digit), 0.9)
+    after = {state.track_id: state for state in tracker.tracks()}
+    # The listed marker has the digit. The other two have their votes on them and no digit: they are not on the
+    # list, and take no part in giving the digits out (or the 4 would be contested three ways).
+    assert after[inside.track_id].digit == 4 and after[inside.track_id].digit_log_prob == votes.log_probabilities(inside.track_id)
+    assert after[outside.track_id].digit == -1 and after[tentative.track_id].digit == -1
+    assert after[outside.track_id].digit_log_prob == votes.log_probabilities(outside.track_id) != (0.0,) * 10
+    assert all(state.digit == -1 for state in after.values() if state.class_id == "boundary_marker")
+    # A track that is dropped takes its votes with it.
+    tracker.update(int(200.0 * S), [])
+    tracker.update(int(260.0 * S), [])
+    assert tentative.track_id not in {state.track_id for state in tracker.tracks()} and votes.readings(tentative.track_id) == 0
+    assert votes.readings(inside.track_id) == 5  # a confirmed track is kept, and so are its votes
+
+
+def test_a_fault_in_the_vote_costs_the_digits_not_the_tracks_and_a_clock_step_forgets_dropped_tracks_votes():
+    from argus_localisation import digit_vote
+
+    class Broken(digit_vote.DigitVotes):
+        def digits(self, only=None):
+            raise RuntimeError("the vote fell over")
+
+    tracker = mt.MarkerTracker(digit_votes=Broken())
+    track(tracker, 3, (35.0, 20.0))
+    (state,) = tracker.tracks()
+    assert state.state == mt.CONFIRMED and (state.east_m, state.north_m) == pytest.approx((35.0, 20.0), abs=0.01) and state.digit == -1
+    assert tracker.vote_faults == 1 and "the vote fell over" in tracker.vote_fault and tracker.confirmed_ids() == [state.track_id]
+    # The frames' clock steps back: tentative tracks are dropped, and their votes with them.
+    votes = digit_vote.DigitVotes()
+    tracker = mt.MarkerTracker(digit_votes=votes)
+    track(tracker, 3, (35.0, 20.0))
+    track(tracker, 1, (50.0, 30.0), start_s=100.3)
+    kept, dropped = (state.track_id for state in tracker.tracks())
+    for track_id in (kept, dropped):
+        votes.add(track_id, [-0.1] + [-5.0] * 9, 0.9)
+    tracker.update(int(40.0 * S), [])
+    assert [state.track_id for state in tracker.tracks()] == [kept] and votes.tracks() == [kept]

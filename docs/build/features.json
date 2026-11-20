@@ -712,9 +712,9 @@
       "land": "L14",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test -> 149 passed (12 in test_digit_vote.py; node test: a track's digit on /loc/tracks is -1, -1, 7, 7); strict check OK; spec-auditor COMPLETE, flight-guardian NO FINDINGS in round 2",
       "blocked_reason": ""
     },
     {

@@ -13,6 +13,7 @@ Everything here is behind node flags that default to false. As shipped, the node
 | `loc_median_position` | A track's published position is the weighted median of its sightings (needs `marker_tracker`). |
 | `survey_frame_log` | Every frame of the survey is logged as JPEG under `frame_log_dir`, giving way to the detector. |
 | `digit_reader` | The digit of every marker crop is read, or the reader abstains. |
+| `digit_vote` | A track's digit is the weighted vote of its readings, one digit to one track (needs `marker_tracker` and `digit_reader`). |
 | `template_digit_classifier` | The reader's stand-in classifier for the sim's marker model (needs `digit_reader`; sim only). Not a trained model. |
 
 ## Per frame
@@ -40,6 +41,10 @@ The pipeline is off until `/loc/set_enabled` (std_srvs/SetBool) starts it; the s
 - **If it cannot start** (no model, no ONNX Runtime, a bad setting) the node says so, `/loc/status` has `digits.error`, and boxes and tracks go on without digits.
 
 `tools/digit_reader_eval.py` measures precision, coverage and the time a crop takes, on synthetic markers or on a folder of labelled crops (`--crops`), with the stand-in or an ONNX model (`--model`).
+
+## The vote
+
+`digit_vote.py` (LOC-8) turns a track's readings into its digit. Each reading adds its ten log-probabilities to its track's, weighted by the marker's size in the crop, the patch's sharpness, how nearly overhead it was seen and the detector's confidence. A track has a digit when its best score beats "nothing can be said" and its second best by odds of 9 to 1. With `digit_ids_unique` (the default) the digits are given out by one assignment over tracks and digits, so of two tracks claiming a digit the one with the evidence has it; claims the evidence does not separate are left unknown. Only listed tracks (confirmed markers inside the search area) take part. The digit and the summed log-probabilities go out on `/loc/tracks` (`digit`, `digit_log_prob`), and `/loc/status` has `digits.vote`.
 
 ## Logging the survey's frames
 

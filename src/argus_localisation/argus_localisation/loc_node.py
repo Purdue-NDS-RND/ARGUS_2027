@@ -57,6 +57,11 @@ With it on:
     model (sim time and `sim_only` required, as for the oracle). A reader
     that cannot start is an error in the log and in `/loc/status`
     (`digits.error`); the node runs without it.
+  - `features.digit_vote` (with the tracker and the digit reader on) gives
+    a track its digit: the weighted vote of its readings (digit_vote.py,
+    LOC-8), with one assignment over tracks and digits while
+    `digit_ids_unique` is true. The digit and the summed log-probabilities
+    go out in the track's own fields on `/loc/tracks`.
   - `features.loc_median_position` (with the tracker on) makes a track's
     published position the weighted median of its sightings
     (final_position.py, LOC-9) instead of the filter's position.
@@ -110,6 +115,7 @@ class LocNode(Node):
             self.declare_parameter("features.survey_frame_log", False)
             self.declare_parameter("features.digit_reader", False)
             self.declare_parameter("features.template_digit_classifier", False)
+            self.declare_parameter("features.digit_vote", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -148,6 +154,13 @@ class LocNode(Node):
         except Exception as error:  # noqa: BLE001
             self._digit_settings_problem = str(error)
             self.get_logger().error(f"the digit reader's parameters could not be declared ({error}): digits cannot be read")
+        # And the vote's one setting, apart again: one of the wrong kind leaves the reader alone, and the vote on its default.
+        self._vote_settings_problem = ""
+        try:
+            self.declare_parameter("digit_ids_unique", True)
+        except Exception as error:  # noqa: BLE001
+            self._vote_settings_problem = str(error)
+            self.get_logger().error(f"digit_ids_unique could not be declared ({error}): the digit vote, if on, takes IDs to be unique")
         if not self._flag("features.loc_node"):
             self.get_logger().info("Localisation node off (features.loc_node): nothing subscribed, nothing published, no camera opened")
             return
@@ -230,6 +243,29 @@ class LocNode(Node):
             self.get_logger().warn("Template digit classifier on (features.template_digit_classifier): a stand-in that reads the seven-segment digit of the sim's marker model, not a trained model")
         return reader, ""
 
+    def _digit_votes(self, reader: Any) -> Any:
+        """The vote over a track's readings when its flag is on and there is something to vote on; otherwise None, and why is said.
+
+        Like the reader it is extra to the boxes and the tracks: nothing here stops the node.
+        """
+        if not self._flag("features.digit_vote"):
+            return None
+        if self._tracker is None or reader is None:
+            missing = "features.marker_tracker" if self._tracker is None else "a digit reader that started (features.digit_reader)"
+            self.get_logger().error(f"features.digit_vote is on but needs {missing}: it sums a track's digit readings, and no track gets a digit")
+            return None
+        from . import digit_vote
+
+        unique = True if self._vote_settings_problem else bool(self.get_parameter("digit_ids_unique").value)
+        # The assignment over tracks and digits is solved at most twice a second: the vote shares the detector's thread.
+        votes = digit_vote.DigitVotes(unique_ids=unique, solve_period_s=digit_vote.NODE_SOLVE_PERIOD_S)
+        self._tracker.digit_votes = votes
+        self.get_logger().info(
+            "Digit vote on (features.digit_vote): a track's digit is the weighted vote of its readings"
+            + ("; one digit to one track (digit_ids_unique)" if unique else "; the assignment over tracks and digits is off (digit_ids_unique false)")
+        )
+        return votes
+
     def _start(self) -> None:
         import vision_msgs.msg as vision_messages
         from geometry_msgs.msg import PoseStamped, TwistStamped
@@ -296,6 +332,7 @@ class LocNode(Node):
             self._tracker, self._track_messages, self._tracks_out = tracker, track_messages, tracks_out
             self._resets = PositionResetDetector()  # a step in the reported position that the reported velocity does not explain
         reader, digit_error = self._digit_reader(camera)
+        votes = self._digit_votes(reader)
         chain = pipeline.LocPipeline(
             detector,
             projector,
@@ -303,6 +340,7 @@ class LocNode(Node):
             (int(camera.width), int(camera.height)),
             tracker=self._tracker,
             digit_reader=reader,
+            digit_votes=votes,
             tiling=self._flag("features.loc_tiling"),
             pose_at=self._poses.pose_at,
         )

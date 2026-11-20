@@ -42,7 +42,7 @@ with it off). The pipeline hands it every frame's ground points
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -194,8 +194,12 @@ def outside_hull(point: Tuple[float, float], hull: Sequence[Tuple[float, float]]
 
 
 class MarkerTracker:
-    def __init__(self, median_positions: bool = False) -> None:
+    def __init__(self, median_positions: bool = False, digit_votes: Any = None) -> None:
         self.median_positions = bool(median_positions)  # report the weighted median of a track's sightings, not the filter's position
+        self.digit_votes = digit_votes  # digit_vote.DigitVotes when the vote is on (LOC-8): a track's digit comes from it
+        self.last_assignment: Dict[int, int] = {}  # the last frame's: index into its ground points -> the track that took the sighting
+        self.vote_faults = 0  # times the vote could not be asked for the tracks' digits
+        self.vote_fault = ""  # the last such fault
         self._tracks: Dict[int, _Track] = {}
         self._next_id = 1
         self.rejected = 0  # sightings within a metre of a track that the gate did not take
@@ -212,9 +216,11 @@ class MarkerTracker:
         if self._newest_ns is not None and self._newest_ns - stamp_ns > CLOCK_STEP_BACK_S * S:
             self.clock_stepped_back(stamp_ns)
         self._newest_ns = stamp_ns if self._newest_ns is None else max(self._newest_ns, stamp_ns)
+        self.last_assignment = {}
         for class_id in TRACKED_CLASSES:
             found = []
-            for item in ground:
+            indices = []
+            for index, item in enumerate(ground):
                 if item.class_id != class_id:
                     continue
                 if getattr(item, "cut", False):
@@ -230,10 +236,14 @@ class MarkerTracker:
                     self.unusable += 1
                     continue
                 found.append((measurement, noise))
-            self._update_class(class_id, found, stamp_ns)
+                indices.append(index)
+            for position, track_id in self._update_class(class_id, found, stamp_ns).items():
+                self.last_assignment[indices[position]] = track_id
         self._age(stamp_ns)
 
-    def _update_class(self, class_id: str, found: List[Tuple[Any, np.ndarray]], stamp_ns: int) -> None:
+    def _update_class(self, class_id: str, found: List[Tuple[Any, np.ndarray]], stamp_ns: int) -> Dict[int, int]:
+        """Fuse, start or move tracks with this class's sightings. Returns position in `found` -> the track that took it."""
+        took: Dict[int, int] = {}
         tracks = [track for track in self._tracks.values() if track.class_id == class_id]
         cost = np.full((len(found), len(tracks)), np.inf)
         apart = np.full((len(found), len(tracks)), np.inf)
@@ -248,6 +258,7 @@ class MarkerTracker:
         for i, j in assign_gated(cost, GATE_NIS):
             tracks[j].fuse(*found[i], stamp_ns)
             taken.add(i)
+            took[i] = tracks[j].track_id
         for i, (measurement, noise) in enumerate(found):
             if i in taken:
                 continue
@@ -258,6 +269,7 @@ class MarkerTracker:
                 track.rejections += 1
                 if track.rejections >= RESET_AFTER_REJECTIONS:
                     track.move_to(measurement, noise, stamp_ns)
+                    took[i] = track.track_id
                 else:
                     self.rejected += 1
                 continue
@@ -265,7 +277,9 @@ class MarkerTracker:
                 self.refused_full += 1
                 continue
             self._tracks[self._next_id] = _Track(self._next_id, measurement, noise, stamp_ns)
+            took[i] = self._next_id
             self._next_id += 1
+        return took
 
     def _age(self, now_ns: int) -> None:
         for track in list(self._tracks.values()):
@@ -276,6 +290,8 @@ class MarkerTracker:
                 track.state, track.lost_since_ns = LOST, now_ns
             elif track.state == LOST and track.lost_since_ns is not None and (now_ns - track.lost_since_ns) * 1.0e-9 >= DROP_LOST_AFTER_S:
                 del self._tracks[track.track_id]
+                if self.digit_votes is not None:
+                    self.digit_votes.forget([track.track_id])
 
     def shift_all(self, d_east_m: float, d_north_m: float) -> None:
         """The flight controller's position estimate stepped by this much (an EKF reset): every track, and every sighting kept, steps with it."""
@@ -297,6 +313,8 @@ class MarkerTracker:
         for track in list(self._tracks.values()):
             if track.state not in (CONFIRMED, COASTING):
                 del self._tracks[track.track_id]
+                if self.digit_votes is not None:
+                    self.digit_votes.forget([track.track_id])
                 continue
             track.state, track.rejections = COASTING, 0
             track.last_hit_ns = now_ns - int(COAST_AFTER_S * S) - 1
@@ -326,7 +344,11 @@ class MarkerTracker:
         return float(track.x[0]), float(track.x[1])
 
     def tracks(self) -> List[MarkerTrackState]:
-        """Every track, by id. Whether a marker is outside is decided on the position that is reported."""
+        """Every track, by id. Whether a marker is outside is decided on the position that is reported.
+
+        With the digit vote on, a track that has readings carries their summed log-probabilities, and a
+        confirmed marker inside the search area carries the digit the vote gives it (or -1).
+        """
         hull = self._boundary_hull()
         states = []
         for track in sorted(self._tracks.values(), key=lambda item: item.track_id):
@@ -347,7 +369,21 @@ class MarkerTracker:
                     up_m=track.up_m,
                 )
             )
-        return states
+        votes = self.digit_votes
+        if votes is None:
+            return states
+        # The digits are extra to the positions: a fault in the vote is counted and said, and the tracks go out without digits.
+        try:
+            listed = [state.track_id for state in states if state.class_id == "marker" and state.state in (CONFIRMED, COASTING) and not state.outside]
+            digits = votes.digits(only=listed)
+            return [
+                replace(state, digit=int(digits.get(state.track_id, -1)), digit_log_prob=votes.log_probabilities(state.track_id)) if votes.readings(state.track_id) else state
+                for state in states
+            ]
+        except Exception as error:  # noqa: BLE001
+            self.vote_faults += 1
+            self.vote_fault = f"{type(error).__name__}: {error}"
+            return states
 
     def track_count(self) -> int:
         """Marker tracks that are not lost (the boundary markers are not counted)."""

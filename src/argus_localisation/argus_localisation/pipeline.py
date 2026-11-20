@@ -93,6 +93,7 @@ class FrameResult:
     refusal: str = ""  # why the last of them could not
     fault: str = ""  # a fault in the tracker or the digit reader: the frame's boxes still stand
     readings: List[Any] = field(default_factory=list)  # the digit reader's answer for each crop, in the crops' order (LOC-6)
+    votes: int = 0  # how many of them were added to a track's vote (LOC-8)
     timings_ms: Dict[str, float] = field(default_factory=dict)
 
 
@@ -116,8 +117,10 @@ class LocPipeline:
         tiling: bool = False,
         min_score: float = MIN_SCORE,
         pose_at: Optional[Callable[[int], Any]] = None,
+        digit_votes: Any = None,
     ) -> None:
         self.detector, self.projector, self.tracker, self.digit_reader = detector, projector, tracker, digit_reader
+        self.digit_votes = digit_votes  # digit_vote.DigitVotes (LOC-8): each frame's readings go to the tracks their boxes went to
         self.frame_id = str(frame_id)
         self.full_size = (int(full_size[0]), int(full_size[1]))
         self.tiling = bool(tiling)
@@ -167,9 +170,11 @@ class LocPipeline:
             result.ground.append(GroundDetection(detection.class_id, detection.score, float(point.east_m), float(point.north_m), detection, point, cut))
         timings["project"] = (time.perf_counter() - started) * 1000.0
         # What follows the boxes must not cost the frame its boxes: a fault there is said, and the result stands.
+        tracked = False
         try:
             if self.tracker is not None:
                 self.tracker.update(stamp_ns, result.ground)
+                tracked = True
         except Exception as error:  # noqa: BLE001
             result.fault = f"{type(error).__name__}: {error}"
         if self.digit_reader is not None and result.crops:
@@ -179,5 +184,10 @@ class LocPipeline:
             except Exception as error:  # noqa: BLE001
                 result.fault = result.fault or f"{type(error).__name__}: {error}"
             timings["digits"] = (time.perf_counter() - started) * 1000.0
+        if self.digit_votes is not None and tracked and result.readings:
+            try:
+                result.votes = int(self.digit_votes.add_frame(self.tracker.last_assignment, result.ground, result.crops, result.readings))
+            except Exception as error:  # noqa: BLE001
+                result.fault = result.fault or f"{type(error).__name__}: {error}"
         return result
 

@@ -539,3 +539,35 @@ def test_the_digit_readers_time_is_in_the_frames_timings():
     result = pipeline_with(OneMarker(), digit_reader=reader).process(frame_4k())
     assert set(result.timings_ms) == {"shrink", "detect", "project", "digits"} and result.readings == [None]
     assert "digits" not in pipeline_with(OneMarker()).process(frame_4k()).timings_ms
+
+
+def test_a_frames_readings_are_added_to_the_votes_of_the_tracks_its_boxes_went_to():
+    """LOC-8 in the pipeline: tracker, then reader, then each reading to its box's track, weighted."""
+    import math
+
+    from argus_localisation import digit_vote, marker_tracker
+
+    scores = [math.log(0.03 / 9.0)] * 10
+    scores[7] = math.log(0.97)
+    reader = lambda crops: [SimpleNamespace(digit=7, log_probabilities=tuple(scores), side_px=130.0, sharpness=2500.0) for _ in crops]  # noqa: E731
+    votes = digit_vote.DigitVotes()
+    tracker = marker_tracker.MarkerTracker(digit_votes=votes)
+    chain = pipeline_with(OneMarker(), tracker=tracker, digit_reader=reader, digit_votes=votes)
+    results = [chain.process(frame_4k(stamp_ns=10 * S + index * 100_000_000, seq=index + 1)) for index in range(3)]
+    assert [result.votes for result in results] == [1, 1, 1] and all(result.fault == "" for result in results)
+    (state,) = tracker.tracks()
+    assert state.state == marker_tracker.CONFIRMED and state.digit == 7 and votes.readings(state.track_id) == 3
+    assert votes.weight(state.track_id) == pytest.approx(3 * digit_vote.sighting_weight(130.0, 2500.0, 0.0, 0.9), rel=0.01)  # seen from overhead
+    # Without the vote the same frames leave the track with no digit; without a tracker there is nothing to vote on.
+    plain = marker_tracker.MarkerTracker()
+    chain = pipeline_with(OneMarker(), tracker=plain, digit_reader=reader)
+    assert [chain.process(frame_4k(stamp_ns=10 * S + index * 100_000_000)).votes for index in range(3)] == [0, 0, 0] and plain.tracks()[0].digit == -1
+    assert pipeline_with(OneMarker(), digit_reader=reader, digit_votes=digit_vote.DigitVotes()).process(frame_4k()).votes == 0
+
+    # A fault in the vote costs the frame nothing else.
+    class Broken:
+        def add_frame(self, *arguments):
+            raise RuntimeError("the vote fell over")
+
+    result = pipeline_with(OneMarker(), tracker=marker_tracker.MarkerTracker(), digit_reader=reader, digit_votes=Broken()).process(frame_4k())
+    assert "the vote fell over" in result.fault and len(result.ground) == 1 and len(result.readings) == 1
