@@ -265,6 +265,30 @@ still the `DROP_PAYLOAD` state and `fake_drop` still decides whether the actuato
 commanded. While the release command cannot be sent the mission stays on the gates,
 steering; a command that fails is sent again only after the gates have held again.
 
+`survey_height.py` (LOC-1) holds the localisation survey's height and its guard.
+`survey_height(config)` is 35 ft (10.668 m), 30 ft (9.144 m) when the sequence sets
+`survey_height_judged_from_log: true`, or the sequence's own `survey_height_m` (9.02 to
+11.5 m). `SurveyHeightGuard.update(context.height_agl(), now)`, asked from the start of
+the survey's first track, answers CONTINUE, RECOVER (under 8.22 m: the
+survey waits and the vehicle climbs back, until within 0.3 m of the survey height) or ABORT
+(under 7.77 m, or 5 s with no height: the survey is over for good and the climb comes
+first). A height that is not the rangefinder's counts 0.5 m lower, and the climb asked for
+on it is 0.5 m higher. The rules' floor, 7.62 m, is `safety_limits.SURVEY_MIN_HEIGHT_M`. Nothing calls it yet (LOC-3
+does); there is no flag.
+
+`coverage_planner.py` (LOC-2) plans the localisation survey: `plan(polygon, height, camera)`
+gives a lawnmower of east/north waypoints over the search area, tracks at most
+0.8 W - 0.85 m apart (W the footprint across the track; 15.0 m from 30 ft at 4K, so
+11.15 m), along the direction that needs the fewest, the outer tracks W/2 - 0.85 m in from
+the edge, each track as long as the polygon reaches anywhere in its swath. `yaw_deg` is the
+direction the image's top must point so its long side stays across the tracks (the
+vehicle's yaw for a camera mounted top-forward; a turned mount is the caller's to allow
+for). No plan is made under 7.62 m or over 4 m/s; given the flight boundary, waypoints are
+kept 5 m inside it and a leg that still leaves it is counted in the plan. `coverage(plan, polygon)`
+gives the share of the area in at least one and at least two frames. `plan_wide_pass` and
+`plan_revisit` are the two-phase option: everything once on wider tracks, then short passes
+over what the first pass saw. Nothing flies it yet (LOC-3 does); there is no flag.
+
 `smart_reacquire` (declared, off, in the eight sequences that fly a drop or a delivery;
 needs `use_target_estimator` and `centre_on_estimator`) replaces the 2026 recovery climb
 (`reacquire.py`, and `smart_reacquire.py` in `drone_mission_demo`, CEN-06). When the track

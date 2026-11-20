@@ -587,9 +587,9 @@
       "land": "L12",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "test_coverage_planner.py 47 passed (30 random polygons, convex and concave, at 30 and 35 ft: each at least 99% of its area in two or more frames; footprint 15.04 x 8.45 m and spacing 11.15 m at 30 ft); CHECK_STRICT=1 scripts/check.sh -> OK; spec-auditor COMPLETE (round 2); flight-guardian no blocker, two concerns left for LOC-3 (the boundary is only checked when given; a re-plan's cost on the Jetson)",
       "blocked_reason": ""
     },
     {
