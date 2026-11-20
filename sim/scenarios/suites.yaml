@@ -12,6 +12,7 @@ smoke:
 nightly:
   scenarios:
     - delivery/baseline
+    - delivery/live_tuning
     - delivery/clutter
     - delivery/time_base
     - delivery/frame_time
@@ -24,6 +25,7 @@ nightly:
     - hover/still4k_camera
     - hover/gps_glitch
     - drop/baseline
+    - drop/live_tuning
     - drop/release
     - drop/release_wind
     - waypoint_navigation/site_circuit

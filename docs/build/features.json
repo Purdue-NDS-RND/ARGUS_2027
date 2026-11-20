@@ -394,9 +394,9 @@
       "land": "L09",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "python3 -m pytest -q tools/test/test_sim_sequence_copies.py -> 19 passed; sim/run_scenarios.sh delivery/live_tuning -> OK 0.43 m, drop/live_tuning -> OK 0.27 m (flags off, seed 1); docs/results/2026-11-20-live-tuning.md. Left: sim copies of package_drop_2027.yaml and package_delivery_2027.yaml, which CEN-10 writes: the session building CEN-10 adds them to COPIES in tools/sim_sequence_copies.py, runs --write, adds their live_tuning scenarios, then sets this row DONE",
       "blocked_reason": ""
     },
     {

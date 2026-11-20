@@ -142,6 +142,7 @@ else
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
+    run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_estimator_step_cost.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py

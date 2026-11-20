@@ -1,0 +1,26 @@
+# The 2026 drop with the tuning the aircraft flew with, not the sim demo's:
+# the sequence is the generated sim copy of package_drop_live.yaml
+# (tools/sim_sequence_copies.py), which differs from the live file only in its
+# coordinates, the sim camera's name and fake_drop: true. The live file
+# releases at 6 m (the demo at 4 m) and centres with a 0.4 m deadband and a
+# gain of 0.15. Its 3 m tolerance on the drop height makes 9 m count as "at
+# drop altitude", so it stops steering by the camera there and comes down to
+# 6 m during the hover; the fixed column at 8 m is never reached.
+# The launch is named because a sequence with no launch of its own falls back
+# to one that starts no detector.
+description: 2026 drop mission with the live file's tuning, bullseye 18 m from the takeoff point, calm.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_drop_live.yaml
+params: sim_target_mission.yaml
+launch: package_drop_demo.launch.py
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

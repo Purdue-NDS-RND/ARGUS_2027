@@ -1,0 +1,25 @@
+# The 2026 delivery with the tuning the aircraft flew with, not the sim demo's:
+# the sequence is the generated sim copy of package_delivery_live.yaml
+# (tools/sim_sequence_copies.py), which differs from the live file only in its
+# coordinates, the sim camera's name and fake_drop: true. The live gains are
+# gentler than the demo's (gain 0.15 against 0.25, deadband 0.5 m against
+# 0.15 m, the fixed column from 8 m instead of 6 m), so this is the flight to
+# compare a 2027 change with when the question is what the aircraft would do.
+# The launch is named because a sequence with no launch of its own falls back
+# to one that starts no detector.
+description: 2026 delivery mission with the live file's tuning, bullseye 18 m from the takeoff point, calm.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_delivery_live.yaml
+params: sim_target_mission.yaml
+launch: package_delivery_demo.launch.py
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}

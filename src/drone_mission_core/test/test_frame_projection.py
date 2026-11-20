@@ -108,6 +108,9 @@ def test_only_the_sim_sequences_name_a_camera_and_the_aircrafts_do_not_yet():
     assert named == {
         "package_delivery_demo.yaml": ("package_delivery", "sim_delivery", "sim_iris_downcam"),
         "package_drop_demo.yaml": ("package_drop", "sim_delivery", "sim_iris_downcam"),
+        # The generated sim copies of the live files (CEN-11) name the sim's camera; the live files stay without one.
+        "sim_package_delivery_live.yaml": ("package_delivery", "sim_delivery", "sim_iris_downcam"),
+        "sim_package_drop_live.yaml": ("package_drop", "sim_delivery", "sim_iris_downcam"),
     }
 
 
