@@ -306,6 +306,9 @@ def test_the_status_says_the_rate_the_detections_and_the_frames_age():
     tracker = SimpleNamespace(update=lambda stamp_ns, ground: None, track_count=lambda: 4, confirmed_ids=lambda: [3, 7])
     tracked = runtime.LocRuntime(pipeline_with(OneMarker(), tracker=tracker), lambda: 10 * S, start_enabled=True)
     assert tracked.status()["tracks"] == 4 and tracked.status()["confirmed_ids"] == [3, 7]
+    assert tracked.status()["track_positions"] == "filter" and status["track_positions"] is None  # which position the tracks report; none without a tracker
+    tracker.median_positions = True
+    assert tracked.status()["track_positions"] == "median"
 
 
 def test_a_fault_in_one_frame_is_counted_and_the_next_frame_is_still_processed():

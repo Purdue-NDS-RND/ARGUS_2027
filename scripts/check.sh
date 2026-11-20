@@ -199,6 +199,7 @@ else
     run_test "" src/argus_localisation/test/test_loc_pipeline.py
     run_test "" src/argus_localisation/test/test_loc_node.py
     run_test "" src/argus_localisation/test/test_marker_tracker.py
+    run_test "" src/argus_localisation/test/test_final_position.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

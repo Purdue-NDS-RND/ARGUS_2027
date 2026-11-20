@@ -32,7 +32,7 @@ def encode_tracks(states: Iterable[Any], stamp_ns: int, messages: Any) -> Any:
         track.header.frame_id = LOCAL_FRAME
         track.track_id = int(state.track_id)
         track.state = int(state.state)
-        track.position_enu.x, track.position_enu.y, track.position_enu.z = float(state.east_m), float(state.north_m), float(state.up_m)
+        track.position_enu.x, track.position_enu.y, track.position_enu.z = float(state.reported_east_m), float(state.reported_north_m), float(state.up_m)
         track.covariance_en = [float(value) for row in state.covariance for value in row]
         track.digit_log_prob = [float(value) for value in state.digit_log_prob]
         track.digit = int(state.digit)

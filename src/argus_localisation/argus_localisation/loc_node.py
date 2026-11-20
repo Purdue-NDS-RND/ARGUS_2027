@@ -40,6 +40,9 @@ With it on:
     on `/loc/tracks` (argus_interfaces/MarkerTrackArray) after each frame;
     the status then counts its tracks and lists the confirmed ones. With
     the flag off there is no tracker and no such topic.
+  - `features.loc_median_position` (with the tracker on) makes a track's
+    published position the weighted median of its sightings
+    (final_position.py, LOC-9) instead of the filter's position.
 
 If the node cannot start with its flag on (a camera that is not calibrated,
 an oracle outside the sim) it logs why and stays out of the way: nothing is
@@ -85,6 +88,7 @@ class LocNode(Node):
             self.declare_parameter("features.sim_oracle_detector", False)
             self.declare_parameter("features.loc_tiling", False)
             self.declare_parameter("features.marker_tracker", False)
+            self.declare_parameter("features.loc_median_position", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -188,6 +192,8 @@ class LocNode(Node):
         projector = GroundProjector(camera, mount, self._poses.pose_at, ground)
         frame_id = str(getattr(mount, "optical_frame", "") or "down_camera_optical")
         self._tracker = None
+        if self._flag("features.loc_median_position") and not self._flag("features.marker_tracker"):
+            raise ValueError("features.loc_median_position needs features.marker_tracker: it is the position of the tracker's tracks")
         if self._flag("features.marker_tracker"):
             import argus_interfaces.msg as track_messages
 
@@ -196,7 +202,8 @@ class LocNode(Node):
 
             from drone_mission_core.estimator_feed import PositionResetDetector
 
-            self._tracker, self._track_messages, self._tracks_out = marker_tracker.MarkerTracker(), track_messages, tracks_out
+            tracker = marker_tracker.MarkerTracker(median_positions=self._flag("features.loc_median_position"))
+            self._tracker, self._track_messages, self._tracks_out = tracker, track_messages, tracks_out
             self._resets = PositionResetDetector()  # a step in the reported position that the reported velocity does not explain
         chain = pipeline.LocPipeline(
             detector,

@@ -33,7 +33,10 @@ with it off). The pipeline hands it every frame's ground points
     moves every track with it; a clock that steps back drops what was not
     confirmed and keeps the rest as not seen lately.
   - Every sighting of a track is kept (position and weight, the newest
-    MAX_SIGHTINGS_KEPT), for the final position (LOC-9).
+    MAX_SIGHTINGS_KEPT). With `median_positions` (the node flag
+    `features.loc_median_position`, LOC-9) the position a track reports is
+    the weighted median of them (final_position.py); the filter's position
+    goes on being what sightings are gated against.
 """
 
 from __future__ import annotations
@@ -46,6 +49,8 @@ import numpy as np
 
 from drone_mission_core import target_estimator
 from drone_mission_core.assignment import assign_gated
+
+from .final_position import final_position
 
 GATE_NIS = target_estimator.GATE_NIS  # 9.21
 GATE_M = 1.0
@@ -81,9 +86,11 @@ class MarkerTrackState:
     track_id: int
     class_id: str
     state: int
-    east_m: float
+    east_m: float  # the filter's position: what sightings are gated against
     north_m: float
-    covariance: Any  # 2 x 2, metres squared
+    reported_east_m: float  # the position that is reported: the filter's, or the weighted median of the sightings (LOC-9)
+    reported_north_m: float
+    covariance: Any  # 2 x 2, metres squared: the filter's
     sightings: int
     outside: bool
     updated_ns: int
@@ -105,6 +112,7 @@ class _Track:
         self.lost_since_ns: Optional[int] = None
         self.up_m = float(getattr(measurement, "up_m", 0.0))
         self.sightings: List[Sighting] = []
+        self.median: Optional[Tuple[float, float]] = None  # of the sightings as they stand, once asked for; None when they have changed
         self._note(measurement, noise, stamp_ns)
 
     def _note(self, measurement: Any, noise: np.ndarray, stamp_ns: int) -> None:
@@ -114,6 +122,7 @@ class _Track:
         self.last_hit_ns = max(self.last_hit_ns, stamp_ns)
         self.sightings.append(Sighting(stamp_ns, float(measurement.east_m), float(measurement.north_m), 1.0 / max(float(np.trace(noise)), 1.0e-9), float(measurement.score)))
         del self.sightings[:-MAX_SIGHTINGS_KEPT]
+        self.median = None
         if self.state in (TENTATIVE, LOST) and self.hits >= CONFIRM_SIGHTINGS:
             self.state, self.lost_since_ns = CONFIRMED, None
         elif self.state == LOST:
@@ -125,6 +134,12 @@ class _Track:
         ahead_s = max(0, stamp_ns - self.updated_ns) * 1.0e-9
         return self.p + np.eye(2) * target_estimator.PROCESS_NOISE_M2_PER_S * ahead_s
 
+    def shift(self, d_east_m: float, d_north_m: float) -> None:
+        """Step the track and every sighting kept."""
+        self.x = self.x + np.array([d_east_m, d_north_m])
+        self.sightings = [Sighting(s.stamp_ns, s.east_m + d_east_m, s.north_m + d_north_m, s.weight, s.score) for s in self.sightings]
+        self.median = None
+
     def fuse(self, measurement: Any, noise: np.ndarray, stamp_ns: int) -> None:
         prior = self.covariance_at(stamp_ns)
         gain = prior @ np.linalg.inv(prior + noise)
@@ -134,7 +149,13 @@ class _Track:
         self._note(measurement, noise, stamp_ns)
 
     def move_to(self, measurement: Any, noise: np.ndarray, stamp_ns: int) -> None:
-        """Our own position has slipped: the track goes where the marker is now seen, as sure as that one sighting."""
+        """Our own position has slipped: the track goes where the marker is now seen, as sure as that one sighting.
+
+        The sightings kept were made before the slip: they step with the
+        track, as they do for a reset the node saw (shift), so the position
+        reported from them is where the marker is seen now.
+        """
+        self.shift(float(measurement.east_m) - float(self.x[0]), float(measurement.north_m) - float(self.x[1]))
         self.x = np.array([measurement.east_m, measurement.north_m], dtype=float)
         self.p = target_estimator._floored(noise)
         self.updated_ns = max(self.updated_ns, stamp_ns)
@@ -173,7 +194,8 @@ def outside_hull(point: Tuple[float, float], hull: Sequence[Tuple[float, float]]
 
 
 class MarkerTracker:
-    def __init__(self) -> None:
+    def __init__(self, median_positions: bool = False) -> None:
+        self.median_positions = bool(median_positions)  # report the weighted median of a track's sightings, not the filter's position
         self._tracks: Dict[int, _Track] = {}
         self._next_id = 1
         self.rejected = 0  # sightings within a metre of a track that the gate did not take
@@ -261,8 +283,7 @@ class MarkerTracker:
         if not np.all(np.isfinite(step)):
             raise ValueError("a position reset must be two finite numbers")
         for track in self._tracks.values():
-            track.x = track.x + step
-            track.sightings = [Sighting(s.stamp_ns, s.east_m + float(step[0]), s.north_m + float(step[1]), s.weight, s.score) for s in track.sightings]
+            track.shift(float(step[0]), float(step[1]))
 
     def clock_stepped_back(self, now_ns: int) -> None:
         """The clock the frames are stamped on has stepped back to `now_ns`.
@@ -290,30 +311,43 @@ class MarkerTracker:
             return []
         # There are four boundary markers. With more tracks than that confirmed, the four seen most often are they.
         best = sorted(confirmed, key=lambda t: (-t.hits, t.track_id))[:BOUNDARY_MARKERS]
-        corners = [(float(t.x[0]), float(t.x[1])) for t in best]
+        corners = [self._reported(t) for t in best]
         hull = _hull(corners)
         apart = min(math.dist(a, b) for index, a in enumerate(corners) for b in corners[index + 1 :])
         # Four corners, each a corner of the hull and none a second sighting of another: anything else is not the boundary yet.
         return hull if len(hull) == BOUNDARY_MARKERS and apart >= MIN_CORNER_APART_M else []
 
+    def _reported(self, track: _Track) -> Tuple[float, float]:
+        if self.median_positions:
+            if track.median is None:  # worked out when the sightings have changed, not every time it is asked for
+                track.median = final_position(track.sightings)
+            if track.median is not None:
+                return track.median
+        return float(track.x[0]), float(track.x[1])
+
     def tracks(self) -> List[MarkerTrackState]:
-        """Every track, by id."""
+        """Every track, by id. Whether a marker is outside is decided on the position that is reported."""
         hull = self._boundary_hull()
-        return [
-            MarkerTrackState(
-                track_id=track.track_id,
-                class_id=track.class_id,
-                state=track.state,
-                east_m=float(track.x[0]),
-                north_m=float(track.x[1]),
-                covariance=track.p.copy(),
-                sightings=track.hits,
-                outside=track.class_id == "marker" and outside_hull((float(track.x[0]), float(track.x[1])), hull),
-                updated_ns=track.updated_ns,
-                up_m=track.up_m,
+        states = []
+        for track in sorted(self._tracks.values(), key=lambda item: item.track_id):
+            reported = self._reported(track)
+            states.append(
+                MarkerTrackState(
+                    track_id=track.track_id,
+                    class_id=track.class_id,
+                    state=track.state,
+                    east_m=float(track.x[0]),
+                    north_m=float(track.x[1]),
+                    reported_east_m=reported[0],
+                    reported_north_m=reported[1],
+                    covariance=track.p.copy(),
+                    sightings=track.hits,
+                    outside=track.class_id == "marker" and outside_hull(reported, hull),
+                    updated_ns=track.updated_ns,
+                    up_m=track.up_m,
+                )
             )
-            for track in sorted(self._tracks.values(), key=lambda item: item.track_id)
-        ]
+        return states
 
     def track_count(self) -> int:
         """Marker tracks that are not lost (the boundary markers are not counted)."""

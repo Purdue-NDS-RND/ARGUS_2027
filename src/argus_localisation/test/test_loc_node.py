@@ -173,6 +173,7 @@ def test_with_the_flag_off_the_node_makes_nothing(ros):
         ({"detector": "engine"}, "needs engine_path"),
         ({"detector": "engine", "engine_path": "/nowhere/yolo.engine"}, "is not a file"),
         ({"features.loc_tiling": True}, "tiling has nothing to give the oracle"),
+        ({"features.loc_median_position": True}, "features.loc_median_position needs features.marker_tracker"),
         ({"detector": "yolo"}, "detector must be one of"),
         ({"use_sim_time": False}, "runs only in the sim"),
         ({"sim_only": False}, "runs only in the sim"),
@@ -352,7 +353,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -494,3 +495,29 @@ def test_a_step_in_the_flight_controllers_position_steps_the_tracks_and_a_failed
     node._tracks_out.encode_tracks = original
     fly(T0 + 600_000_000, east=1.5)
     assert len(node.publishers["/loc/tracks"].sent) == sent + 1
+
+
+def test_the_median_position_is_behind_its_flag_and_is_what_goes_out_with_it_on(ros, objects_file):
+    with_vision_msgs(ros)
+    from argus_localisation import final_position
+
+    def survey(**flags):
+        node = node_with(ros, **{**SIM, **FLAGS, "features.marker_tracker": True, "oracle_pixel_sigma_px": 6.0, "oracle_miss_rate": 0.0, "oracle_false_alarms_per_frame": 0.0, "oracle_objects_file": objects_file, "start_enabled": True, **flags})
+        for frame in range(12):
+            ns = T0 + frame * 100_000_000
+            for index in range(-3, 1):
+                node.subscriptions[POSE_TOPIC](pose(ns + index * 33_000_000))
+                node.subscriptions[TRUTH_TOPIC](truth(ns + index * 33_000_000))
+            RecordingNode.now_ns = ns + 10_000_000
+            node.subscriptions[IMAGE_TOPIC](image(ns))
+            tick(node)
+        (state,) = node._tracker.tracks()
+        return node, state, node.publishers["/loc/tracks"].sent[-1].tracks[0]
+
+    node, state, sent = survey()
+    assert node._tracker.median_positions is False and (sent.position_enu.x, sent.position_enu.y) == (state.east_m, state.north_m)
+    node, state, sent = survey(**{"features.loc_median_position": True})
+    median = final_position.final_position(node._tracker.sightings_of(state.track_id))
+    assert node._tracker.median_positions is True and (sent.position_enu.x, sent.position_enu.y) == pytest.approx(median)
+    assert (sent.position_enu.x, sent.position_enu.y) != (state.east_m, state.north_m)  # the median of noisy sightings is not their weighted mean
+    assert (sent.position_enu.x, sent.position_enu.y) == pytest.approx((2.0, 1.0), abs=0.15)

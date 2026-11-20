@@ -162,6 +162,7 @@ class LocRuntime:
             "timings_ms": {key: round(value, 2) for key, value in self._timings_ms.items()},
             "waiting_for_pose": self._waiting_for_pose,
             "tracks": tracks,
+            "track_positions": None if tracker is None else ("median" if getattr(tracker, "median_positions", False) else "filter"),
             "confirmed_ids": confirmed,
             "last_fault": self._last_fault,
             "last_refusal": self._last_refusal,

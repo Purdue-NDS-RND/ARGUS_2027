@@ -42,3 +42,4 @@ loc_node:  # The localisation node (LOC-5). Only started by a launch given loc_n
       sim_oracle_detector: false   # The sim's oracle detector: true object poses through the camera model. Sim only (oracle.py).
       loc_tiling: false            # Give the detector overlapping windows of the full frame instead of the shrunk frame (tiling.py).
       marker_tracker: false        # Track the markers on the ground and publish /loc/tracks (marker_tracker.py, LOC-7).
+      loc_median_position: false   # A track's published position is the weighted median of its sightings, not the filter's (final_position.py, LOC-9). Needs marker_tracker.

@@ -102,7 +102,7 @@ def test_the_scenario_hands_the_oracle_the_true_objects_and_starts_the_node(tmp_
     assert manifest["launch"]["file"] == "search_pattern_demo.launch.py" and manifest["launch"]["arguments"]["loc_node"] == "true"
     assert manifest["truth_poses"] is True
     settings = yaml.safe_load((run / "params.yaml").read_text())["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True}
+    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True, "loc_median_position": True}
     assert settings["oracle_objects_file"] == str(run / "oracle_objects.json") and settings["sim_only"] is True and settings["oracle_seed"] == 1
     objects = json.loads((run / "oracle_objects.json").read_text())
     assert objects["vehicle"] == manifest["vehicle"]["model"]
@@ -173,3 +173,16 @@ def test_the_scenarios_true_markers_are_read_in_the_vehicles_local_frame(tmp_pat
     assert sorted(item["name"] for item in markers) == ["marker_1", "marker_3", "marker_7", "marker_9"]
     assert {item["name"]: (item["e"], item["n"]) for item in markers}["marker_9"] == (83.5, 30.0)
     assert sorted(corners) == [(20.0, 10.0), (20.0, 50.0), (80.0, 10.0), (80.0, 50.0)]
+
+
+def test_a_scenario_that_asks_for_the_median_position_is_failed_if_the_node_says_it_reports_the_filters(tmp_path):
+    """LOC-9: in a calm sim the median and the filter are centimetres apart, so the positions cannot show which was
+    flown. The node's status says which, and the check holds the flight to what its scenario asked for."""
+    manifest = json.loads((build_run(SURVEY, tmp_path / "run", variant="on") / "scenario.json").read_text())
+    assert loc_check.median_wanted(manifest) and not loc_check.median_wanted({"node_flags": {"loc_node": {"loc_node": True, "marker_tracker": True}}})
+    asked = dict(tracks=GOOD, markers=MARKERS, corners=CORNERS, tracks_wanted=True, median_wanted=True)
+    told = loc_check.build_report(a_survey(track_positions="median"), boxes(), {"marker"}, **asked)
+    assert told["passed"] and told["track_positions"] == "median"
+    silent = loc_check.build_report(a_survey(track_positions="filter"), boxes(), {"marker"}, **asked)
+    assert not silent["passed"] and any("weighted median" in problem for problem in silent["problems"])
+    assert any("median" in line for line in loc_check.summary_lines(told))

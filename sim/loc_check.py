@@ -73,6 +73,11 @@ def tracks_wanted(manifest: dict) -> bool:
     return wanted(manifest) and ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("marker_tracker") is True
 
 
+def median_wanted(manifest: dict) -> bool:
+    """Whether a built scenario asks for a track's reported position to be the weighted median of its sightings (LOC-9)."""
+    return tracks_wanted(manifest) and ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_median_position") is True
+
+
 def true_markers(run_dir) -> Tuple[List[dict], List[Tuple[float, float]]]:
     """(the numbered markers, the corner markers) of the scenario, east and north of the take-off point: MAVROS's local frame."""
     truth = json.loads((Path(run_dir) / "truth.json").read_text())
@@ -157,6 +162,7 @@ def build_report(
     markers: Optional[List[dict]] = None,
     corners: Optional[Sequence[Tuple[float, float]]] = None,
     tracks_wanted: Optional[bool] = None,
+    median_wanted: bool = False,
 ) -> dict:
     """The verdict: `statuses` are (sim time, the node's status), `boxes` (sim time, the classes in one message).
 
@@ -205,10 +211,15 @@ def build_report(
             problems.append(f"nothing was reported of class {', '.join(missing)}, which the scenario has on the field")
     if track_verdict is not None and statuses and started:
         problems += track_verdict["problems"]
+        # In a calm sim the median and the filter's position are centimetres apart: the node's own word is what
+        # shows which of them the tracks carried.
+        if median_wanted and last.get("track_positions") != "median":
+            problems.append(f"the scenario asks for tracks at the weighted median of their sightings, and the node says it reports '{last.get('track_positions')}'")
     return {
         "passed": not problems,
         "problems": problems,
         "tracks": track_verdict,
+        "track_positions": last.get("track_positions"),
         "started": started,
         "stopped": stopped,
         "statuses": len(statuses),
@@ -254,6 +265,7 @@ def summary_lines(report: dict) -> List[str]:
         lines.append(
             f"tracks: {matched} of {tracked.get('markers_inside', 0)} markers inside the boundary have their one listed track{furthest}; "
             f"{tracked.get('listed', 0)} listed, {tracked.get('outside_marked', 0)} marked outside"
+            + (f"; positions reported: the {report['track_positions']}" if report.get("track_positions") else "")
         )
     return lines
 
@@ -270,7 +282,7 @@ def listen(run_dir: Path) -> dict:
 
     manifest = json.loads((run_dir / "scenario.json").read_text())
     expected = expected_classes(run_dir)
-    with_tracks = tracks_wanted(manifest)
+    with_tracks, with_median = tracks_wanted(manifest), median_wanted(manifest)
     markers, corners = true_markers(run_dir) if with_tracks else ([], [])
     statuses: List[Tuple[float, dict]] = []
     boxes: List[Tuple[float, List[str]]] = []
@@ -312,7 +324,7 @@ def listen(run_dir: Path) -> dict:
 
     def write() -> dict:
         with lock:
-            report = build_report(list(statuses), list(boxes), expected, tracks=last_tracks[0], markers=markers, corners=corners, tracks_wanted=with_tracks)
+            report = build_report(list(statuses), list(boxes), expected, tracks=last_tracks[0], markers=markers, corners=corners, tracks_wanted=with_tracks, median_wanted=with_median)
         (run_dir / "loc_check.json").write_text(json.dumps(report, indent=2) + "\n")
         return report
 

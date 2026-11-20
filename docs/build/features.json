@@ -660,9 +660,9 @@
       "land": "L13",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test sim/test/test_loc_check.py -> 101 passed (6 in test_final_position.py); strict check -> OK; sim waypoint_navigation/survey_pipeline seed 1 with loc_median_position on -> OK: 3 listed tracks, the furthest 0.02 m from its marker, the node's status says positions are the median; docs/results/2026-11-20-final-position.md (with the error budget)",
       "blocked_reason": ""
     },
     {
