@@ -1606,8 +1606,8 @@
       "after_ids": [
         "CEN-02"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-20-gate-G1.md"
     },
     "G2": {
       "title": "Drop",
