@@ -68,6 +68,7 @@ class CentringSolution:
     state: str
     may_descend: bool
     why_not: str  # why the descent is not permitted; empty when it is
+    sigma_m: float = math.nan  # the track's own standard deviation, for the release gates (CEN-04)
 
 
 class EstimatorCentring:
@@ -144,4 +145,5 @@ class EstimatorCentring:
             state=str(target.state),
             may_descend=bool(permission),
             why_not="" if permission else str(getattr(permission, "reason", "")),
+            sigma_m=float(getattr(target, "sigma_m", math.nan)),
         )

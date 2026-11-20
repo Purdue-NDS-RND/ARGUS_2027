@@ -582,3 +582,18 @@ def test_cli_refuses_a_bad_scenario(tmp_path):
     assert result.returncode == 2
     assert "juggling" in result.stderr
     assert not (tmp_path / "run" / "world.sdf").exists()
+
+
+def test_the_gated_drop_aims_the_carried_parcel_not_the_vehicle_at_the_target():
+    """The sim hangs a carried payload 0.13 m to the left of the vehicle's centre. A drop that centres the vehicle
+    leaves the package that far off (0.13 to 0.14 m in five flights); the airframe row sim_iris_parcel gives the
+    missions the parcel's place, and the gated drop's scenario names it."""
+    from scenario import build
+
+    rows = yaml.safe_load((ROOT / "src" / "argus_camera" / "config" / "robot.yaml").read_text())["airframes"]
+    parcel, plain = rows["sim_iris_parcel"], rows["sim_iris_downcam"]
+    assert tuple(parcel["payload_offset_m"]) == build.CARRY_OFFSET_BODY_M and parcel["verified"] is True
+    assert parcel["cameras"] == plain["cameras"]  # the same vehicle and camera: only where the payload hangs is added
+    gated = yaml.safe_load((SIM / "scenarios" / "drop" / "gated.yaml").read_text())
+    assert gated["config"]["package_drop"] == {"fake_drop": False, "airframe": "sim_iris_parcel"}
+    assert any(item.get("carried") is True for item in gated["objects"])

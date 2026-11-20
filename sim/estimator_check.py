@@ -16,10 +16,13 @@ Pass lines (FEATURES.md, FND-06, calm): the 95th percentile of the horizontal
 error at most 0.30 m at 15 m, 0.15 m at 6 m and 0.08 m at 2.4 m. Each is
 judged on the samples taken while the vehicle was within a band around that
 height, of which there must be at least 20. A band the vehicle was never in
-is "not flown" and is not judged (a hold at 6 m never reaches 2.4 m); a
-flight in none of the bands fails. Only samples taken within 5 m of the
-target, horizontally, count: the climb after take-off and the landing at
-home pass through the bands with nothing to track. The run folder gets estimator_check.json;
+is "not flown" and is not judged (a hold at 6 m never reaches 2.4 m), and
+neither is one it only passed through, with fewer than 20 samples in it (a
+gated drop releases half a second after reaching 2.4 m); a flight in none of
+the bands fails. Only samples taken within 5 m of the
+target, horizontally, and before the mission's release, count: the climb
+after take-off and the landing at home pass through the bands with nothing
+to track, and after a release the mission switches its detector off. The run folder gets estimator_check.json;
 sim/runner/result.py reads it.
 
 The arithmetic and the verdict are plain functions with no ROS in them.
@@ -109,10 +112,12 @@ def build_report(records: list[dict], messages: int) -> dict:
             "passed": False,
             # A band the vehicle was never in has nothing to judge: a hold at 6 m never reaches 2.4 m.
             "flown": bool(in_band),
+            # Fewer samples than can be judged: the vehicle passed through the band, as a gated drop does at 2.4 m.
+            "brief": 0 < len(in_band) < MIN_IN_BAND,
         }
         low, high = height_m - half_width_m, height_m + half_width_m
-        if messages and not in_band:
-            pass
+        if messages and len(in_band) < MIN_IN_BAND:
+            pass  # never there, or only passing through: nothing to judge
         elif messages and len(confirmed) < MIN_IN_BAND:
             problems.append(f"only {len(confirmed)} samples of a confirmed bullseye track between {low:g} and {high:g} m (at least {MIN_IN_BAND} needed)")
         elif messages and spread["p95_m"] > limit_m:
@@ -120,8 +125,12 @@ def build_report(records: list[dict], messages: int) -> dict:
         elif messages:
             band["passed"] = True
         bands[band_name(height_m)] = band
-    if messages and not any(band["flown"] for band in bands.values()):
-        problems.append("the vehicle was at none of the heights the estimator is judged at (" + ", ".join(f"{height_m:g} m" for height_m, _half, _limit in LINES) + ")")
+    if messages and not any(band["flown"] and not band["brief"] for band in bands.values()):
+        problems.append(
+            "the vehicle was at none of the heights the estimator is judged at ("
+            + ", ".join(f"{height_m:g} m" for height_m, _half, _limit in LINES)
+            + f") long enough to judge it: {MIN_IN_BAND} samples near the target"
+        )
     return {
         "passed": not problems,
         "problems": problems,
@@ -148,6 +157,7 @@ class Checker:
         self.target = target_en
         self.height_m: Optional[float] = None
         self.near_target = True  # until a position says otherwise
+        self.released = False  # the mission has let its payload go: nothing after that is counted
         self.records: list[dict] = []
         self.messages = 0
 
@@ -157,10 +167,17 @@ class Checker:
         if east_m is not None and north_m is not None:
             self.near_target = math.hypot(float(east_m) - self.target[0], float(north_m) - self.target[1]) <= NEAR_TARGET_M
 
+    def on_mission_log(self, text: str) -> None:
+        """A line of the mission executor's log: a release ends the counting."""
+        from runner.events import from_mission_log
+
+        if any(event.get("event") == "release" for event in from_mission_log(str(text))):
+            self.released = True
+
     def on_targets(self, tracks: list[dict]) -> None:
         """One publication: each track is {"id": "<class>/<n>/<STATE>", "east_m", "north_m", "sigma_m"}."""
         self.messages += 1
-        if self.height_m is None or not self.near_target:
+        if self.height_m is None or not self.near_target or self.released:
             return
         confirmed, states = [], set()
         for track in tracks:
@@ -212,6 +229,10 @@ def listen(folder: Path) -> dict:
 
     node.create_subscription(PoseStamped, POSE_TOPIC, lambda m: checker.on_height(m.pose.position.z, m.pose.position.x, m.pose.position.y), qos_profile_sensor_data)
     node.create_subscription(Detection3DArray, TARGETS_TOPIC, on_targets, 50)
+    # The executor's log, for the release: the mission switches its detector off then and leaves.
+    from rcl_interfaces.msg import Log
+
+    node.create_subscription(Log, "/rosout", lambda m: checker.on_mission_log(m.msg), 200)
 
     def write() -> dict:
         report = checker.report()
@@ -238,6 +259,9 @@ def summary_lines(report: dict) -> list[str]:
         error = band.get("error")
         if band.get("flown") is False and report.get("messages"):
             lines.append(f"at {height_m:g} m: not flown")
+        elif band.get("brief") and report.get("messages"):
+            seen = f", p95 {error['p95_m']:.2f} m" if error and error.get("count") else ""
+            lines.append(f"at {height_m:g} m: passed through, not judged: {band.get('samples', 0)} samples, {error['count'] if error else 0} with a confirmed track{seen}")
         elif not error:
             lines.append(f"at {height_m:g} m: no confirmed bullseye track in {band.get('samples', 0)} samples")
         else:

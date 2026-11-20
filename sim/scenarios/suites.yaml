@@ -38,6 +38,10 @@ nightly:
     - drop/hold_2m_ring_fit
     - drop/release
     - drop/release_wind
+    - drop/gated
+    - drop/gated_track_loss
+    - drop/gated_timeout
+    - drop/gated_floor
     - waypoint_navigation/site_circuit
     - geofence/breach
   seeds: [1, 2, 3]

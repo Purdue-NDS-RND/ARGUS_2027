@@ -29,8 +29,10 @@ def get_feature_flag(features: Optional[Mapping[str, Any]], name: str) -> Any:
 # start with a flag on while one it requires is off. A feature that adds a
 # flag depending on another adds its line here.
 FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
-    # The drop's release gates (CEN-04) read the target estimator (FND-06).
-    "drop_release_gates": ("use_target_estimator",),
+    # The drop's release gates (CEN-04) read the target estimator (FND-06), through the centring on it (CEN-01),
+    # and their floor and band are judged on the height estimator's height (CEN-03): the bare rangefinder
+    # height has no rule for a sensor that repeats one reading.
+    "drop_release_gates": ("use_target_estimator", "centre_on_estimator", "use_height_estimator"),
     # Centring on the estimator (CEN-01) steers on its track of the target.
     "centre_on_estimator": ("use_target_estimator",),
     # The retuned centring controller (CEN-02) is fed the estimator's error.
@@ -144,8 +146,8 @@ def load_profile(path) -> Dict[str, bool]:
 
         description: what this profile is for
         enable:
+          - use_frame_time_pose
           - use_target_estimator
-          - drop_release_gates
     """
     import yaml
 

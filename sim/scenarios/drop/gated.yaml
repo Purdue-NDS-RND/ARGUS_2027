@@ -1,0 +1,53 @@
+# The 2027 drop: the camera steers all the way to the release (CEN-04).
+# With the flags on, the drop mission centres the payload on the estimator's
+# track with the retuned controller, comes down to 8 m as before, and then
+# FINAL_ALIGN takes the place of the fixed GPS column: it descends on the
+# estimator to 2.4 m by the rangefinder (the height estimator's source;
+# 3.0 m if it has only the barometer) and lets the package go when the
+# release gates have held for half a second: error 0.10 m, sigma 0.08 m,
+# speed 0.15 m/s, tilt 6 degrees, a track hit within 0.3 s, height in the band.
+# Below about 5 m the 5 m bullseye is larger than the picture, so the ring fit
+# is what keeps the track from there down.
+# The package is real (0.5 kg on the vehicle's release joint) and the judge
+# scores where it comes to rest. Variant "off" is the 2026 drop with the same
+# package: a fixed column from 8 m and a release at 4 m after a hover.
+description: Drop a real 0.5 kg package from 2.4 m when the release gates hold, steering on the estimator all the way down, calm.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  drop_release_gates: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+config:
+  package_drop:
+    fake_drop: false
+    airframe: sim_iris_parcel   # the parcel hangs 0.13 m left of the vehicle's centre: it, not the vehicle, is put over the target
+targets:
+  package_drop: drop_target
+payload: parcel
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+wind: {level: calm}

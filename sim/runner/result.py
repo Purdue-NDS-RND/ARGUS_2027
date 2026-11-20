@@ -295,6 +295,9 @@ def _projection_check_rows(result: dict) -> list[str]:
     latest = check.get("at_15_m_with_the_latest_pose")
     if latest:
         row += f"; with the latest pose instead, p95 {latest['p95_m']:.2f} m"
+    partly = check.get("at_15_m_target_partly_out_of_view")
+    if partly:
+        row += f"; not judged: {partly['count']} detections with the target partly out of the picture (up to {partly['max_m']:.2f} m off)"
     return [row + " |"]
 
 

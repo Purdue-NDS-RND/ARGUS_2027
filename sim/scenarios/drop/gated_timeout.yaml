@@ -1,0 +1,40 @@
+# The gated drop's timeout path (CEN-04).
+# The descent is slowed to 0.1 m/s by this scenario's config, so the vehicle
+# cannot reach the release height within FINAL_ALIGN's 25 s and the height
+# gate never holds. What must be seen: after the first 25 s the mission looks
+# for the target again, once (a 1 m climb and a new acquisition); after a
+# second 25 s it releases at the current estimate, from where it is, because
+# the aim is within 0.5 m on a track the release rule accepts.
+description: Gated drop that cannot reach the release height in time; one re-acquisition, then the last-resort release within 0.5 m.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  drop_release_gates: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+config:
+  package_drop:
+    descent_rate_mps: 0.1
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

@@ -78,6 +78,11 @@ def test_only_a_confirmed_bullseye_track_counts_and_the_oldest_if_there_are_two(
     assert report["at_15_m"]["without_a_confirmed_track"] == 4 and report["at_15_m"]["error"]["count"] == 1
     assert report["at_15_m"]["error"]["max_m"] == pytest.approx(0.1) and report["confirmed_track_ids"] == [2]
     assert report["at_15_m"]["states"] == {"CONFIRMED": 1, "LOST": 1, "TENTATIVE": 1, "none": 2}
+    # Five samples are too few to judge a band on; a flight judged on no band at all has shown nothing, and fails.
+    assert not report["passed"] and "long enough" in report["problems"][0] and report["at_15_m"]["brief"] is True
+    for _ in range(20):
+        checker.on_targets([track(state="TENTATIVE")])
+    report = checker.report()
     assert not report["passed"] and "only 1 samples of a confirmed bullseye track between 13.5 and 16.5 m" in report["problems"][0]
 
 
@@ -141,6 +146,36 @@ def test_a_band_the_flight_never_entered_is_not_flown_and_is_not_held_against_it
         home.on_targets([])
     assert home.report()["passed"] is True and home.report()["at_2_4_m"]["flown"] is False
     assert estimator_check.NEAR_TARGET_M == 5.0
+    # A band the vehicle only passed through (a gated drop releases half a second after reaching 2.4 m) has too
+    # few samples to judge and is not held against the flight; what was seen there is still reported.
+    brief = estimator_check.Checker(TARGET)
+    for height in [15.0] * 100 + [6.0] * 100 + [2.5] * 18:
+        brief.on_height(height, TARGET[0], TARGET[1])
+        brief.on_targets([track(0.01)])
+    report = brief.report()
+    assert report["passed"] is True and report["at_2_4_m"]["flown"] is True and report["at_2_4_m"]["brief"] is True
+    assert report["at_2_4_m"]["passed"] is False and report["at_2_4_m"]["error"]["count"] == 18
+    assert estimator_check.summary_lines(report)[2] == "at 2.4 m: passed through, not judged: 18 samples, 18 with a confirmed track, p95 0.01 m"
+    # After the release the mission switches its detector off and climbs away through the same heights: what the
+    # tracks do then is not the estimator at work, and is not counted.
+    dropped = estimator_check.Checker(TARGET)
+    for height in [15.0] * 100 + [6.0] * 100 + [2.5] * 18:
+        dropped.on_height(height, TARGET[0], TARGET[1])
+        dropped.on_targets([track(0.01)])
+    dropped.on_mission_log("[package_drop] State: FINAL_ALIGN -> DROP_PAYLOAD")
+    dropped.on_targets([track(0.01)])
+    dropped.on_mission_log("[package_drop] Closing sprayer for payload drop")
+    for height in [2.6] * 15 + [6.0] * 30:
+        dropped.on_height(height, TARGET[0], TARGET[1])
+        dropped.on_targets([track(0.01, state="COASTING")])
+    report = dropped.report()
+    assert report["passed"] is True and report["at_2_4_m"]["samples"] == 19 and report["at_2_4_m"]["brief"] is True
+    assert report["at_6_m"]["without_a_confirmed_track"] == 0 and report["messages"] == 264
+    faked = estimator_check.Checker(TARGET)
+    faked.on_mission_log("[package_delivery] Fake delivery complete")
+    faked.on_height(15.0, TARGET[0], TARGET[1])
+    faked.on_targets([track(0.01)])
+    assert faked.records == []
     # A band that was entered with no confirmed track in it is still a failure.
     blind = estimator_check.Checker(TARGET)
     for height in [15.0] * 100 + [6.0] * 100:
@@ -152,7 +187,7 @@ def test_a_band_the_flight_never_entered_is_not_flown_and_is_not_held_against_it
     for _ in range(50):
         nowhere.on_height(10.0)
         nowhere.on_targets([track(0.05)])
-    assert nowhere.report()["passed"] is False and "none of the heights" in nowhere.report()["problems"][0]
+    assert nowhere.report()["passed"] is False and "at none of the heights" in nowhere.report()["problems"][0]
 
 
 def test_the_check_runs_beside_flights_with_the_flag_on_and_only_those(tmp_path):

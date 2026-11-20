@@ -1,0 +1,37 @@
+# The gated drop when the track is lost at 3 m (CEN-04).
+# The target is a 2.8 m bullseye and the ring fit is off, so the only source
+# is the 2026 box detector. At about 3 m the bullseye stops fitting the
+# picture, the box is cut by its edge, the estimator refuses it, and the
+# track coasts and is lost: above the release band (2.4 m +/- 0.2), so no
+# gate can hold. What must be seen: the descent stops on the coasting track,
+# after the mission's grace time the target is looked for again (a 1 m
+# climb), the same happens on each of the sequence's four recovery attempts,
+# and then the mission fails with nothing released and the sequence moves on.
+description: Gated drop over a target lost at 3 m; nothing is released, the mission looks again four times and moves on.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  drop_release_gates: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 2.8
+    rings: 6
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

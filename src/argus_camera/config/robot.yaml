@@ -53,3 +53,21 @@ airframes:
         source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
     payload_offset_m: [0.30, 0.10, -0.25]
     payload_source: chosen for the test; there is no such mount on the sim's vehicle
+
+  # The sim's Iris carrying a scenario's payload: the box hangs from the camera
+  # link 0.13 m to the left of the body's origin and 0.12 m under it
+  # (CARRY_OFFSET_BODY_M in sim/scenario/build.py; a test holds the two
+  # equal). For drops of a real package in the sim that centre on the
+  # estimator (sim/scenarios/drop/gated.yaml): what goes over the target is
+  # the package. The camera is the sim Iris's own.
+  sim_iris_parcel:
+    description: The sim's Iris with a scenario's carried payload hanging from its release joint.
+    verified: true
+    cameras:
+      down:
+        optical_frame: down_camera_optical
+        position_m: [0.0, 0.0, 0.0]
+        image_yaw_deg: 0.0
+        source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
+    payload_offset_m: [0.0, 0.13, -0.12]
+    payload_source: sim/scenario/build.py, CARRY_OFFSET_BODY_M

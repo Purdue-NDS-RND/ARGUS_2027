@@ -481,9 +481,9 @@
       "land": "L10",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_drop_release_gates.py 21 passed, test_release_gates.py 6 passed; sim drop/gated (real 0.5 kg package released at 2.55 m on the gates, at rest 0.03 m from the target), drop/gated_track_loss (nothing released, 4 recoveries, FAILURE, sequence continued), drop/gated_timeout (one re-acquisition, last-resort release 0.04 m off), drop/gated_floor (climbed back from 1.90 m, released at 2.29 m): all OK; docs/results/2026-11-20-gated-drop.md; flight-guardian NO FINDINGS (round 2), spec-auditor complete (round 2)",
       "blocked_reason": ""
     },
     {

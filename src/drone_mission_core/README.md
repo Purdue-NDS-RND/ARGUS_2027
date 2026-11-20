@@ -247,6 +247,24 @@ by the size of their box. Near the ground, where the box detector's box is cut b
 image's edge and is not used, the ring fit is what keeps the track CONFIRMED. The node has
 its own flag, `features.ring_fit`, and is started only by a launch given `ring_fit:=true`.
 
+`drop_release_gates` (declared, off, in the four sequences that fly a drop; needs
+`use_target_estimator`, `centre_on_estimator` and `use_height_estimator`) replaces the drop's fixed GPS column and
+timed hover with FINAL_ALIGN (`release_gates.py`, and `drop_final_align.py` in
+`drone_mission_demo`, CEN-04). From the handoff height the mission descends on the
+estimator to the release height for the sensor that gives `height_agl()`: 2.4 m ± 0.2 on
+the rangefinder, 3.0 m ± 0.2 on the barometer. It releases, at once and where it is, when
+all of these have held together for 0.5 s: aim error ≤ 0.10 m, the track's sigma ≤ 0.08 m,
+ground speed ≤ 0.15 m/s, tilt ≤ 6°, `may_release` (a CONFIRMED track hit within 0.3 s),
+height inside the band. Under 2.0 m it climbs straight back before anything else. After
+25 s without the gates holding it looks for the target again, once; after a second 25 s (or
+the first, if the approach has used every recovery attempt) it releases anyway if it is
+within 0.5 m on a track `may_release` accepts and not under the lowest release height
+(2.0 m on the rangefinder, 2.8 m on the barometer), and otherwise fails, which the
+sequence's failure policy handles. The numbers are constants, not config. The release is
+still the `DROP_PAYLOAD` state and `fake_drop` still decides whether the actuator is
+commanded. While the release command cannot be sent the mission stays on the gates,
+steering; a command that fails is sent again only after the gates have held again.
+
 `use_height_estimator` (declared, off, in the eight sequences that fly a drop or
 delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height
 estimator (`height_estimator.py`, CEN-03), fed by its own subscription to

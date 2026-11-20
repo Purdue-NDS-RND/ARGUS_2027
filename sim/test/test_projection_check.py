@@ -72,6 +72,47 @@ def test_a_projection_that_is_off_by_more_than_the_limit_fails_and_says_by_how_m
     assert report["height_sources_at_15_m"] == {"home": report["at_15_m"]["count"]}
 
 
+def test_frames_in_which_the_target_was_partly_out_of_the_picture_are_counted_apart_and_not_judged():
+    """On arrival the 5 m bullseye comes in over the picture's edge, and the detector reports the middle of the part
+    in view: up to 2.5 m off, and the projection's fault in none of it. With the target's size known from the
+    truth, those frames are told apart by where the whole target was, not by how wrong the detection is."""
+    from drone_mission_core import projection_v2 as v2
+
+    assert projection_check.target_size_from({"target": {"name": "t"}, "objects": [{"name": "t", "kind": "bullseye", "size_m": 5.0}]}) == 5.0
+    assert projection_check.target_size_from({"target": {"e": 1.0, "n": 2.0}}) is None  # an older truth file: every frame is judged, as before
+
+    def arrive(target_size_m):
+        checker = projection_check.Checker((10.0, 15.0), target_size_m=target_size_m)
+        checker.image_size = (640, 360)
+        # Coming in from the south at 15 m, nose north: the target enters at the top of the picture.
+        for index in range(240):
+            t = index / 30.0
+            north = 15.0 - 8.0 + min(8.0, 2.0 * t)  # arrives over the target after 4 s, then holds
+            position, orientation = (10.0, north, 15.0), quaternion(roll_deg=0.0)
+            checker.poses.add_pose(100 * S + round(t * S), position, orientation)
+            checker.poses.add_velocity(100 * S + round(t * S), (0.0, 2.0 if t < 4.0 else 0.0, 0.0))
+            if index % 2 == 0 and index > 6:
+                u, v = v2.pixel_of_ground_point(checker.camera, checker.mount, (10.0, 15.0, 0.0), position, orientation)
+                top = v - 2.5 / 15.0 * 389.165  # the target's far edge, in pixels
+                if top < 0.0:  # partly out of view: the detector's centre is the middle of the part in view
+                    v = 0.5 * (0.0 + min(360.0, v + 2.5 / 15.0 * 389.165))
+                if 0.0 <= v < 360.0:
+                    checker.on_detection(100 * S + round(t * S), u / 640 * 2 - 1, v / 360 * 2 - 1)
+        return checker.report()
+
+    blind = arrive(None)
+    assert not blind["passed"] and blind["at_15_m"]["max_m"] > 1.0  # every frame judged: the arrival fails the flight
+    told = arrive(5.0)
+    assert told["passed"], told["problems"]
+    assert told["at_15_m"]["p95_m"] < 0.01 and told["at_15_m"]["count"] >= 20
+    partly = told["at_15_m_target_partly_out_of_view"]
+    assert partly["count"] >= 5 and partly["max_m"] > 1.0 and partly["count"] + told["at_15_m"]["count"] == blind["at_15_m"]["count"]
+    # A projection that really is off still fails, on the frames with the whole target in view.
+    checker = projection_check.Checker((10.0, 15.0), target_size_m=1.5)
+    fly_over(checker, pixel_error=12.0)
+    assert not checker.report()["passed"]
+
+
 def test_too_few_detections_at_15_m_is_not_a_pass():
     checker = projection_check.Checker((10.0, 15.0))
     fly_over(checker, height_m=8.0)

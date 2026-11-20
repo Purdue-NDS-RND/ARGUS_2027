@@ -9,6 +9,7 @@ mission_sequence:
         centre_on_estimator: false # Drop and delivery centre the payload on the estimator's bullseye track, not the raw detection (centring.py). Needs use_target_estimator.
         centring_retune: false # Centring uses the 2027 controller: soft deadband, Kp 0.6, speed cap by height, slew limit (centring_controller.py). Needs centre_on_estimator.
         use_ring_fit: false # The estimator also takes the near-field ring fit's bullseye centres, /perception/ring_fit/detections (ring_fit.py). Needs use_target_estimator.
+        drop_release_gates: false # The drop descends on the estimator to its release height and lets go when the release gates hold (release_gates.py, drop_final_align.py). Needs centre_on_estimator.
     missions:
         - type: takeoff # Mission type registered in the mission framework.
           name: takeoff # Human-readable mission instance name for logs.

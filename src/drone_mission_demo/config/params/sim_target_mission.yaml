@@ -37,7 +37,7 @@ ring_fit:  # The near-field bullseye centre finder (CEN-13). Only started by a l
     sim_hsv: true
     camera_mode: "sim_delivery"  # the sensor mode the images come from (argus_camera modes.yaml): its calibration levels the frame
     airframe: "sim_iris_downcam"  # and the airframe whose camera mount does (argus_camera robot.yaml)
-    max_height_m: 4.0  # above this height the node does not look
+    max_height_m: 6.0  # above this height the node does not look. The node's own default is 4 m; the sim's 5 m bullseye stops fitting the picture at 5.4 m, and from there down the box detector's box is cut
     features:
       ring_fit: false  # Fit the bullseye's rings below max_height_m and publish the centre on /perception/ring_fit/detections (ring_fit.py).
 

@@ -15,8 +15,13 @@ origin is the take-off point.
 
 Pass line (FEATURES.md, FND-05): projected bullseye against the truth within
 0.3 m at 15 m. Judged on the 95th percentile of the detections taken between
-13.5 and 16.5 m, of which there must be at least 20. The run folder gets
-projection_check.json; sim/runner/result.py reads it.
+13.5 and 16.5 m in frames that, by the truth, had the whole target in the
+picture, of which there must be at least 20. A frame with the target partly
+out of view is counted apart and not judged: there the detector reports the
+middle of the part it sees, up to half the target away, and the projection
+has no part in that. (With no target size in the truth, every frame is
+judged.) The run folder gets projection_check.json; sim/runner/result.py
+reads it.
 
 For comparison the report also has the same pixels projected with the newest
 pose at the moment the detection arrived, which is what 2026 did.
@@ -62,6 +67,15 @@ def target_in_local_frame(truth: dict) -> tuple[float, float]:
     return (float(target["e"]) - float(takeoff["e"]), float(target["n"]) - float(takeoff["n"]))
 
 
+def target_size_from(truth: dict) -> Optional[float]:
+    """How wide the scenario's target is, in metres, when the truth says: the size of the object the target is."""
+    name = (truth.get("target") or {}).get("name")
+    for item in truth.get("objects") or []:
+        if name is not None and item.get("name") == name and isinstance(item.get("size_m"), (int, float)):
+            return float(item["size_m"])
+    return None
+
+
 def _spread(values: list[float]) -> Optional[dict]:
     if not values:
         return None
@@ -82,7 +96,11 @@ def build_report(records: list[dict], refusals: dict[str, int], detections: int)
     `latest_pose_error_m` (the same pixel with the newest pose, or None),
     `height_source`, and where in the image it was (`x_norm`, `y_norm`).
     """
-    band = [r for r in records if abs(r["height_m"] - HEIGHT_M) <= HEIGHT_BAND_M]
+    in_band = [r for r in records if abs(r["height_m"] - HEIGHT_M) <= HEIGHT_BAND_M]
+    # A frame in which the target was partly out of the picture (by the truth) is not a detection of its centre:
+    # the detector reports the middle of the part in view. Such frames are counted apart, not judged.
+    band = [r for r in in_band if r.get("whole", True)]
+    partly = [r for r in in_band if not r.get("whole", True)]
     at_height = _spread([r["error_m"] for r in band])
     problems = []
     if detections == 0:
@@ -109,6 +127,7 @@ def build_report(records: list[dict], refusals: dict[str, int], detections: int)
         "projected": len(records),
         "refusals": dict(sorted(refusals.items())),
         "at_15_m": at_height,
+        "at_15_m_target_partly_out_of_view": _spread([r["error_m"] for r in partly]),
         "at_15_m_with_the_latest_pose": _spread([r["latest_pose_error_m"] for r in band if r["latest_pose_error_m"] is not None]),
         "all_heights": _spread([r["error_m"] for r in records]),
         "below_6_m": _spread([r["error_m"] for r in records if r["height_m"] < 6.0]),
@@ -134,12 +153,13 @@ def read_projection_check(folder) -> dict | None:
 class Checker:
     """Projects each detection as it arrives and keeps the comparison. No ROS: the node below feeds it."""
 
-    def __init__(self, target_en: tuple[float, float], camera_mode: str = DEFAULT_CAMERA_MODE, airframe: str = DEFAULT_AIRFRAME) -> None:
+    def __init__(self, target_en: tuple[float, float], camera_mode: str = DEFAULT_CAMERA_MODE, airframe: str = DEFAULT_AIRFRAME, target_size_m: Optional[float] = None) -> None:
         from drone_mission_core.frame_projection import TargetOffset, load_camera
         from drone_mission_core.pose_buffer import PoseBuffer
         from drone_mission_core.projection_v2 import GroundHeight, GroundProjector
 
         self.target = target_en
+        self.target_size_m = target_size_m  # None: not known, and every frame counts as showing the whole target
         self.camera, self.mount = load_camera(camera_mode, airframe)
         self.poses = PoseBuffer()
         self.ground = GroundHeight(self.poses.pose_at)
@@ -170,8 +190,27 @@ class Checker:
                 "height_source": point.height_source,
                 "x_norm": float(x_norm),
                 "y_norm": float(y_norm),
+                "whole": self._whole_target_in_view(stamp_ns),
             }
         )
+
+    def _whole_target_in_view(self, stamp_ns: int) -> bool:
+        """Whether, by the truth, all of the target was inside the picture in the frame taken at `stamp_ns`."""
+        if self.target_size_m is None:
+            return True
+        from drone_mission_core.projection_v2 import pixel_of_ground_point
+
+        pose = self.poses.pose_at(stamp_ns)
+        if pose is None:
+            return True
+        radius = 0.5 * self.target_size_m
+        for step in range(8):  # eight points round the target's edge
+            angle = step * math.pi / 4.0
+            point = (self.target[0] + radius * math.cos(angle), self.target[1] + radius * math.sin(angle), 0.0)
+            pixel = pixel_of_ground_point(self.camera, self.mount, point, pose.position, pose.orientation)
+            if pixel is None or not (0.0 <= pixel[0] < self.camera.width and 0.0 <= pixel[1] < self.camera.height):
+                return False
+        return True
 
     def _with_the_latest_pose(self, x_norm: float, y_norm: float, ground_up_m: float) -> Optional[float]:
         from drone_mission_core.projection_v2 import project
@@ -206,7 +245,8 @@ def listen(folder: Path) -> dict:
     from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import Range
 
-    checker = Checker(target_in_local_frame(json.loads((folder / "truth.json").read_text())))
+    truth = json.loads((folder / "truth.json").read_text())
+    checker = Checker(target_in_local_frame(truth), target_size_m=target_size_from(truth))
     rclpy.init()
     node = rclpy.create_node("argus_projection_check", parameter_overrides=[Parameter("use_sim_time", value=True)])
 
@@ -252,6 +292,9 @@ def main(argv: list[str] | None = None) -> int:
     at_height = report["at_15_m"]
     if at_height:
         print(f"projected target against the truth at {HEIGHT_M:g} m: median {at_height['median_m']:.2f} m, p95 {at_height['p95_m']:.2f} m over {at_height['count']} detections")
+    partly = report.get("at_15_m_target_partly_out_of_view")
+    if partly:
+        print(f"  not judged: {partly['count']} detections with the target partly out of the picture (up to {partly['max_m']:.2f} m off)")
     for problem in report["problems"]:
         print(f"  {problem}")
     print("projection check: PASS" if report["passed"] else "projection check: FAIL", flush=True)

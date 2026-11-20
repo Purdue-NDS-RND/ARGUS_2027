@@ -42,7 +42,12 @@ def test_profile_with_a_missing_dependency_is_refused(tmp_path):
     done = run(profile(tmp_path, "enable: [drop_release_gates]\n"))
     assert done.returncode == 2
     assert "drop_release_gates requires use_target_estimator" in done.stderr
-    assert run(profile(tmp_path, "enable: [use_frame_time_pose, use_target_estimator, drop_release_gates]\n")).returncode == 0
+    half = run(profile(tmp_path, "enable: [use_frame_time_pose, use_target_estimator, drop_release_gates]\n"))
+    assert half.returncode == 2 and "drop_release_gates requires centre_on_estimator" in half.stderr  # CEN-04: the gates steer through the centring
+    full = "enable: [use_frame_time_pose, use_target_estimator, centre_on_estimator, use_height_estimator, drop_release_gates]\n"
+    assert run(profile(tmp_path, full)).returncode == 0
+    no_height = run(profile(tmp_path, full.replace("use_height_estimator, ", "")))
+    assert no_height.returncode == 2 and "drop_release_gates requires use_height_estimator" in no_height.stderr  # the floor is only as good as the height
 
 
 def test_a_bad_profile_makes_the_launch_line_fail_instead_of_flying_with_flags_off(tmp_path):

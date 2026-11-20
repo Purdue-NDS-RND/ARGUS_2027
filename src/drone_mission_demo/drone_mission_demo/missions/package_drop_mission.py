@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from enum import Enum, auto
 
+from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.registry import register_mission
+from drone_mission_core.release_gates import GATES_FLAG
 from rclpy.time import Time
 from .red_bullseye_mission_base import (
     HOLD_YAW_DEG,
@@ -27,6 +29,7 @@ class PackageDropState(Enum):
     FINAL_FIXED_DROP_COLUMN = auto()
     DROP_PAYLOAD = auto()
     COMPLETE = auto()
+    FINAL_ALIGN = auto()  # 2027, drop_release_gates only: in place of FINAL_FIXED_DROP_COLUMN (drop_final_align.py)
 
 
 @register_mission("package_drop")
@@ -53,6 +56,15 @@ class PackageDropMission(RedBullseyeMissionBase):
         self._drop_column_hold_position: tuple[float, float] | None = None
         self._drop_column_target_altitude_m: float | None = None
         self._drop_column_last_update: Time | None = None
+        # The gated release (CEN-04), only with the drop_release_gates flag on.
+        self._final_align = None
+        self._ground_below_home_m = 0.0
+        self._gated_command_sent = False
+        if get_feature_flag(self.spec.features, GATES_FLAG):
+            from .drop_final_align import FinalAlign
+
+            self._final_align = FinalAlign(self)
+            self._ground_below_home_m = float(config.get("ground_below_home_m", 0.0))
 
         self._enter_common_mission(context)
 
@@ -74,6 +86,7 @@ class PackageDropMission(RedBullseyeMissionBase):
             PackageDropState.FINAL_FIXED_DROP_COLUMN: self._handle_final_fixed_drop_column,
             PackageDropState.DROP_PAYLOAD: self._handle_drop_payload,
             PackageDropState.COMPLETE: self._handle_complete,
+            PackageDropState.FINAL_ALIGN: self._handle_final_align,
         }.get(self._state, self._handle_invalid_state)
         return handler(context)
 
@@ -168,12 +181,22 @@ class PackageDropMission(RedBullseyeMissionBase):
         if context.local_pose is None:
             return MissionStatus.WAITING
 
-        command = self._get_centering_descent_command(
-            context,
-            target_altitude_m=self._drop_altitude_m,
-            descent_rate_mps=self._descent_rate_mps,
-            target_altitude_tolerance_m=self._drop_altitude_tolerance_m,
-        )
+        if self._final_align is not None:
+            # drop_release_gates: this state only brings the vehicle down to
+            # the handoff height; FINAL_ALIGN goes on from there.
+            command = self._get_centering_descent_command(
+                context,
+                target_altitude_m=self._drop_column_handoff_altitude_m,
+                descent_rate_mps=self._descent_rate_mps,
+                target_altitude_tolerance_m=0.0,
+            )
+        else:
+            command = self._get_centering_descent_command(
+                context,
+                target_altitude_m=self._drop_altitude_m,
+                descent_rate_mps=self._descent_rate_mps,
+                target_altitude_tolerance_m=self._drop_altitude_tolerance_m,
+            )
         if command is None:
             if self._hold_tracking_loss_grace(context):
                 self._transition_to(PackageDropState.TARGET_NOT_FOUND, context)
@@ -181,7 +204,20 @@ class PackageDropMission(RedBullseyeMissionBase):
 
         self._clear_target_loss_grace()
         if command.tracking_error_m <= self._centering_tolerance_m:
-            if (
+            if self._final_align is not None:
+                if (
+                    context.local_pose.pose.position.z
+                    <= self._drop_column_handoff_altitude_m
+                ):
+                    context.logger.info(
+                        f"[{self.name}] Entering final align at "
+                        f"{context.local_pose.pose.position.z:.2f} m "
+                        f"(handoff {self._drop_column_handoff_altitude_m:.2f} m)"
+                    )
+                    self._final_align.enter(context)
+                    self._transition_to(PackageDropState.FINAL_ALIGN, context)
+                    return MissionStatus.RUNNING
+            elif (
                 context.local_pose.pose.position.z
                 <= self._drop_column_handoff_altitude_m
             ):
@@ -192,7 +228,7 @@ class PackageDropMission(RedBullseyeMissionBase):
                 )
                 self._transition_to(PackageDropState.FINAL_FIXED_DROP_COLUMN, context)
                 return MissionStatus.RUNNING
-            if command.reached_target_altitude:
+            if command.reached_target_altitude and self._final_align is None:
                 if self._centering_dwell_start is None:
                     self._centering_dwell_start = context.now()
                     context.logger.info(
@@ -275,7 +311,70 @@ class PackageDropMission(RedBullseyeMissionBase):
             self._transition_to(PackageDropState.DROP_PAYLOAD, context)
         return MissionStatus.RUNNING
 
+    def _handle_final_align(self, context: MissionContext) -> MissionStatus:
+        """drop_release_gates only (CEN-04): drop_final_align.py does the work, this turns its answer into a state."""
+        from . import drop_final_align
+
+        if context.local_pose is None:
+            return MissionStatus.WAITING
+        answer = self._final_align.update(context)
+        if answer == drop_final_align.RELEASE:
+            self._transition_to(PackageDropState.DROP_PAYLOAD, context)
+        elif answer == drop_final_align.REACQUIRE:
+            self._transition_to(PackageDropState.TARGET_NOT_FOUND, context)
+        elif answer == drop_final_align.GIVE_UP:
+            self._failed = True
+            return MissionStatus.FAILURE
+        return MissionStatus.RUNNING
+
+    def _handle_gated_release(self, context: MissionContext) -> MissionStatus:
+        """drop_release_gates only: release now, where the vehicle is. No GPS column, no timed hover."""
+        context.set_local_velocity_setpoint(0.0, 0.0, 0.0, yaw_deg=HOLD_YAW_DEG)
+        if self._drop_actuated:
+            self._transition_to(PackageDropState.COMPLETE, context)
+            return MissionStatus.SUCCESS
+        if self._actuator_requested:
+            return MissionStatus.RUNNING
+        if self._gated_command_sent:
+            # The command was sent and was refused or failed. Another is sent
+            # only after the gates have held again: this one's gates are past.
+            self._gated_command_sent = False
+            context.logger.warn(
+                f"[{self.name}] the release command failed: back to final align"
+            )
+            self._final_align.gates_again()
+            self._transition_to(PackageDropState.FINAL_ALIGN, context)
+            return MissionStatus.RUNNING
+        if not self._final_align.release_allowed_now(context):
+            # Sunk under the lowest release height between the gates holding and the release: back to FINAL_ALIGN, which climbs.
+            context.logger.warn(
+                f"[{self.name}] not releasing: the height is under the lowest release height or unknown"
+            )
+            self._final_align.gates_again()
+            self._transition_to(PackageDropState.FINAL_ALIGN, context)
+            return MissionStatus.RUNNING
+        if self._fake_drop:
+            context.logger.info(f"[{self.name}] Fake drop complete")
+            self._transition_to(PackageDropState.COMPLETE, context)
+            return MissionStatus.SUCCESS
+        if not context.command_service_ready():
+            # FINAL_ALIGN does not hand over while the command cannot be sent;
+            # if the service went away in between, it waits there, steering.
+            self._final_align.gates_again()
+            self._transition_to(PackageDropState.FINAL_ALIGN, context)
+            return MissionStatus.RUNNING
+        context.logger.info(f"[{self.name}] Closing sprayer for payload drop")
+        self._actuator_requested = True
+        self._gated_command_sent = True
+        context.command_sprayer(
+            enable=True,
+            done_callback=self._on_sprayer_response,
+        )
+        return MissionStatus.RUNNING
+
     def _handle_drop_payload(self, context: MissionContext) -> MissionStatus:
+        if self._final_align is not None:
+            return self._handle_gated_release(context)
         if context.global_gps is not None and context.local_pose is not None:
             self._hold_drop_column_position(context, self._drop_altitude_m)
         else:
