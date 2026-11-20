@@ -52,7 +52,10 @@ G1:
 G2:
   proves: Drop
   pass: Median ≤ 0.15 m calm and ≤ 0.30 m strong, max ≤ 1.0 m; no release or descent below 1.83 m
-  needs: drop scenarios in calm and strong wind with a real payload (CEN-04, CEN-10, CEN-12; SIM-03, SIM-06)
+  # The gated drop of a real 0.5 kg package (CEN-04), in calm air and in the strong wind, three seeds each
+  # for the medians.
+  scenarios: [drop/gated, drop/gated_wind]
+  seeds: [1, 2, 3]
   variants: ["on"]
   rules:
     - name: median drop distance within 0.15 m in calm

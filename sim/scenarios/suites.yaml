@@ -45,6 +45,7 @@ nightly:
     - delivery/set_down
     - delivery/set_down_floor
     - drop/gated
+    - drop/gated_wind
     - drop/gated_track_loss
     - drop/gated_timeout
     - drop/gated_floor
