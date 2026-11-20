@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Render seeded, top-down synthetic images of the competition targets, with ground truth.
 
-No ROS needed (numpy and OpenCV only). Three targets, drawn to scale in metres:
+No ROS needed (numpy and OpenCV only). Four targets, drawn to scale in metres:
 
   bullseye  red-and-white rings on a 5 m white square, as build_red_white_target_sdf
   x         green X on a 5 m white mat (square or circle), optional bucket over the centre
   marker    0.61 m black-and-white plate with a 7-segment digit and underline, as
             build_bw_target_sdf
+  marker27  the 2027 localisation marker: a 0.6 m black-and-white X plate with its
+            7-segment digit centred on the X, as build_marker_sdf
 
 Each image comes with exact ground truth: the sub-pixel centre, four corners, the digit
 and the rotation. Pixel coordinates follow OpenCV: pixel (0, 0) is centred on (0.0, 0.0).
@@ -278,7 +280,75 @@ class NumberedMarker:
         return {"size_m": self.size_m, "digit": self.digit}
 
 
-Target = Union[Bullseye, XMat, NumberedMarker]
+@dataclass(frozen=True)
+class SurveyMarker:
+    """build_marker_sdf: the 2027 localisation marker. A white plate, black top and bottom
+    triangles built from ten stepped strips, and a 7-segment digit on a white field centred
+    on the X; no underline. With no digit (None) it is a boundary marker."""
+
+    size_m: float = 0.6
+    digit: Optional[int] = 1
+
+    name = "marker27"
+
+    def __post_init__(self) -> None:
+        if self.digit is not None and self.digit not in DIGIT_SEGMENTS:
+            raise ValueError(f"digit must be 0-9 or None, not {self.digit!r}")
+        if self.size_m <= 0:
+            raise ValueError("marker needs size_m > 0")
+
+    @property
+    def half_extent_m(self) -> float:
+        return self.size_m / 2
+
+    def rects(self) -> list[Rect]:
+        """Every box laid over the white plate, bottom layer first, in SDF order."""
+        size, half = self.size_m, self.size_m / 2
+        num_strips = 10
+        strip_h = half / num_strips
+        rects = []
+        for sign in (1, -1):
+            for i in range(num_strips):
+                y = (i + 0.5) * strip_h
+                rects.append(Rect(0.0, sign * y, size * (0.05 + 0.95 * y / half), strip_h, SDF_PLATE_BLACK))
+        if self.digit is None:
+            return rects
+        s = size * 0.5
+        rects.append(Rect(0.0, 0.0, s * 0.6, s, SDF_WHITE))  # the digit's field, over the crossing
+        seg_len, seg_w, v_len = s * 0.4, s * 0.12, s * 0.35
+        top_y, bot_y = s * 0.35, -s * 0.35
+        left_x, right_x = -seg_len * 0.4, seg_len * 0.4
+        segments = (
+            (0.0, top_y, seg_len, seg_w),  # A
+            (right_x, top_y / 2, seg_w, v_len),  # B
+            (right_x, bot_y / 2, seg_w, v_len),  # C
+            (0.0, bot_y, seg_len, seg_w),  # D
+            (left_x, bot_y / 2, seg_w, v_len),  # E
+            (left_x, top_y / 2, seg_w, v_len),  # F
+            (0.0, 0.0, seg_len, seg_w),  # G
+        )
+        for on, (x, y, w, h) in zip(DIGIT_SEGMENTS[self.digit], segments):
+            if on:
+                rects.append(Rect(x, y, w, h, SDF_DIGIT_BLACK))
+        return rects
+
+    def corners_m(self) -> np.ndarray:
+        return _square_corners(self.size_m / 2)
+
+    def paint(self, x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        half = self.size_m / 2
+        inside = (np.abs(x) <= half) & (np.abs(y) <= half)
+        rgb = np.empty(x.shape + (3,), np.float32)
+        rgb[:] = SDF_WHITE
+        for rect in self.rects():
+            _paint(rgb, rect.contains(x, y), rect.rgb)
+        return rgb, inside
+
+    def params(self) -> dict:
+        return {"size_m": self.size_m, "digit": self.digit}
+
+
+Target = Union[Bullseye, XMat, NumberedMarker, SurveyMarker]
 
 
 def _square_corners(half: float) -> np.ndarray:
@@ -453,6 +523,8 @@ def random_sample(rng: np.random.Generator, args: argparse.Namespace) -> tuple[T
             outline=bool(rng.random() < 0.3),
             bucket=bool(rng.random() < 0.5),
         )
+    elif kind == "marker27":
+        target = SurveyMarker(digit=int(rng.integers(10)))
     else:
         target = NumberedMarker(digit=int(rng.integers(10)))
 
@@ -522,7 +594,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument("--n", type=int, required=True, help="number of samples")
     parser.add_argument("--out", required=True, help="output directory for PNGs and ground_truth.json")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--targets", nargs="+", choices=["bullseye", "x", "marker"], default=["bullseye", "x", "marker"])
+    parser.add_argument("--targets", nargs="+", choices=["bullseye", "x", "marker", "marker27"], default=["bullseye", "x", "marker"])
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--mpp", type=float, nargs="+", metavar="M",

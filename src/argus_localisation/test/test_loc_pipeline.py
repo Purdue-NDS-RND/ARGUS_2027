@@ -532,3 +532,10 @@ def test_a_tracker_that_faults_does_not_cost_the_frame_its_detections_and_cut_bo
     whole = pipeline_with(OneMarker(at=(640.0, 360.0))).process(frame_4k())
     edge = pipeline_with(OneMarker(at=(8.0, 360.0))).process(frame_4k())
     assert whole.ground[0].cut is False and edge.ground[0].cut is True
+
+
+def test_the_digit_readers_time_is_in_the_frames_timings():
+    reader = lambda crops: [None for _ in crops]  # noqa: E731
+    result = pipeline_with(OneMarker(), digit_reader=reader).process(frame_4k())
+    assert set(result.timings_ms) == {"shrink", "detect", "project", "digits"} and result.readings == [None]
+    assert "digits" not in pipeline_with(OneMarker()).process(frame_4k()).timings_ms

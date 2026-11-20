@@ -12,6 +12,8 @@ Everything here is behind node flags that default to false. As shipped, the node
 | `marker_tracker` | The marker tracker runs on every frame's ground points and `/loc/tracks` is published. |
 | `loc_median_position` | A track's published position is the weighted median of its sightings (needs `marker_tracker`). |
 | `survey_frame_log` | Every frame of the survey is logged as JPEG under `frame_log_dir`, giving way to the detector. |
+| `digit_reader` | The digit of every marker crop is read, or the reader abstains. |
+| `template_digit_classifier` | The reader's stand-in classifier for the sim's marker model (needs `digit_reader`; sim only). Not a trained model. |
 
 ## Per frame
 
@@ -27,6 +29,17 @@ The pipeline is off until `/loc/set_enabled` (std_srvs/SetBool) starts it; the s
 ## The marker tracker
 
 `marker_tracker.py` (LOC-7) keeps one track for each `marker` and each `boundary_marker`. A sighting's noise is the target estimator's (R = J Sigma J^T from projection v2's point); sightings are assigned to tracks with the Hungarian method on Mahalanobis distance, gated at 9.21 and at 1 m. A track is TENTATIVE until its third sighting, then CONFIRMED; a confirmed track that is no longer in view is COASTING and is kept for good. A sighting within 1 m of a track that the gate refuses is not a second track: after five in a row the track moves to it. Once the four boundary markers are confirmed, a marker track outside their hull (by more than 0.5 m) is marked outside and kept off the list. Each track keeps its sightings for the final position (LOC-9).
+
+## The digit reader
+
+`digit_reader.py` (LOC-6) takes each `marker` crop to a digit or to no answer: the plate's corners (the pixels outside the greys of the crop's rim), a homography in undistorted coordinates to a 64 x 64 patch, the X's arms for the quarter turn, and a classifier on the patch's four quarter turns. It abstains under 24 px a side, without a clear marker, or under `digit_min_confidence` (0.9).
+
+- **Which way up.** This year's marker (`LAYOUT_2027`, the digit centred on the X) has no cue for the half turn, so the two ways up the arms allow are compared: a digit that reads one way only, or the same both ways, is answered; a 6 or a 9 is not, and its reading says "6 or 9" for the vote over the track. Last year's plate (`LAYOUT_2026`) has its digit to one side, which settles it.
+- **The classifier** is the ONNX model at `digit_model_path`, run on the CPU; none is shipped. `features.template_digit_classifier` selects a stand-in that reads the seven-segment digit of the sim's marker model; it starts only in the sim (sim time and `sim_only`).
+- **Beside the detector.** At most 6 crops a frame, the most confident boxes first, within 30 ms; the time is `digits` in the frame's timings and `digits.last_ms` in `/loc/status`, with the counts of crops read, abstained on and skipped.
+- **If it cannot start** (no model, no ONNX Runtime, a bad setting) the node says so, `/loc/status` has `digits.error`, and boxes and tracks go on without digits.
+
+`tools/digit_reader_eval.py` measures precision, coverage and the time a crop takes, on synthetic markers or on a folder of labelled crops (`--crops`), with the stand-in or an ONNX model (`--model`).
 
 ## Logging the survey's frames
 

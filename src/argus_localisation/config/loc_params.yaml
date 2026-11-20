@@ -15,6 +15,8 @@ loc_node:
     oracle_pixel_sigma_px: 2.0   # the oracle's pixel noise, in full-frame pixels
     oracle_miss_rate: 0.05       # the share of sightings the oracle leaves out
     oracle_false_alarms_per_frame: 0.02  # how many boxes of nothing the oracle adds to a frame, on average
+    digit_model_path: ""         # the trained digit classifier's ONNX file; with none the digit reader does not start, and the node runs without it
+    digit_min_confidence: 0.9    # the digit reader answers only when its best digit has at least this probability; written with a decimal point
     frame_log_dir: ""            # the folder the survey's frames are logged under (a new folder each survey); it must exist: outside the repo, on the NVMe
     frame_log_workers: 3         # threads that encode the JPEGs (the Orin Nano has no hardware encoder); 1 or more, a whole number
     frame_log_jpeg_quality: 90   # JPEG quality of the logged frames; a whole number
@@ -27,3 +29,5 @@ loc_node:
       marker_tracker: false        # Track the markers on the ground and publish /loc/tracks (marker_tracker.py, LOC-7).
       loc_median_position: false   # A track's published position is the weighted median of its sightings, not the filter's (final_position.py, LOC-9). Needs marker_tracker.
       survey_frame_log: false      # Log every frame of the survey as JPEG under frame_log_dir, giving way to the detector (frame_logging.py, LOC-11).
+      digit_reader: false          # Read the digit of every marker crop, or abstain (digit_reader.py, LOC-6).
+      template_digit_classifier: false  # The digit reader's stand-in classifier for the sim's marker model; not a trained model. Needs digit_reader, sim time and sim_only.

@@ -236,6 +236,27 @@ class MatchesSdfTest(unittest.TestCase):
                 self.assertEqual(links["base"]["rgb"], st.SDF_WHITE)
                 self.assertEqual(sorted(boxes), sorted(ours))
 
+    def test_the_2027_marker_matches_build_marker_sdf(self) -> None:
+        from drone_utils.sdf_objects import build_marker_sdf
+
+        for digit in list(range(10)) + [None]:
+            size = 1.2 if digit is None else 0.6
+            links = sdf_links(build_marker_sdf("t", size=size, digit=digit))
+            boxes = [
+                (round(l["x"], 4), round(l["y"], 4), round(l["size"][0], 4), round(l["size"][1], 4), l["rgb"])
+                for name, l in links.items()
+                if name != "base"
+            ]
+            ours = [(round(r.cx, 4), round(r.cy, 4), round(r.w, 4), round(r.h, 4), r.rgb) for r in st.SurveyMarker(size_m=size, digit=digit).rects()]
+            with self.subTest(digit=digit):
+                self.assertEqual(links["base"]["size"][:2], [size, size])
+                self.assertEqual(sorted(boxes), sorted(ours))
+        image, truth = st.render(st.SurveyMarker(digit=8), st.RenderOptions(width=200, height=200, mpp=0.005, background="noise"))
+        self.assertEqual((truth["target"], truth["digit"]), ("marker27", 8))
+        self.assertLess(int(image[100, 100].max()), 40)  # the middle bar of the 8, on the crossing
+        with self.assertRaises(ValueError):
+            st.SurveyMarker(digit=11)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,15 @@ With it on:
     under its minimum rate, the logger keeps every second frame, then
     every fourth, and comes back when the pipeline is well. `/loc/status`
     carries its counts under `frame_log`.
+  - `features.digit_reader` reads the digit of every `marker` crop
+    (digit_reader.py, LOC-6): corners, a 64 x 64 patch stood by the X's
+    arms, a classifier on its four quarter turns, and no answer rather
+    than an unsure one. The classifier is the ONNX model at
+    `digit_model_path`, run on the CPU, or with
+    `features.template_digit_classifier` a stand-in for the sim's marker
+    model (sim time and `sim_only` required, as for the oracle). A reader
+    that cannot start is an error in the log and in `/loc/status`
+    (`digits.error`); the node runs without it.
   - `features.loc_median_position` (with the tracker on) makes a track's
     published position the weighted median of its sightings
     (final_position.py, LOC-9) instead of the filter's position.
@@ -61,7 +70,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import rclpy
 from rclpy.node import Node
@@ -99,6 +108,8 @@ class LocNode(Node):
             self.declare_parameter("features.marker_tracker", False)
             self.declare_parameter("features.loc_median_position", False)
             self.declare_parameter("features.survey_frame_log", False)
+            self.declare_parameter("features.digit_reader", False)
+            self.declare_parameter("features.template_digit_classifier", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -128,6 +139,15 @@ class LocNode(Node):
         except Exception as error:  # noqa: BLE001
             self._frame_log_settings_problem = str(error)
             self.get_logger().error(f"the frame log's parameters could not be declared ({error}): the survey's frames cannot be logged")
+        # The digit reader's settings likewise. The reader is extra to the boxes and the tracks: whatever keeps it
+        # from starting is said, and the node runs without it.
+        self._digit_settings_problem = ""
+        try:
+            self.declare_parameter("digit_model_path", "")
+            self.declare_parameter("digit_min_confidence", 0.9)
+        except Exception as error:  # noqa: BLE001
+            self._digit_settings_problem = str(error)
+            self.get_logger().error(f"the digit reader's parameters could not be declared ({error}): digits cannot be read")
         if not self._flag("features.loc_node"):
             self.get_logger().info("Localisation node off (features.loc_node): nothing subscribed, nothing published, no camera opened")
             return
@@ -180,6 +200,35 @@ class LocNode(Node):
             miss_rate=self._number("oracle_miss_rate"),
             false_alarms_per_frame=self._number("oracle_false_alarms_per_frame"),
         )
+
+    def _digit_reader(self, camera: Any) -> Tuple[Any, str]:
+        """(the digit reader, "") when its flag is on and it can start; (None, why not) when it cannot; (None, "") when off.
+
+        The reader is extra to the boxes and the tracks, so nothing here stops the node: a reader that cannot
+        start is an error in the log and in `/loc/status`, and the survey's detections go on without digits.
+        """
+        stand_in = self._flag("features.template_digit_classifier")
+        if not self._flag("features.digit_reader"):
+            if stand_in:
+                self.get_logger().error("features.template_digit_classifier needs features.digit_reader, which is off: it is the digit reader's stand-in classifier, and nothing reads digits")
+            return None, ""
+        try:
+            if self._digit_settings_problem:
+                raise ValueError(f"its parameters could not be declared ({self._digit_settings_problem})")
+            from . import digit_reader
+
+            if stand_in:
+                digit_reader.check_stand_in_sim_only(self._sim_time(), self._flag("sim_only"))
+                classifier = digit_reader.TemplateDigitClassifier()
+            else:
+                classifier = digit_reader.load_onnx(self._text("digit_model_path"))
+            reader = digit_reader.DigitReader(classifier, camera=camera, min_confidence=self._number("digit_min_confidence"))
+        except Exception as error:  # noqa: BLE001
+            self.get_logger().error(f"features.digit_reader is on but the digit reader could not start ({error}): digits are not read; the detections go on without them")
+            return None, str(error)
+        if stand_in:
+            self.get_logger().warn("Template digit classifier on (features.template_digit_classifier): a stand-in that reads the seven-segment digit of the sim's marker model, not a trained model")
+        return reader, ""
 
     def _start(self) -> None:
         import vision_msgs.msg as vision_messages
@@ -246,12 +295,14 @@ class LocNode(Node):
             tracker = marker_tracker.MarkerTracker(median_positions=self._flag("features.loc_median_position"))
             self._tracker, self._track_messages, self._tracks_out = tracker, track_messages, tracks_out
             self._resets = PositionResetDetector()  # a step in the reported position that the reported velocity does not explain
+        reader, digit_error = self._digit_reader(camera)
         chain = pipeline.LocPipeline(
             detector,
             projector,
             frame_id,
             (int(camera.width), int(camera.height)),
             tracker=self._tracker,
+            digit_reader=reader,
             tiling=self._flag("features.loc_tiling"),
             pose_at=self._poses.pose_at,
         )
@@ -263,6 +314,7 @@ class LocNode(Node):
             source.open()  # raises when the camera does not open
             self._source = source
         self.runtime = runtime.LocRuntime(chain, lambda: int(self.get_clock().now().nanoseconds), start_enabled=self._flag("start_enabled"))
+        self.runtime.digit_error = digit_error
         self._frame_log = frame_log
         if self.runtime.enabled:
             self._start_frame_log()

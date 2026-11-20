@@ -92,6 +92,7 @@ class FrameResult:
     refused: int = 0  # boxes that could not be put on the ground
     refusal: str = ""  # why the last of them could not
     fault: str = ""  # a fault in the tracker or the digit reader: the frame's boxes still stand
+    readings: List[Any] = field(default_factory=list)  # the digit reader's answer for each crop, in the crops' order (LOC-6)
     timings_ms: Dict[str, float] = field(default_factory=dict)
 
 
@@ -169,9 +170,14 @@ class LocPipeline:
         try:
             if self.tracker is not None:
                 self.tracker.update(stamp_ns, result.ground)
-            if self.digit_reader is not None and result.crops:
-                self.digit_reader(result.crops)
         except Exception as error:  # noqa: BLE001
             result.fault = f"{type(error).__name__}: {error}"
+        if self.digit_reader is not None and result.crops:
+            started = time.perf_counter()
+            try:
+                result.readings = list(self.digit_reader(result.crops) or [])
+            except Exception as error:  # noqa: BLE001
+                result.fault = result.fault or f"{type(error).__name__}: {error}"
+            timings["digits"] = (time.perf_counter() - started) * 1000.0
         return result
 

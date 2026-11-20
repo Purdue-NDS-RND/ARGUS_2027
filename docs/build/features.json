@@ -694,9 +694,9 @@
       "land": "L14",
       "proven_in": "Unit, Bench",
       "note": "Overlaps teammate issue #5. Build with the template stand-in classifier; the trained CNN comes after the data hold",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test/test_digit_reader.py tools/test/test_digit_reader_eval.py -> 44 passed; strict check OK; tools/digit_reader_eval.py --n 1000 --seed 1 -> 782 of 782 answers right, 99.1% of non-6/9 crops answered, 6s and 9s left (docs/results/2026-11-20-digit-reader-synthetic.md). Left: trained ONNX classifier and the field-day pass (data hold, DAT-08), the 6/9 mark (organiser question 8), the Jetson bench: lead and bench",
       "blocked_reason": ""
     },
     {

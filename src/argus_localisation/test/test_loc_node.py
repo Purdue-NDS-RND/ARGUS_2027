@@ -354,7 +354,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -540,7 +540,8 @@ def test_the_surveys_frames_are_logged_between_the_pipelines_start_and_its_stop_
     assert plain._frame_log is None and "frame_log" not in plain.runtime.status()
     frames = tmp_path / "frames"
     frames.mkdir()
-    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, **LOGGING, "frame_log_dir": str(frames), "oracle_objects_file": objects_file})
+    # (Two workers: a queue of four, so that the three frames offered at once below fit whatever the writer is doing.)
+    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, **LOGGING, "frame_log_workers": 2, "frame_log_dir": str(frames), "oracle_objects_file": objects_file})
     assert node.logger.error.call_args is None and list(frames.iterdir()) == []  # nothing is written before the survey
     flying(node)
     node.subscriptions[IMAGE_TOPIC](image(T0))
@@ -644,3 +645,92 @@ def test_a_real_cameras_frames_go_to_the_log_from_the_cameras_own_thread(ros, tm
         assert node._frame_log.status()["written"] == written and len(list(next(frames.iterdir()).glob("frame_*.jpg"))) == written
     finally:
         node.destroy_node()
+
+
+def test_the_digit_reader_is_behind_its_flag_and_reads_the_markers_the_detector_boxes(ros, tmp_path):
+    """The engine detector boxes a marker in the frame; the reader, with the stand-in classifier, reads its digit."""
+    sys.path.insert(0, str(SRC.parent / "tools"))
+    import synth_targets
+
+    with_vision_msgs(ros)
+    options = synth_targets.RenderOptions(width=1280, height=720, mpp=0.0045, rotation_deg=25.0, background="noise", supersample=2)
+    picture, drawn = synth_targets.render(synth_targets.SurveyMarker(digit=7), options, seed=3)  # a 133 px marker in the middle of the frame
+
+    class Boxer(Model):
+        def __call__(self, image, conf, verbose):
+            self.shapes.append(image.shape)
+            box = types.SimpleNamespace(xyxy=[[640.0 - 95.0, 360.0 - 95.0, 640.0 + 95.0, 360.0 + 95.0]], conf=[0.9], cls=[0])
+            return [types.SimpleNamespace(boxes=[box])]
+
+    def start(**flags):
+        file = tmp_path / "yolo.engine"
+        file.write_bytes(b"stand-in")
+        ros.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=lambda path, task: Boxer()))
+        settings = {"camera_mode": "sim_survey", "airframe": "sim_iris_downcam", "detector": "engine", "engine_path": str(file), "sim_only": True, "use_sim_time": True}
+        node = node_with(ros, **{**settings, "features.loc_node": True, "start_enabled": True, **flags})
+        for index in range(-30, 10):
+            node.subscriptions[POSE_TOPIC](pose(T0 + index * 33_000_000))
+        message = image(T0)
+        message.data = picture.tobytes()
+        node.subscriptions[IMAGE_TOPIC](message)
+        return node
+
+    plain = start()
+    assert plain.runtime.pipeline.digit_reader is None and plain.runtime.status()["digits"] is None
+    node = start(**{"features.digit_reader": True, "features.template_digit_classifier": True})
+    assert node.logger.error.call_args is None and "stand-in" in node.logger.warn.call_args_list[-1][0][0]
+    result = node.runtime.step()
+    assert len(result.crops) == 1 and [reading.digit for reading in result.readings] == [7] and result.timings_ms["digits"] > 0.0
+    status = node.runtime.status()
+    assert status["digits"]["last_ms"] > 0.0
+    assert {key: value for key, value in status["digits"].items() if key != "last_ms"} == {"read": 1, "abstained": 0, "skipped": 0, "faults": 0, "classifier": "template (stand-in)"}
+    json.dumps(status)
+    # The stand-in knows the sim's marker model and nothing else: off the sim it does not start, and the boxes go on.
+    for outside in ({"use_sim_time": False}, {"sim_only": False}):
+        aircraft = start(**{"features.digit_reader": True, "features.template_digit_classifier": True, **outside})
+        assert aircraft.runtime is not None and aircraft.runtime.pipeline.digit_reader is None
+        assert "runs only in the sim" in aircraft.logger.error.call_args[0][0] and "runs only in the sim" in aircraft.runtime.status()["digits"]["error"]
+    # The stand-in's flag without the reader's: said, and nothing reads digits.
+    alone = start(**{"features.template_digit_classifier": True})
+    assert alone.runtime is not None and alone.runtime.pipeline.digit_reader is None and "needs features.digit_reader" in alone.logger.error.call_args[0][0]
+
+
+def test_a_digit_reader_that_cannot_start_does_not_take_the_detections_with_it(ros, tmp_path):
+    """The flight-safety review: the reader is extra to the boxes and the tracks. With no model to load the node
+    says so and runs without it; a digit setting of the wrong kind stops nothing while the reader's flag is off."""
+    with_vision_msgs(ros)
+    node, _model = engine_node(ros, tmp_path, **{"features.digit_reader": True})
+    assert node.runtime is not None and set(node.services) == {"/loc/set_enabled"} and node.runtime.pipeline.digit_reader is None
+    assert "needs digit_model_path" in node.logger.error.call_args[0][0] and "digits are not read" in node.logger.error.call_args[0][0]
+    for index in range(-30, 10):
+        node.subscriptions[POSE_TOPIC](pose(T0 + index * 33_000_000))
+    node.subscriptions[IMAGE_TOPIC](image(T0))
+    tick(node)
+    assert len(node.publishers["/loc/detections"].sent) == 1
+    assert "needs digit_model_path" in status_of(node)["digits"]["error"]
+    low, _model = engine_node(ros, tmp_path, **{"features.digit_reader": True, "features.template_digit_classifier": True, "digit_min_confidence": 0.2, "sim_only": True, "use_sim_time": True})
+    assert low.runtime is not None and low.runtime.pipeline.digit_reader is None and "min_confidence" in low.logger.error.call_args[0][0]
+
+    class Strict(RecordingNode):
+        def declare_parameter(self, name, default=None):
+            if name == "digit_min_confidence" and isinstance(self.overrides.get(name), int):
+                raise TypeError("digit_min_confidence: expected a double, got an integer")
+            return super().declare_parameter(name, default)
+
+    import importlib
+
+    file = tmp_path / "yolo26n.engine"
+    ros.setitem(sys.modules, "rclpy.node", types.SimpleNamespace(Node=Strict))
+    ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+    ros.setattr(Strict, "overrides", {"camera_mode": "sim_survey", "airframe": "sim_iris_downcam", "detector": "engine", "engine_path": str(file), "features.loc_node": True, "digit_min_confidence": 1})
+    file.write_bytes(b"stand-in")
+    ros.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=lambda path, task: Model()))
+    off = importlib.import_module("argus_localisation.loc_node").LocNode()
+    assert off.runtime is not None, [call[0][0] for call in off.logger.error.call_args_list]
+    assert "the digit reader's parameters could not be declared" in off.logger.error.call_args[0][0] and off.runtime.status()["digits"] is None
+    # With the reader's flag on, that setting keeps the reader from starting, and only the reader.
+    ros.setattr(Strict, "overrides", {**Strict.overrides, "features.digit_reader": True, "features.template_digit_classifier": True, "sim_only": True, "use_sim_time": True})
+    ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+    on = importlib.import_module("argus_localisation.loc_node").LocNode()
+    ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+    assert on.runtime is not None and "could not be declared" in on.runtime.status()["digits"]["error"]

@@ -102,7 +102,7 @@ def test_the_scenario_hands_the_oracle_the_true_objects_and_starts_the_node(tmp_
     assert manifest["launch"]["file"] == "search_pattern_demo.launch.py" and manifest["launch"]["arguments"]["loc_node"] == "true"
     assert manifest["truth_poses"] is True
     settings = yaml.safe_load((run / "params.yaml").read_text())["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True, "loc_median_position": True, "survey_frame_log": False}
+    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True, "loc_median_position": True, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False}
     assert settings["oracle_objects_file"] == str(run / "oracle_objects.json") and settings["sim_only"] is True and settings["oracle_seed"] == 1
     objects = json.loads((run / "oracle_objects.json").read_text())
     assert objects["vehicle"] == manifest["vehicle"]["model"]

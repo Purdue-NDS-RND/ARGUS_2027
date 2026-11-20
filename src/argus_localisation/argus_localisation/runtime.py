@@ -41,6 +41,7 @@ class LocRuntime:
         self.pipeline = pipeline
         self._clock_ns = clock_ns
         self.enabled = bool(start_enabled)
+        self.digit_error = ""  # why the digit reader, asked for, is not running (the node sets it)
         self._waiting: Any = None
         self._lock = threading.Lock()  # frames may be offered from the camera's own thread
         self._done: Deque[int] = deque()  # when each frame of the last RATE_WINDOW_S was finished
@@ -151,6 +152,19 @@ class LocRuntime:
         tracker = getattr(self.pipeline, "tracker", None)
         tracks = int(tracker.track_count()) if tracker is not None and hasattr(tracker, "track_count") else 0
         confirmed = [int(value) for value in tracker.confirmed_ids()] if tracker is not None and hasattr(tracker, "confirmed_ids") else []
+        reader = getattr(self.pipeline, "digit_reader", None)
+        digits = None  # None without a digit reader
+        if self.digit_error:
+            digits = {"error": self.digit_error}  # the reader was asked for and could not start: the boxes go on without it
+        elif reader is not None and hasattr(reader, "read_count"):
+            digits = {
+                "read": int(reader.read_count),
+                "abstained": int(reader.abstained_count),
+                "skipped": int(getattr(reader, "skipped_count", 0)),  # crops not looked at: over a frame's limit of crops or of time
+                "faults": int(getattr(reader, "faults", 0)),
+                "last_ms": round(float(getattr(reader, "last_ms", 0.0)), 2),  # what the last frame's crops took
+                "classifier": str(getattr(reader.classifier, "name", "")),
+            }
         return {
             "enabled": self.enabled,
             "detector": str(getattr(self.pipeline.detector, "name", type(self.pipeline.detector).__name__)),
@@ -161,6 +175,7 @@ class LocRuntime:
             "last_stamp_ns": self._last_stamp_ns,
             "timings_ms": {key: round(value, 2) for key, value in self._timings_ms.items()},
             "waiting_for_pose": self._waiting_for_pose,
+            "digits": digits,
             "tracks": tracks,
             "track_positions": None if tracker is None else ("median" if getattr(tracker, "median_positions", False) else "filter"),
             "confirmed_ids": confirmed,
