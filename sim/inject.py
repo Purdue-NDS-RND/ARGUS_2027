@@ -13,7 +13,14 @@ vehicle arms, in sim time:
   - {at_s, kind: satellites, count, for_s}               the satellite count it reports
   - {at_s, kind: jam, for_s}                             jamming: position, velocity and satellites wander
   - {at_s, kind: dropout, for_s}                         no GPS at all
+  - {at_s, kind: rangefinder, scale, for_s}              the rangefinder reads `scale` times the true range
   - {at_s, kind: clear}                                  everything back as it was
+
+(The rangefinder's is not a GPS fault. It is here because this is the one
+tool that changes SITL's sensors at a scheduled time: a survey's height
+guard is flown with it, the reading dipping as it would over rising ground,
+which SITL's rangefinder, on flat ground whatever the Gazebo world holds,
+cannot see. sim/height_check.py leaves the heights of that time unjudged.)
 
 The faults are SITL's own, set through its SIM_GPS parameters over MAVLink.
 The names differ between ArduPilot versions (`SIM_GPS_GLITCH_X` in 4.6,
@@ -47,8 +54,10 @@ KINDS = {
     "satellites": {"count", "for_s"},
     "jam": {"for_s"},
     "dropout": {"for_s"},
+    "rangefinder": {"scale", "for_s"},
     "clear": set(),
 }
+RANGEFINDER_SCALE = (0.1, 2.0)  # what a rangefinder fault's `scale` may be
 # What each fault is called in the two families of ArduPilot's SITL. {role: (4.6 name, later name)}.
 PARAMETER_NAMES = {
     "glitch_lat": ("SIM_GPS_GLITCH_X", "SIM_GPS1_GLTCH_X"),
@@ -58,7 +67,11 @@ PARAMETER_NAMES = {
     "satellites": ("SIM_GPS_NUMSATS", "SIM_GPS1_NUMSATS"),
     "jam": ("SIM_GPS_JAM", "SIM_GPS1_JAM"),
     "disable": ("SIM_GPS_DISABLE", "SIM_GPS1_DISABLE"),
+    # Metres a volt of SITL's analog rangefinder: the flight controller reads true range x (its own scaling / this).
+    "sonar_scale": ("SIM_SONAR_SCALE", "SIM_SONAR_SCALE"),
 }
+# Roles only some scenarios use: a SITL without their parameter still flies every scenario that does not ask for them.
+OPTIONAL_ROLES = {"sonar_scale": "rangefinder"}  # {role: the kind of event that needs it}
 FCU_SYSTEM, FCU_COMPONENT = 1, 1  # the flight controller, whoever else is heard on the link
 RAW_AFTER_S = 1.0  # how long after a change the raw fix's satellite count and fix type are noted
 GLITCH_PASS_M = 0.5  # a commanded step must show in the raw fix to within this,
@@ -85,6 +98,10 @@ def check_events(events: list) -> List[dict]:
             raise InjectError(f"gps_events[{index}]: at_s and for_s are numbers of seconds") from None
         if at_s < 0.0 or (for_s is not None and for_s <= 0.0):
             raise InjectError(f"gps_events[{index}]: at_s cannot be negative and for_s must be above zero")
+        if event["kind"] == "rangefinder":
+            scale = event.get("scale")
+            if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not RANGEFINDER_SCALE[0] <= scale <= RANGEFINDER_SCALE[1]:
+                raise InjectError(f"gps_events[{index}] (rangefinder) needs a scale between {RANGEFINDER_SCALE[0]:g} and {RANGEFINDER_SCALE[1]:g}, got {scale!r}")
         checked.append({**event, "at_s": at_s, "for_s": for_s})
     return checked
 
@@ -94,13 +111,21 @@ def glitch_degrees(north_m: float, east_m: float, latitude_deg: float) -> Tuple[
     return float(north_m) / METRES_PER_DEGREE, float(east_m) / (METRES_PER_DEGREE * math.cos(math.radians(latitude_deg)))
 
 
-def resolve_names(have: set) -> Dict[str, str]:
-    """{role: the parameter name this SITL has}. Raises if a role has no name here."""
+def roles_needed(events: list) -> set:
+    """The optional roles a scenario's events use."""
+    kinds = {event.get("kind") for event in events or [] if isinstance(event, dict)}
+    return {role for role, kind in OPTIONAL_ROLES.items() if kind in kinds}
+
+
+def resolve_names(have: set, needed: frozenset = frozenset()) -> Dict[str, str]:
+    """{role: the parameter name this SITL has}. Raises if a role has no name here; an optional one only if it is `needed`."""
     names, missing = {}, []
     for role, candidates in PARAMETER_NAMES.items():
         found = next((name for name in candidates if name in have), None)
+        if found is None and role in OPTIONAL_ROLES and role not in needed:
+            continue
         if found is None:
-            missing.append(" or ".join(candidates))
+            missing.append(" or ".join(dict.fromkeys(candidates)))
         else:
             names[role] = found
     if missing:
@@ -122,6 +147,8 @@ def changes_for(event: dict, latitude_deg: float, defaults: Dict[str, float]) ->
         on = {"jam": 1.0}
     elif kind == "dropout":
         on = {"disable": 1.0}
+    elif kind == "rangefinder":
+        on = {"sonar_scale": defaults["sonar_scale"] / float(event["scale"])}
     else:  # clear
         return dict(defaults), {}
     return on, {role: defaults[role] for role in on}
@@ -226,12 +253,15 @@ def build_report(scheduled: int, applied: List[dict], names: Dict[str, str], arm
 # --- the part that talks to SITL and Gazebo ----------------------------------------
 
 
-def names_complete(have: set) -> bool:
-    """True once every fault has a parameter name among `have`: the injector need not wait for the other family's names, which never answer."""
-    return all(any(name in have for name in candidates) for candidates in PARAMETER_NAMES.values())
+def names_complete(have: set, needed: frozenset = frozenset()) -> bool:
+    """True once every fault has a parameter name among `have`: the injector need not wait for the other family's names, which never answer.
+
+    An optional role is waited for only when it is `needed`.
+    """
+    return all(any(name in have for name in candidates) for role, candidates in PARAMETER_NAMES.items() if role not in OPTIONAL_ROLES or role in needed)
 
 
-def _read_parameters(master, wanted_names: List[str], on_heartbeat, timeout_s: float = 6.0) -> Dict[str, float]:
+def _read_parameters(master, wanted_names: List[str], on_heartbeat, needed: frozenset = frozenset(), timeout_s: float = 6.0) -> Dict[str, float]:
     """{name: value} of those of `wanted_names` this SITL has. One that does not exist gets no answer.
 
     Returns as soon as every fault has a name. Heartbeats heard meanwhile go
@@ -240,7 +270,7 @@ def _read_parameters(master, wanted_names: List[str], on_heartbeat, timeout_s: f
     found: Dict[str, float] = {}
     deadline = time.monotonic() + timeout_s
     asked_at = 0.0
-    while time.monotonic() < deadline and not names_complete(set(found)):
+    while time.monotonic() < deadline and not names_complete(set(found), needed):
         if time.monotonic() - asked_at > 2.0:
             for name in wanted_names:
                 if name not in found:
@@ -288,8 +318,10 @@ def run(run_dir: Path, url: str = "udpin:127.0.0.1:14553") -> dict:
     if master.wait_heartbeat(timeout=30) is None:
         raise RuntimeError(f"no heartbeat from the flight controller on {url}")
     every_name = [name for candidates in PARAMETER_NAMES.values() for name in candidates]
-    have = _read_parameters(master, every_name, on_heartbeat)
-    names = resolve_names(set(have))  # raises InjectError, and the flight is not flown as if it had faults
+    needed = frozenset(roles_needed(events))
+    every_name = [name for name in dict.fromkeys(every_name) if not any(name in PARAMETER_NAMES[role] for role in OPTIONAL_ROLES if role not in needed)]
+    have = _read_parameters(master, every_name, on_heartbeat, needed)
+    names = resolve_names(set(have), needed)  # raises InjectError, and the flight is not flown as if it had faults
     defaults = {role: have[name] for role, name in names.items()}
     print(f"gps events: {len(events)} event(s); this SITL's parameters: {', '.join(sorted(names.values()))}", flush=True)
 

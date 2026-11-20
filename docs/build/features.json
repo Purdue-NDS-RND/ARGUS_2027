@@ -572,9 +572,9 @@
       "land": "L12",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "PARTIAL",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "test_survey_height.py 21 passed, test_safety_limits.py (survey height in the start-up check) passed; CHECK_STRICT=1 scripts/check.sh -> OK. Unit half only: the Sim half, the flag and the wiring are owed by LOC-3's search_pattern mission (PROGRESS.md Decisions, row 'LOC-1, LOC-3': a flag-on test through context.height_agl(), a sim dip under 8.22 m that climbs back and one under 7.77 m that ends the survey). spec-auditor round 2 was INCOMPLETE on a watching gate that was then removed; that removal has not been re-audited",
+      "evidence": "pytest src/drone_mission_core/test/test_survey_height.py -> 24 passed; flown by LOC-3: sim waypoint_navigation/survey_dip (reads 8.0 m: waits, climbs back, all tracks) and survey_abort (reads 7.25 m: ends after its climb) -> OK; docs/results/2026-11-20-survey-height-guard.md. The dip is made in the rangefinder: the sim's cannot see the world",
       "blocked_reason": ""
     },
     {
@@ -605,9 +605,9 @@
       "land": "L12",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_demo/test/test_search_pattern_mission.py -> 43 passed; test_survey_search.py + test_survey_height.py -> 28 passed; strict check -> OK; sim waypoint_navigation/survey (off,on), survey_dip, survey_abort, survey_budget, seed 1 -> OK; docs/results/2026-11-20-survey-height-guard.md. Open with the lead: /loc/set_enabled in LOC-5's spec, re-planning from boundary markers, the competition sequence's four settings",
       "blocked_reason": ""
     },
     {

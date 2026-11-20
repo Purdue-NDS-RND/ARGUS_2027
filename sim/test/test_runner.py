@@ -772,3 +772,28 @@ def test_list_capture_ignores_a_list_left_by_an_earlier_run(tmp_path):
     assert capture.poll(flying=True) is True
     assert "1,34.3" in (run / "judges_list.csv").read_text()
     assert ListCapture(None, run).poll(flying=True) is False  # a mission with no list
+
+
+# --- lines the mission's log must have (LOC-3's guard flights) ----------------------
+
+
+def test_a_run_whose_log_lacks_a_line_the_scenario_expects_is_a_fail(tmp_path):
+    """A survey flight passes its waypoints whether or not the height guard acted; `expect_log` makes the guard's
+    own lines part of the verdict."""
+    wanted = ["survey waiting:", "back at the survey height"]
+    run = make_run(tmp_path / "a", score=SCORE, manifest={"expect_log": wanted})
+    (run / "launch.log").write_text("[mission_executor]: [search_pattern] survey waiting: 8.05 m on the rangefinder\n[mission_executor]: [search_pattern] back at the survey height: going on\n")
+    done = result.run_result(run)
+    assert done["status"] == "OK" and done["expect_log"] == {"wanted": wanted, "missing": []}
+    assert "| Lines expected in the mission's log | 2 of 2 found |" in result.render_report(done)
+
+    run = make_run(tmp_path / "b", score=SCORE, manifest={"expect_log": wanted})
+    (run / "launch.log").write_text("[mission_executor]: [search_pattern] survey waiting: 8.05 m on the rangefinder\n")
+    missed = result.run_result(run)
+    assert missed["status"] == "FAIL" and "back at the survey height" in missed["reason"] and "survey waiting" not in missed["reason"]
+    assert "1 of 2 found; missing: back at the survey height" in result.render_report(missed)
+
+    absent = result.run_result(make_run(tmp_path / "c", score=SCORE, manifest={"expect_log": wanted}))  # no log at all
+    assert absent["status"] == "FAIL" and absent["expect_log"]["missing"] == wanted
+    plain = result.run_result(make_run(tmp_path / "d", score=SCORE))
+    assert plain["status"] == "OK" and plain["expect_log"] is None and "Lines expected" not in result.render_report(plain)

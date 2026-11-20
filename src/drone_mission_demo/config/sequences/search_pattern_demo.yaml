@@ -1,0 +1,39 @@
+# The localisation survey in the sim (LOC-3): take off, fly a lawnmower over the search area, return.
+# The search area is a 60 x 40 m rectangle north-east of SITL's default home; a scenario gives its own
+# (sim/scenarios/localisation/). Every flag is false: as it stands, the survey mission is skipped.
+mission_sequence:
+  on_failure: abort_and_rtl                         # Abort the remaining sequence and request RTL on failure.
+  features:                                         # Mission feature flags; a missing flag means false.
+    use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
+    use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
+    enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
+    use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
+    survey_search: false # The search_pattern mission flies its survey: planned tracks at the survey height, the height guard, the localisation pipeline started and stopped (search_pattern_mission.py, LOC-3). Needs use_height_estimator. Off: the mission is skipped.
+  missions:
+    - type: takeoff                                # Mission type registered in the mission framework.
+      name: takeoff                                # Human-readable mission instance name for logs.
+      config:
+        target_altitude_m: 12.0                    # Target climb altitude after takeoff in meters.
+
+    - type: search_pattern                         # The localisation survey (LOC-3).
+      name: search_pattern                         # Human-readable mission instance name for logs.
+      failure_policy: continue_to_next             # Keep the sequence running after this mission fails.
+      config:
+        search_area: [[-35.3631723, 149.1654577], [-35.3631723, 149.1661186], [-35.3628129, 149.1661186], [-35.3628129, 149.1654577]] # Corners of the search area, [latitude, longitude], in either order round.
+        flight_boundary: null                      # Corners of the flight boundary, [latitude, longitude]: every waypoint is kept 5 m inside it. null: none is checked.
+        survey_height_judged_from_log: false       # true once the organisers confirm the height is judged from our flight log: 30 ft instead of 35 ft.
+        survey_speed_mps: 4.0                      # Ground speed on the tracks (the survey's cap is 4 m/s).
+        frame_rate_hz: 10.0                        # The camera's frame rate, for the plan's count of frames a marker is in.
+        ground_below_home_m: 0.0                   # How far the ground under the search area is below home, in metres (negative: above it).
+        speed_after_mps: null                      # Ground speed asked of the flight controller once the survey is over; null leaves the survey's.
+        time_budget_s: 600.0                       # The mission ends cleanly when this runs out, with what it has.
+        localisation_required: false               # true: fail instead of flying the survey when the localisation pipeline's service is not there.
+        localisation_wait_s: 3.0                   # How long to wait for that service before deciding.
+        camera_mode: sim_survey                    # Sensor mode the survey's frames come from (argus_camera modes.yaml).
+        airframe: sim_iris_downcam                 # Airframe whose camera mount is used (argus_camera robot.yaml).
+
+    - type: rtl                                    # Return-to-launch mission.
+      name: rtl                                    # Human-readable mission instance name for logs.
+      config:
+        rtl_mode: "RTL"                            # Flight mode string sent to the FCU for return-to-launch.

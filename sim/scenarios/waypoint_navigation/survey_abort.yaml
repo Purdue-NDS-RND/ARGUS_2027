@@ -1,0 +1,44 @@
+# The survey's height guard, ABORT (LOC-1, flown by LOC-3): the survey of survey.yaml, and 40 s after arming,
+# in the middle of the survey, the rangefinder reads 0.68 of the true range for eight seconds, as it would
+# over ground that rose 3.4 m under the vehicle (see survey_dip.yaml for why the dip is made in the sensor).
+# The height above the ground is then 7.25 m, under the guard's 7.77 m: the survey must end there, the climb
+# back to the survey height first, and the sequence go on to return and land. Only the first track's ends are
+# the judge's: the rest of the survey may not be flown. The heights and the mission's own lines are read from
+# the run's trace and log (docs/results/2026-11-20-survey-height-guard.md).
+# The guard's own lines must be in the mission's log (`expect_log`): track one is flown before the dip.
+# Variant "off" is every flag false: the survey mission is skipped.
+description: Survey with the rangefinder reading 0.68 of the range for 8 s; the height guard ends the survey, the climb first.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: mission_params.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+waypoints:
+  mission: search_pattern
+  points:
+    - {name: track1_start, east_m: 20.0, north_m: 17.92, height_m: 10.668}
+    - {name: track1_end, east_m: 80.0, north_m: 17.92, height_m: 10.668}
+judge:
+  tolerance_m: 2.5
+expect_log:
+  - "survey ended early:"
+  - "is under 7.77 m: the survey is over"
+wind: {level: calm}
+gps_events:
+  - {at_s: 40.0, kind: rangefinder, scale: 0.68, for_s: 8.0}

@@ -116,6 +116,8 @@ def test_only_the_sim_sequences_name_a_camera_and_the_aircrafts_do_not_yet():
         "package_drop_2027.yaml": ("package_drop", "imx519_720p60", "argus_2027"),
         "sim_package_delivery_2027.yaml": ("package_delivery", "sim_delivery", "sim_iris_downcam"),
         "sim_package_drop_2027.yaml": ("package_drop", "sim_delivery", "sim_iris_downcam"),
+        # The sim's survey sequence (LOC-3) names the sim's survey camera, for the planner's footprint.
+        "search_pattern_demo.yaml": ("search_pattern", "sim_survey", "sim_iris_downcam"),
     }
 
 

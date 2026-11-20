@@ -158,10 +158,25 @@ def _edge_distance(point: np.ndarray, polygon: np.ndarray) -> float:
     return float(np.min(np.linalg.norm(a + along[:, None] * edge - point, axis=1)))
 
 
+def _edge_distances(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    """How far each point is from the polygon's edge: _edge_distance for every point at once.
+
+    The survey mission plans inside one executor tick, and a track is
+    checked every quarter metre, so the points are not walked in Python.
+    """
+    a, b = polygon, np.roll(polygon, -1, axis=0)
+    edge = b - a
+    lengths = np.maximum(np.einsum("ij,ij->i", edge, edge), 1.0e-18)
+    from_a = points[:, None, :] - a[None, :, :]
+    along = np.clip(np.einsum("nej,ej->ne", from_a, edge) / lengths, 0.0, 1.0)
+    nearest = a[None, :, :] + along[:, :, None] * edge[None, :, :]
+    return np.min(np.linalg.norm(nearest - points[:, None, :], axis=2), axis=1)
+
+
 def _within(points: np.ndarray, corners: np.ndarray, margin_m: float) -> np.ndarray:
     """Which points are inside the boundary and at least `margin_m` from its edge."""
-    inside = _inside(points, corners)
-    return np.array([bool(ok) and _edge_distance(point, corners) >= margin_m - 1.0e-9 for ok, point in zip(inside, points)], dtype=bool)
+    points = np.asarray(points, dtype=float).reshape(-1, 2)
+    return np.asarray(_inside(points, corners), dtype=bool) & (_edge_distances(points, corners) >= margin_m - 1.0e-9)
 
 
 def inside_with_margin(point: Sequence[float], boundary: Sequence[Sequence[float]], margin_m: float) -> bool:

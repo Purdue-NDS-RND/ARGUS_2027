@@ -434,6 +434,16 @@ The rangefinder is SITL's, from the default parameters (`RNGFND1_TYPE 1`): it re
 
 A 1280 x 720 frame is 2.8 MB and a 4K one 25 MB; on Fast DDS's built-in transports a best-effort subscriber loses about half of them. A scenario that carries such frames says `dds_profile: large_frames`, and its container then runs Fast DDS with `sim/config/fastdds_large_frames.xml` (a 256 MB shared-memory segment). `hover/survey_camera` and `hover/still4k_camera` do; scenarios on the 640 x 360 delivery camera do not need it and do not get it.
 
+## Surveys
+
+`survey: {mission, area, boundary}` gives a `search_pattern` mission its search area: the corners in metres east and north of the take-off point, written into the mission's `search_area` as latitude and longitude, with the site's flight boundary as its `flight_boundary` when `boundary: true`. The mission plans its own tracks; `waypoints:` naming the same mission lists where their ends should be, for the judge only (`waypoint_navigation/survey`).
+
+`expect_log:` lists pieces of text the mission's log (`launch.log`) must contain when the flight is flown with the scenario's flags on. A run that would otherwise be OK is FAIL without them, and the report names the missing ones. The survey scenarios use it because a survey passes its track ends whether or not its height guard acted: `survey_dip` and `survey_abort` expect the guard's lines, `survey_budget` the time budget's.
+
+```bash
+sim/run_scenarios.sh waypoint_navigation/survey --seeds 1 --variants on
+```
+
 ## GPS faults
 
 Two different things can be wrong with GPS in a scenario (SIM-04):
@@ -449,6 +459,8 @@ gps_events:
 ```
 
 Without `for_s` a fault stays until a `clear`. The injector asks the running SITL which parameter names it has (`SIM_GPS_GLITCH_X` in ArduPilot 4.6, `SIM_GPS1_GLTCH_X` later) and stops if it finds neither. It listens on a MAVLink port of its own (UDP 14553), which the sim opens only for runs with `gps_events`, so it can run beside a driver or the payload bridge. When the flight ends it puts every parameter back.
+
+One kind is not a GPS fault: `{at_s, kind: rangefinder, scale, for_s}` makes the rangefinder read `scale` times the true range (SITL's `SIM_SONAR_SCALE`, asked for only by a scenario with such an event). The sim's rangefinder is SITL's own, over flat ground, and sees nothing in the Gazebo world, so this is how a height above the ground is made to dip: `waypoint_navigation/survey_dip` and `survey_abort` fly the survey's height guard with it. The height check beside the flight counts the heights of that time and does not judge them.
 
 The run folder gets `gps_events.jsonl` and `gps_events.json`, and the report a "GPS faults" row. For each glitch the injector watches the raw GPS fix: it must show the step, to within 0.5 m, inside a second. A run whose events were not all made, or whose glitch did not show, is INVALID: it is not counted as a flight with faults.
 

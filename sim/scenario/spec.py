@@ -20,7 +20,7 @@ KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
-    "sensor_check", "truth_poses", "dds_profile",
+    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 # Fast DDS profiles a scenario may ask for (`dds_profile`): sim/config/fastdds_<name>.xml. Asked for only by
@@ -95,6 +95,8 @@ class Scenario:
     node_flags: dict
     objects: list
     waypoints: dict | None
+    survey: dict | None  # a survey mission's search area, in metres from the take-off point (LOC-3)
+    expect_log: list  # text the mission's log must contain when the flight is flown with the scenario's flags on
     wind: dict
     gps_events: list
     sun: dict | None  # None: the base world's light, as in the 2026 sim
@@ -189,7 +191,7 @@ def parse_scenario(data, path: Path) -> Scenario:
             raise BuildError(f"{where}: missing '{key}'")
 
     driver = data.get("driver")
-    mission_keys = ("sequence", "params", "launch", "config", "targets", "flags", "node_flags", "waypoints")
+    mission_keys = ("sequence", "params", "launch", "config", "targets", "flags", "node_flags", "waypoints", "survey")
     if driver is None:
         for key in ("sequence", "params"):
             if not data.get(key):
@@ -237,6 +239,16 @@ def parse_scenario(data, path: Path) -> Scenario:
             if not isinstance(point, dict) or not {"east_m", "north_m", "height_m"} <= set(point):
                 raise BuildError(f"{where}: waypoints.points[{index}] needs east_m, north_m and height_m")
 
+    survey = data.get("survey")
+    if survey is not None:
+        if not isinstance(survey, dict) or not {"mission", "area"} <= set(survey) or set(survey) - {"mission", "area", "boundary"}:
+            raise BuildError(f"{where}: survey is {{mission: <name in the sequence>, area: [corners], boundary: true or false}}")
+        area = survey["area"]
+        if not isinstance(area, list) or len(area) < 3 or not all(isinstance(c, dict) and {"east_m", "north_m"} <= set(c) for c in area):
+            raise BuildError(f"{where}: survey.area needs at least three corners, each with east_m and north_m")
+        if not isinstance(survey.get("boundary", False), bool):
+            raise BuildError(f"{where}: survey.boundary must be true or false")
+
     sim_time = data.get("sim_time", False)
     if not isinstance(sim_time, bool):
         raise BuildError(f"{where}: sim_time must be true or false, got {sim_time!r}")
@@ -247,6 +259,10 @@ def parse_scenario(data, path: Path) -> Scenario:
     for key in ("sensor_check", "truth_poses"):
         if not isinstance(data.get(key, False), bool):
             raise BuildError(f"{where}: {key} must be true or false, got {data[key]!r}")
+    expect_log = data.get("expect_log") or []
+    if not isinstance(expect_log, list) or not all(isinstance(line, str) and line.strip() for line in expect_log):
+        raise BuildError(f"{where}: expect_log is a list of pieces of text the mission's log must contain")
+
     dds_profile = data.get("dds_profile")
     if dds_profile is not None and dds_profile not in DDS_PROFILES:
         raise BuildError(f"{where}: dds_profile '{dds_profile}' does not exist (profiles: {', '.join(DDS_PROFILES)})")
@@ -270,6 +286,8 @@ def parse_scenario(data, path: Path) -> Scenario:
         node_flags=_mapping(data, "node_flags", where),
         objects=objects,
         waypoints=waypoints,
+        survey=survey,
+        expect_log=list(expect_log),
         wind=_check_wind(_mapping(data, "wind", where), where),
         gps_events=gps_events,
         sun={"elevation_deg": float(sun.get("elevation_deg", 60.0)), "azimuth_deg": float(sun.get("azimuth_deg", 180.0))} if sun else None,

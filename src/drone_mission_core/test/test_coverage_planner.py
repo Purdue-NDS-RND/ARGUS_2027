@@ -203,3 +203,23 @@ def test_a_plan_can_start_from_the_corner_nearest_where_the_vehicle_is():
         assert cp.coverage(plan, SQUARE, rng=np.random.default_rng(2), samples=2000).at_least_two >= 0.99
     with pytest.raises(ValueError, match="start"):
         cp.plan(SQUARE, THIRTY_FT, CAMERA_4K, start=(float("nan"), 0.0))
+
+
+def test_the_boundary_check_of_many_points_at_once_is_the_check_of_each():
+    """LOC-3 plans inside an executor tick: the points along a track are checked together, and must get the answers
+    they got one at a time."""
+    import time
+
+    rng = np.random.default_rng(7)
+    boundary = cp._polygon([(-50.0, -40.0), (120.0, -40.0), (120.0, 90.0), (60.0, 90.0), (60.0, 30.0), (40.0, 30.0), (40.0, 90.0), (-50.0, 90.0)])
+    points = rng.uniform((-70.0, -60.0), (140.0, 110.0), size=(4000, 2))
+    for margin in (0.0, 4.5, 5.0):
+        together = cp._within(points, boundary, margin)
+        one_by_one = np.array([bool(cp._inside(point[None, :], boundary)[0]) and cp._edge_distance(point, boundary) >= margin - 1.0e-9 for point in points])
+        assert np.array_equal(together, one_by_one) and 0 < together.sum() < len(points)
+    assert cp._edge_distances(points[:50], boundary) == pytest.approx([cp._edge_distance(point, boundary) for point in points[:50]])
+    # A 300 x 200 m area inside a boundary is planned in well under a tenth of a second on a desktop (it took half a second walked in Python).
+    camera = SimpleNamespace(width=1280, height=720, fx=778.33, fy=778.33)  # the sim's survey camera, as far as the planner reads it
+    started = time.perf_counter()
+    plan = cp.plan([(20.0, 10.0), (320.0, 10.0), (320.0, 210.0), (20.0, 210.0)], 10.668, camera, boundary=[(-50.0, -50.0), (390.0, -50.0), (390.0, 290.0), (-50.0, 290.0)], start=(0.0, 0.0))
+    assert plan.tracks >= 10 and plan.boundary_checked and time.perf_counter() - started < 0.25

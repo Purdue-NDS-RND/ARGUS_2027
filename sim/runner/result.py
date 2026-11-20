@@ -120,6 +120,7 @@ def run_result(run_dir: Path) -> dict:
         "payload_bridge": None,
         "sensor_check": None,
         "gps_events": None,
+        "expect_log": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -258,6 +259,18 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="INVALID", reason=f"real-time factor {rtf:.2f} is below {MIN_REAL_TIME_FACTOR}: the sim ran too slowly for the result to count")
     else:
         result["status"] = "OK"
+    wanted = [str(line) for line in manifest.get("expect_log") or []]
+    if wanted:
+        # A flight can pass its judge without doing what the scenario is there to show (a height guard that never
+        # acted still passes its waypoints): the mission's own lines are part of the verdict.
+        try:
+            log = (run_dir / "launch.log").read_text(errors="replace")
+        except OSError:
+            log = ""
+        missing = [line for line in wanted if line not in log]
+        result["expect_log"] = {"wanted": wanted, "missing": missing}
+        if missing and result["status"] == "OK":
+            result.update(status="FAIL", reason="the mission's log has no line with: " + "; ".join(missing))
     return result
 
 
@@ -337,6 +350,17 @@ def _wind_rows(result: dict) -> list[str]:
     return rows
 
 
+def _expect_log_rows(result: dict) -> list[str]:
+    expected = result.get("expect_log")
+    if not expected:
+        return []
+    wanted, missing = expected["wanted"], expected["missing"]
+    text = f"{len(wanted) - len(missing)} of {len(wanted)} found"
+    if missing:
+        text += "; missing: " + "; ".join(missing)
+    return [f"| Lines expected in the mission's log | {text} |"]
+
+
 def _gps_rows(result: dict) -> list[str]:
     """Report row for a run with GPS events: what was injected and whether the raw fix showed it."""
     report = result.get("gps_events")
@@ -387,6 +411,7 @@ def render_report(result: dict) -> str:
         *_payload_rows(result),
         *_sensor_rows(result),
         *_gps_rows(result),
+        *_expect_log_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",
         f"| Human input during the flight | {len(result['human_inputs'])} |",

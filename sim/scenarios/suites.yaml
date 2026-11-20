@@ -51,6 +51,10 @@ nightly:
     - drop/gated_floor
     - drop/reacquire
     - waypoint_navigation/site_circuit
+    - waypoint_navigation/survey
+    - waypoint_navigation/survey_dip
+    - waypoint_navigation/survey_abort
+    - waypoint_navigation/survey_budget
     - geofence/breach
   seeds: [1, 2, 3]
   variants: ["off", "on"]

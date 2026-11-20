@@ -385,6 +385,45 @@ class MissionContext:
             future.add_done_callback(done_callback)
         return future
 
+    def command_change_speed(
+        self,
+        speed_mps: float,
+        done_callback: Callable[[Future[Any]], None] | None = None,
+    ) -> Future[Any]:
+        """Ask the flight controller for this ground speed on position setpoints (MAV_CMD_DO_CHANGE_SPEED)."""
+        request = CommandLong.Request()
+        request.broadcast = False
+        request.command = 178
+        request.confirmation = 0
+        request.param1 = 1.0  # ground speed
+        request.param2 = float(speed_mps)
+        request.param3 = -1.0  # throttle: no change
+        future = self._node._command_client.call_async(request)
+        if done_callback is not None:
+            future.add_done_callback(done_callback)
+        return future
+
+    def localisation_control_ready(self) -> bool:
+        """Whether the localisation pipeline's on/off service can be called. False with the survey_search flag off."""
+        client = getattr(self._node, "_localisation_control_client", None)
+        return client is not None and bool(client.service_is_ready())
+
+    def set_localisation_enabled(
+        self,
+        enabled: bool,
+        done_callback: Callable[[Future[Any]], None] | None = None,
+    ) -> Future[Any] | None:
+        """Start (true) or stop the localisation pipeline. None when there is no client (the flag is off)."""
+        client = getattr(self._node, "_localisation_control_client", None)
+        if client is None:
+            return None
+        request = SetBool.Request()
+        request.data = bool(enabled)
+        future = client.call_async(request)
+        if done_callback is not None:
+            future.add_done_callback(done_callback)
+        return future
+
     def clear_target_tracking_state(self) -> None:
         self._node._target_detection = None
         self._node._image_size = None

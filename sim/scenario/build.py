@@ -334,8 +334,12 @@ def build_sequence(scenario: Scenario, shipped: dict, objects: list[dict], site:
 
     route = None
     if scenario.waypoints is not None:
-        config = entry_for(scenario.waypoints["mission"], "waypoints").get("config") or {}
-        if "waypoint_file" not in config:
+        waypoint_entry = entry_for(scenario.waypoints["mission"], "waypoints")
+        config = waypoint_entry.get("config") or {}
+        # A survey mission plans its own tracks: the scenario's points are what the judge expects it to pass,
+        # and no route is written for it. Every other mission is given the points as its waypoint file.
+        plans_its_own = waypoint_entry.get("type") == "search_pattern"
+        if "waypoint_file" not in config and not plans_its_own:
             raise BuildError(f"waypoints: mission '{scenario.waypoints['mission']}' takes no waypoint_file")
         route, truth["waypoints"] = [], []
         for index, point in enumerate(scenario.waypoints["points"]):
@@ -346,7 +350,25 @@ def build_sequence(scenario: Scenario, shipped: dict, objects: list[dict], site:
             lat, lon = latlon_for(lat0, lon0, north, east)
             route.append({"name": name, "latitude": lat, "longitude": lon, "altitude_m": height})
             truth["waypoints"].append({"name": name, "e": east, "n": north, "u": height})
-        config["waypoint_file"] = str(run_dir / "waypoints.yaml")
+        if plans_its_own:
+            route = None
+        else:
+            config["waypoint_file"] = str(run_dir / "waypoints.yaml")
+
+    if scenario.survey is not None:
+        config = entry_for(scenario.survey["mission"], "survey").setdefault("config", {})
+        if "search_area" not in config:
+            raise BuildError(f"survey: mission '{scenario.survey['mission']}' takes no search_area")
+        corners, truth["survey_area"] = [], []
+        for index, corner in enumerate(scenario.survey["area"]):
+            east, north = float(corner["east_m"]), float(corner["north_m"])
+            if not point_in_polygon(east, north, site.boundary):
+                raise BuildError(f"survey: corner {index + 1} of the area is outside the flight boundary")
+            corners.append(list(latlon_for(lat0, lon0, north, east)))
+            truth["survey_area"].append({"e": east, "n": north})
+        config["search_area"] = corners
+        if scenario.survey.get("boundary", False):
+            config["flight_boundary"] = [[latitude, longitude] for latitude, longitude in site.boundary_geo]
 
     features = root.get("features") or {}
     for flag, value in scenario.flags.items():
@@ -510,6 +532,9 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "sensor_check": scenario.sensor_check,  # true: sim/sensor_check.py runs beside the flight, which must pass it
         "truth_poses": scenario.truth_poses,  # true: sim/truth_poses.py publishes true poses during the flight
         "dds_profile": scenario.dds_profile,  # a Fast DDS profile for the container (sim/container/start.sh), or None
+        # Text the flight's launch.log must contain (sim/runner/result.py). The lines are the flags-on mission's.
+        "expect_log": list(scenario.expect_log) if flags_on else [],
+        "target": "target" in truth,  # false: nothing for the projection check to compare with (sim/projection_check.py)
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
         "gps_events": scenario.gps_events,

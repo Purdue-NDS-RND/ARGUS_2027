@@ -22,6 +22,7 @@ APOLLO_LAT = 34.175
 V46 = {"SIM_GPS_GLITCH_X", "SIM_GPS_GLITCH_Y", "SIM_GPS_GLITCH_Z", "SIM_GPS_NOISE", "SIM_GPS_NUMSATS", "SIM_GPS_JAM", "SIM_GPS_DISABLE"}
 LATER = {"SIM_GPS1_GLTCH_X", "SIM_GPS1_GLTCH_Y", "SIM_GPS1_GLTCH_Z", "SIM_GPS1_NOISE", "SIM_GPS1_NUMSATS", "SIM_GPS1_JAM", "SIM_GPS1_DISABLE"}
 DEFAULTS = {"glitch_lat": 0.0, "glitch_lon": 0.0, "glitch_alt": 0.0, "noise": 0.0, "satellites": 10.0, "jam": 0.0, "disable": 0.0}
+WITH_SONAR = {**DEFAULTS, "sonar_scale": 12.12}
 
 
 def test_a_step_in_metres_is_the_degrees_sitl_adds_to_the_fix():
@@ -37,7 +38,7 @@ def test_a_step_in_metres_is_the_degrees_sitl_adds_to_the_fix():
 def test_the_parameter_names_are_read_from_the_running_sitl_whichever_family_it_has():
     assert inject.resolve_names(V46)["glitch_lat"] == "SIM_GPS_GLITCH_X" and inject.resolve_names(V46)["satellites"] == "SIM_GPS_NUMSATS"
     assert inject.resolve_names(LATER)["glitch_lat"] == "SIM_GPS1_GLTCH_X" and inject.resolve_names(LATER)["disable"] == "SIM_GPS1_DISABLE"
-    assert set(inject.resolve_names(V46 | {"SIM_TERRAIN"})) == set(inject.PARAMETER_NAMES)
+    assert set(inject.resolve_names(V46 | {"SIM_TERRAIN"})) == set(inject.PARAMETER_NAMES) - set(inject.OPTIONAL_ROLES)
     with pytest.raises(InjectError, match="SIM_GPS_GLITCH_X or SIM_GPS1_GLTCH_X"):  # neither: stop, do not fly it calm
         inject.resolve_names(V46 - {"SIM_GPS_GLITCH_X"})
     with pytest.raises(InjectError, match="none of the parameters"):
@@ -49,7 +50,7 @@ def test_the_name_lookup_is_over_as_soon_as_every_fault_has_a_name():
     assert inject.names_complete(V46) and inject.names_complete(LATER) and inject.names_complete(V46 | LATER)
     assert not inject.names_complete(V46 - {"SIM_GPS_JAM"}) and not inject.names_complete(set())
     source = (SIM / "inject.py").read_text()
-    assert "not names_complete(set(found))" in source and 'type=["PARAM_VALUE", "HEARTBEAT"]' in source  # and heartbeats are heard meanwhile
+    assert "not names_complete(set(found), needed)" in source and 'type=["PARAM_VALUE", "HEARTBEAT"]' in source  # and heartbeats are heard meanwhile
 
 
 def test_each_kind_sets_its_parameters_and_knows_how_to_undo_them():
@@ -60,6 +61,17 @@ def test_each_kind_sets_its_parameters_and_knows_how_to_undo_them():
     assert inject.changes_for({"kind": "jam"}, APOLLO_LAT, DEFAULTS) == ({"jam": 1.0}, {"jam": 0.0})
     assert inject.changes_for({"kind": "dropout"}, APOLLO_LAT, DEFAULTS) == ({"disable": 1.0}, {"disable": 0.0})
     assert inject.changes_for({"kind": "clear"}, APOLLO_LAT, DEFAULTS) == (DEFAULTS, {})
+    # The rangefinder reads `scale` times the true range: SITL's metres a volt go up by 1 / scale (LOC-1's dips).
+    on, off = inject.changes_for({"kind": "rangefinder", "scale": 0.75}, APOLLO_LAT, WITH_SONAR)
+    assert on == {"sonar_scale": pytest.approx(16.16)} and off == {"sonar_scale": 12.12}
+    # Its parameter is asked of SITL only by a scenario that has such an event, and only then is it an error not to have it.
+    events = [{"at_s": 40, "kind": "rangefinder", "scale": 0.75, "for_s": 8}]
+    assert inject.roles_needed(events) == {"sonar_scale"} and inject.roles_needed([{"at_s": 1, "kind": "jam"}]) == set()
+    assert "sonar_scale" not in inject.resolve_names(V46) and inject.names_complete(V46)
+    assert inject.resolve_names(V46 | {"SIM_SONAR_SCALE"}, frozenset({"sonar_scale"}))["sonar_scale"] == "SIM_SONAR_SCALE"
+    assert not inject.names_complete(V46, frozenset({"sonar_scale"})) and inject.names_complete(V46 | {"SIM_SONAR_SCALE"}, frozenset({"sonar_scale"}))
+    with pytest.raises(InjectError, match="SIM_SONAR_SCALE"):
+        inject.resolve_names(V46, frozenset({"sonar_scale"}))
 
 
 def test_the_schedule_gives_each_change_once_at_its_time_since_arming():
@@ -86,6 +98,10 @@ def test_the_schedule_gives_each_change_once_at_its_time_since_arming():
         ([{"at_s": -1, "kind": "jam"}], "cannot be negative"),
         ([{"at_s": 5, "kind": "jam", "for_s": 0}], "above zero"),
         ([{"at_s": "soon", "kind": "jam"}], "numbers of seconds"),
+        ([{"at_s": 5, "kind": "rangefinder", "for_s": 5}], "scale"),
+        ([{"at_s": 5, "kind": "rangefinder", "scale": 0.0}], "scale"),
+        ([{"at_s": 5, "kind": "rangefinder", "scale": 2.5}], "scale"),
+        ([{"at_s": 5, "kind": "rangefinder", "scale": "low"}], "scale"),
     ],
 )
 def test_bad_events_are_refused(bad, message):

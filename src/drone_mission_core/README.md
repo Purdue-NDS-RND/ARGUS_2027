@@ -265,6 +265,23 @@ still the `DROP_PAYLOAD` state and `fake_drop` still decides whether the actuato
 commanded. While the release command cannot be sent the mission stays on the gates,
 steering; a command that fails is sent again only after the gates have held again.
 
+`survey_search` (declared, off, in `search_pattern_demo.yaml`; needs `use_height_estimator`)
+turns on the `search_pattern` mission (`drone_mission_demo/missions/search_pattern_mission.py`,
+LOC-3); with it off the mission is skipped. The mission plans its tracks with the coverage
+planner from `search_area` (corners as latitude and longitude), climbs to the survey height
+above the ground, sets `survey_speed_mps` with DO_CHANGE_SPEED, starts the localisation
+pipeline through `/loc/set_enabled` (`context.set_localisation_enabled`; flown without it
+when the service is not there, unless `localisation_required`), and flies the tracks at one
+yaw with the height guard asked every tick. It ends with SUCCESS when the tracks are flown,
+when `time_budget_s` (600 s) runs out, or when the guard ends the survey low (after the
+climb back); a survey that ends with no height above the ground fails, as does one whose
+speed command is refused or unanswered three times. Heights are asked for with
+`ground_below_home_m`; a corner of the area more than 1 km away, a plan with a leg outside
+`flight_boundary`, or a way to the first track that leaves it, fails the mission before it
+moves; `speed_after_mps`, when given, is asked of the flight controller when the survey is
+over. Its configuration is checked when the sequence is built, and its modules are loaded
+only then, with the flag on.
+
 `survey_height.py` (LOC-1) holds the localisation survey's height and its guard.
 `survey_height(config)` is 35 ft (10.668 m), 30 ft (9.144 m) when the sequence sets
 `survey_height_judged_from_log: true`, or the sequence's own `survey_height_m` (9.02 to

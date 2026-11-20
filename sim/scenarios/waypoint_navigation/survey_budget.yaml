@@ -1,0 +1,40 @@
+# The survey's time budget (LOC-3): the survey of survey.yaml with 35 s for the whole mission, which is about
+# 25 s of survey after the climb to the first track. The budget runs out in the second track: the mission must
+# stop where it is, end with SUCCESS, and the sequence go on to return and land. The first track's ends are the
+# judge's, and the mission's own line about the budget must be in its log.
+# Variant "off" is every flag false: the survey mission is skipped.
+description: Survey with a 35 s time budget; the mission ends cleanly in mid-survey and the sequence returns.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: mission_params.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+waypoints:
+  mission: search_pattern
+  points:
+    - {name: track1_start, east_m: 20.0, north_m: 17.92, height_m: 10.668}
+    - {name: track1_end, east_m: 80.0, north_m: 17.92, height_m: 10.668}
+judge:
+  tolerance_m: 2.5
+config:
+  search_pattern:
+    time_budget_s: 35.0
+expect_log:
+  - "the time budget of 35 s ran out"
+wind: {level: calm}

@@ -89,16 +89,57 @@ def _spread(errors: List[float]) -> dict:
     return {"count": len(errors), "median_m": errors[len(errors) // 2], "p95_m": errors[min(len(errors) - 1, math.ceil(0.95 * len(errors)) - 1)], "max_m": errors[-1]}
 
 
-def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight) -> dict:
-    """The verdict over the samples, each (sim time, height, source, reason), against the true height."""
+FAULT_SETTLE_S = 1.0  # after a rangefinder fault ends, the estimator's readings of it are this long in leaving
+
+
+def fault_windows(run_dir) -> List[Tuple[float, float]]:
+    """When the scenario's fault injector had the rangefinder reading wrong, in sim time: [(from, to)], from its log.
+
+    A scenario may scale the rangefinder's readings for a while
+    (sim/inject.py, kind `rangefinder`) to give a mission a height that
+    dips. The estimator then reports what the sensor says, as it should,
+    and those heights are not held against the true height. A fault with no
+    end in the log lasts to the end of the flight.
+    """
+    windows, started = [], None
+    try:
+        lines = (Path(run_dir) / "gps_events.jsonl").read_text().splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("event") not in ("rangefinder", "clear") or not isinstance(record.get("t"), (int, float)):
+            continue
+        if record["event"] == "rangefinder" and record.get("what") == "on":
+            started = float(record["t"]) if started is None else started
+        elif started is not None:
+            windows.append((started, float(record["t"]) + FAULT_SETTLE_S))
+            started = None
+    if started is not None:
+        windows.append((started, math.inf))
+    return windows
+
+
+def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight, faults: Optional[List[Tuple[float, float]]] = None) -> dict:
+    """The verdict over the samples, each (sim time, height, source, reason), against the true height.
+
+    `faults` are the times a scenario had the rangefinder reading wrong on
+    purpose (fault_windows): samples in them are counted and not judged.
+    """
     by_source: dict = {"rangefinder": [], "baro": []}
     reasons: dict = {}
-    in_band = in_band_rangefinder = above = above_rangefinder = judged = unknown_source = tilted = tilted_rangefinder = 0
+    in_band = in_band_rangefinder = above = above_rangefinder = judged = unknown_source = tilted = tilted_rangefinder = in_fault = 0
     for t_s, value_m, source, reason in samples:
         state = truth.at(t_s)
         if state is None:
             continue
         judged += 1
+        if any(start <= t_s <= end for start, end in faults or ()):
+            in_fault += 1
+            continue
         if source not in by_source:
             unknown_source += 1
             continue
@@ -144,6 +185,7 @@ def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight
         "in_band": {"count": in_band, "rangefinder_share": share, "min_share": IN_BAND_MIN_SHARE, "from_m": IN_BAND_M[0], "to_m": IN_BAND_M[1]},
         "above_sensor_range": {"count": above, "rangefinder": above_rangefinder},
         "tilted": {"count": tilted, "rangefinder": tilted_rangefinder},
+        "during_a_rangefinder_fault": in_fault,
     }
 
 
@@ -176,6 +218,8 @@ def summary_lines(report: dict) -> List[str]:
         lines.append(f"above {ABOVE_SENSOR_M:g} m: {above['count']} heights, {above.get('rangefinder', 0)} from the rangefinder")
     if tilted.get("count"):
         lines.append(f"tilted over {TILTED_OVER_DEG:g} degrees: {tilted['count']} heights, {tilted.get('rangefinder', 0)} from the rangefinder")
+    if report.get("during_a_rangefinder_fault"):
+        lines.append(f"during the scenario's rangefinder fault: {report['during_a_rangefinder_fault']} heights, not judged")
     return lines
 
 
@@ -208,9 +252,9 @@ class Checker:
             if height is not None:
                 self._samples.append((float(when_s), height.value_m, height.source, height.reason))
 
-    def report(self) -> dict:
+    def report(self, faults: Optional[List[Tuple[float, float]]] = None) -> dict:
         with self._lock:
-            return build_report(list(self._samples), self._truth)
+            return build_report(list(self._samples), self._truth, faults)
 
 
 def listen(run_dir: Path) -> dict:
@@ -258,7 +302,7 @@ def listen(run_dir: Path) -> dict:
     node.create_subscription(Range, RANGEFINDER_TOPIC, lambda m: checker.on_range(stamp_ns(m.header.stamp), m.range, m.min_range, m.max_range), qos_profile_sensor_data)
 
     def write() -> dict:
-        report = checker.report()
+        report = checker.report(fault_windows(run_dir))
         (run_dir / "height_check.json").write_text(json.dumps(report, indent=2) + "\n")
         return report
 

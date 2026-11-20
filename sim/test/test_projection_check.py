@@ -165,6 +165,13 @@ def test_the_check_runs_beside_flights_with_the_flag_on_and_only_those(tmp_path)
     off = json.loads((build_run(FRAME_TIME, tmp_path / "off", variant="off") / "scenario.json").read_text())
     assert projection_check.wanted(on) and on["sim_time"] is True and on["node_flags"]["target_cv"]["stamp_from_image"] is True
     assert not projection_check.wanted(off) and off.get("sim_time") is not True
+    # A flight with the flag on and no target (the survey, LOC-3) has nothing for projection v2 to be compared
+    # with: the check is not run beside it, and its absence does not make the run INVALID.
+    survey = json.loads((build_run(SIM / "scenarios" / "waypoint_navigation" / "survey.yaml", tmp_path / "survey", variant="on") / "scenario.json").read_text())
+    assert survey["flags"]["use_frame_time_pose"] is True and survey["target"] is False and on["target"] is True
+    assert not projection_check.wanted(survey) and "projection_check" not in events.tools_needed(survey)
+    assert "height_check" in events.tools_needed(survey)
+    assert projection_check.wanted({"flags": {"use_frame_time_pose": True}})  # a manifest from before the key: checked, as it was
 
 
 PASSED = {"passed": True, "problems": [], "limit_m": 0.3, "at_15_m": {"count": 240, "median_m": 0.08, "p95_m": 0.17, "max_m": 0.24}, "at_15_m_with_the_latest_pose": {"count": 240, "median_m": 0.2, "p95_m": 0.61, "max_m": 0.9}}

@@ -1,0 +1,45 @@
+# The localisation survey's flight (LOC-3): take off, fly a lawnmower over a 60 x 40 m search area, return.
+# With `survey_search` on, the search_pattern mission plans its own tracks for the survey height (35 ft) and
+# the sim's survey camera (1280 x 720: a 17.5 m swath from there, tracks 12.1 m apart), climbs to the height
+# above the ground, sets 4 m/s, and flies the three tracks at one yaw with the height guard watching. The
+# points below are where those tracks end, for the judge: they must be passed in order within 2.5 m (the
+# mission turns 1.5 m from a track's end), at the survey height. The mission is given the site's flight
+# boundary and keeps its waypoints 5 m inside it.
+# The localisation pipeline's service does not exist yet (LOC-5), so the survey is flown without it.
+# Variant "off" is every flag false: the survey mission is skipped and the vehicle takes off and returns.
+description: Fly the survey mission's lawnmower over a 60 x 40 m area at 35 ft with the survey camera, calm.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: mission_params.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+waypoints:
+  mission: search_pattern
+  points:
+    - {name: track1_start, east_m: 20.0, north_m: 17.92, height_m: 10.668}
+    - {name: track1_end, east_m: 80.0, north_m: 17.92, height_m: 10.668}
+    - {name: track2_start, east_m: 80.0, north_m: 30.0, height_m: 10.668}
+    - {name: track2_end, east_m: 20.0, north_m: 30.0, height_m: 10.668}
+    - {name: track3_start, east_m: 20.0, north_m: 42.08, height_m: 10.668}
+    - {name: track3_end, east_m: 80.0, north_m: 42.08, height_m: 10.668}
+judge:
+  tolerance_m: 2.5
+expect_log:
+  - "survey finished: 3 of 3 tracks flown"
+wind: {level: calm}

@@ -5,6 +5,8 @@ import math
 import sys
 from pathlib import Path
 
+import pytest
+
 SIM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SIM))
 
@@ -191,3 +193,37 @@ def test_a_run_without_the_flag_is_not_asked_for_a_height_check(tmp_path):
     done = result.run_result(run)
     assert done["height_check"] is None and "height_check" not in (done.get("reason") or "")
     assert "Height estimator" not in result.render_report(done)
+
+
+# --- a scheduled rangefinder fault (LOC-1's dips) -----------------------------------
+
+
+def test_heights_during_a_scenarios_rangefinder_fault_are_counted_and_not_judged(tmp_path):
+    assert height_check.fault_windows(tmp_path) == []  # no injector log: no faults
+    (tmp_path / "gps_events.jsonl").write_text(
+        json.dumps({"t": 640.0, "event": "glitch", "what": "on"}) + "\n"
+        + json.dumps({"t": 650.0, "event": "rangefinder", "what": "on", "scale": 0.75}) + "\n"
+        + "not json\n"
+        + json.dumps({"t": 658.0, "event": "rangefinder", "what": "off"}) + "\n"
+        + json.dumps({"t": 700.0, "event": "rangefinder", "what": "on", "scale": 0.7}) + "\n"
+    )
+    windows = height_check.fault_windows(tmp_path)
+    assert windows == [(650.0, 658.0 + height_check.FAULT_SETTLE_S), (700.0, math.inf)]  # the second never ended
+
+    def report(faults):
+        truth = height_check.TrueHeight()
+        truth.add(599.0, (0.0, 0.0, 0.2), LEVEL)
+        samples = []
+        for index in range(1800):  # a minute at 10.7 m
+            t_s = 600.0 + index / 30.0
+            truth.add(t_s, (0.0, 0.0, 10.9), LEVEL)
+            faulted = 650.0 <= t_s <= 658.5
+            samples.append((t_s - 0.001, 10.7 * (0.75 if faulted else 1.0), "rangefinder", ""))
+        return height_check.build_report(samples, truth, faults)
+
+    unknown = report(None)
+    assert not unknown["passed"] and "from the true height" in unknown["problems"][0] and unknown["during_a_rangefinder_fault"] == 0
+    known = report(windows[:1])
+    assert known["passed"] and known["during_a_rangefinder_fault"] == 270 and known["rangefinder"]["count"] == known["samples"] - 270
+    assert any("rangefinder fault: 270 heights, not judged" in line for line in height_check.summary_lines(known))
+    assert "checker.report(fault_windows(run_dir))" in (SIM / "height_check.py").read_text()

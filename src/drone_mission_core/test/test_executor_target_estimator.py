@@ -113,7 +113,7 @@ def test_every_shipped_sequence_declares_the_flag_off():
     import yaml
 
     sequences = sorted((ROOT / "src" / "drone_mission_demo" / "config" / "sequences").glob("*.yaml"))
-    assert len(sequences) == 16  # ten 2026 files, the two 2027 ones (CEN-10), and the four generated sim copies (CEN-11)
+    assert len(sequences) == 17  # ten 2026 files, the two 2027 ones (CEN-10), the four generated sim copies (CEN-11) and the survey's (LOC-3)
     for path in sequences:
         assert yaml.safe_load(path.read_text())["mission_sequence"]["features"]["use_target_estimator"] is False, path.name
 

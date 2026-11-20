@@ -146,6 +146,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_coverage_planner.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_estimator_feed.py
     run_test "" src/drone_mission_core/test/test_executor_target_estimator.py
+    run_test "" src/drone_mission_core/test/test_survey_search.py
     run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_height_estimator.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
@@ -154,6 +155,7 @@ else
     run_test "" src/drone_mission_demo/test/test_delivery_set_down.py
     run_test "" src/drone_mission_demo/test/test_smart_reacquire.py
     run_test "" src/drone_mission_demo/test/test_sequences_2027.py
+    run_test "" src/drone_mission_demo/test/test_search_pattern_mission.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py

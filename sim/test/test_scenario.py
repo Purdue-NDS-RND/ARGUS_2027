@@ -624,3 +624,80 @@ def test_a_scenario_can_ask_for_the_large_frame_dds_profile_and_only_then_is_it_
     env = (SIM / "container" / "env.sh").read_text()
     assert "dds_profile" in start and "ARGUS_DDS_PROFILE_FILE" in start
     assert "FASTRTPS_DEFAULT_PROFILES_FILE" in env and "ARGUS_DDS_PROFILE_FILE" in env
+
+
+def test_a_survey_scenario_gives_the_mission_its_area_and_the_judge_the_track_ends(tmp_path):
+    """LOC-3: the scenario says where the search area is in metres from the take-off point. The build turns that
+    into the mission's corners (latitude, longitude) and, when asked, hands it the site's flight boundary; the
+    track ends the scenario expects go to the judge only, since the mission plans its own tracks."""
+    from scenario.spec import BuildError
+
+    path = SIM / "scenarios" / "waypoint_navigation" / "survey.yaml"
+    scenario = load_scenario(path)
+    assert scenario.survey["mission"] == "search_pattern" and len(scenario.survey["area"]) == 4
+    assert scenario.flags["survey_search"] is True and scenario.dds_profile == "large_frames"
+    run = build_run(path, tmp_path / "run", variant="on")
+    sequence = yaml.safe_load((run / "sequence.yaml").read_text())["mission_sequence"]
+    config = next(entry for entry in sequence["missions"] if entry["name"] == "search_pattern")["config"]
+    truth = json.loads((run / "truth.json").read_text())
+    assert len(config["search_area"]) == 4 and len(config["flight_boundary"]) == 4
+    # The corners come back to the scenario's metres through the site's own origin.
+    site = site_file.load_site(SIM / "sites" / "apollo_xi.yaml")
+    for (latitude, longitude), corner in zip(config["search_area"], scenario.survey["area"]):
+        assert site.to_enu(latitude, longitude) == pytest.approx((corner["east_m"], corner["north_m"]), abs=0.05)
+    assert truth["survey_area"] == [{"e": c["east_m"], "n": c["north_m"]} for c in scenario.survey["area"]]
+    assert [w["name"] for w in truth["waypoints"]] == [p["name"] for p in scenario.waypoints["points"]] and not (run / "waypoints.yaml").exists()
+    assert sequence["features"]["survey_search"] is True
+    off = yaml.safe_load((build_run(path, tmp_path / "off", variant="off") / "sequence.yaml").read_text())["mission_sequence"]
+    assert off["features"]["survey_search"] is False
+    # An area outside the flight boundary, or for a mission that takes none, is refused.
+    text = path.read_text()
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(text.replace("{east_m: 80.0, north_m: 50.0}", "{east_m: 800.0, north_m: 50.0}"))
+    with pytest.raises(BuildError, match="outside the flight boundary"):
+        build_run(outside, tmp_path / "x")
+    wrong = tmp_path / "wrong.yaml"
+    assert "survey:\n  mission: search_pattern\n" in text
+    wrong.write_text(text.replace("survey:\n  mission: search_pattern\n", "survey:\n  mission: takeoff\n"))
+    with pytest.raises(BuildError, match="search_area"):
+        build_run(wrong, tmp_path / "y")
+
+
+def test_the_two_dip_scenarios_are_the_survey_with_the_rangefinder_reading_low_for_a_while(tmp_path):
+    """LOC-1's two flights: the rangefinder reads 0.75 of the true range (8.0 m at the survey height: under 8.22 m)
+    and 0.68 of it (7.25 m: under 7.77 m), for eight seconds in the middle of the survey."""
+    survey = load_scenario(SIM / "scenarios" / "waypoint_navigation" / "survey.yaml")
+    for name, scale in (("survey_dip", 0.75), ("survey_abort", 0.68)):
+        path = SIM / "scenarios" / "waypoint_navigation" / f"{name}.yaml"
+        scenario = load_scenario(path)
+        assert scenario.gps_events == [{"at_s": 40.0, "kind": "rangefinder", "scale": scale, "for_s": 8.0}]
+        assert scenario.survey == survey.survey and scenario.flags == survey.flags and scenario.sequence == survey.sequence
+        manifest = json.loads((build_run(path, tmp_path / name, variant="on") / "scenario.json").read_text())
+        assert manifest["gps_events"] == scenario.gps_events and manifest["target"] is False
+    assert 0.75 * 10.668 < 8.22 and 0.75 * 10.668 > 7.77 and 0.68 * 10.668 < 7.77
+
+
+def test_the_survey_scenarios_expect_their_own_lines_in_the_log_with_the_flags_on_only(tmp_path):
+    from scenario.spec import BuildError
+
+    expected = {
+        "survey": ["survey finished: 3 of 3 tracks flown"],
+        "survey_dip": ["is under 8.22 m: climbing back", "back at the survey height", "survey finished: 3 of 3 tracks flown"],
+        "survey_abort": ["survey ended early:", "is under 7.77 m: the survey is over"],
+        "survey_budget": ["the time budget of 35 s ran out"],
+    }
+    for name, lines in expected.items():
+        path = SIM / "scenarios" / "waypoint_navigation" / f"{name}.yaml"
+        assert load_scenario(path).expect_log == lines
+        on = json.loads((build_run(path, tmp_path / f"{name}-on", variant="on") / "scenario.json").read_text())
+        off = json.loads((build_run(path, tmp_path / f"{name}-off", variant="off") / "scenario.json").read_text())
+        assert on["expect_log"] == lines and off["expect_log"] == []  # flags off, the mission is skipped and says none of it
+    budget = load_scenario(SIM / "scenarios" / "waypoint_navigation" / "survey_budget.yaml")
+    assert budget.config == {"search_pattern": {"time_budget_s": 35.0}}
+    text = (SIM / "scenarios" / "waypoint_navigation" / "survey.yaml").read_text()
+    for bad in ("expect_log: finished", "expect_log: [3]", "expect_log: ['']"):
+        broken = tmp_path / "broken.yaml"
+        broken.write_text(text.replace('expect_log:\n  - "survey finished: 3 of 3 tracks flown"', bad))
+        assert bad in broken.read_text()
+        with pytest.raises(BuildError, match="expect_log"):
+            build_run(broken, tmp_path / "broken")

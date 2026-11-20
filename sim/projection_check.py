@@ -57,8 +57,13 @@ DEFAULT_CAMERA_MODE, DEFAULT_AIRFRAME = "sim_delivery", "sim_iris_downcam"
 
 
 def wanted(manifest: dict) -> bool:
-    """Whether a built scenario turns the projection flag on, so that its flight is checked."""
-    return (manifest.get("flags") or {}).get(FLAG) is True
+    """Whether a built scenario turns the projection flag on and has a target, so that its flight is checked.
+
+    A scenario with no target (a survey) gives projection v2 nothing to be
+    compared with. A manifest that does not say has one, as every scenario
+    had before the survey's.
+    """
+    return (manifest.get("flags") or {}).get(FLAG) is True and manifest.get("target", True) is not False
 
 
 def target_in_local_frame(truth: dict) -> tuple[float, float]:

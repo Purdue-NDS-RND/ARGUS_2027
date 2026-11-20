@@ -29,6 +29,7 @@ from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
 from .safety_limits import enforced_violations
 from .set_down import attach_throttle
+from .survey_search import attach_localisation_control
 from .time_guard import attach_time_health
 
 
@@ -135,6 +136,11 @@ class MissionExecutorNode(Node):
         # None unless a mission has the delivery_soft_set_down flag on: then
         # the flight controller's throttle, for the set-down's contact rule (CEN-05).
         self._throttle = attach_throttle(
+            self, [mission.spec for mission in self._sequence]
+        )
+        # None unless a mission has the survey_search flag on: then the client
+        # that starts and stops the localisation pipeline (LOC-3).
+        self._localisation_control_client = attach_localisation_control(
             self, [mission.spec for mission in self._sequence]
         )
         # None unless a mission has the use_target_estimator flag on: then the

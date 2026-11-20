@@ -171,7 +171,7 @@ def tools_needed(manifest: dict) -> set[str]:
     if manifest.get("sim_time") is True:
         needed.add("time_check")  # a run on sim time is checked to really be on one clock
         needed.add("rate_check")  # and to have the message rates the stream keeper holds
-    if (manifest.get("flags") or {}).get("use_frame_time_pose") is True:
+    if (manifest.get("flags") or {}).get("use_frame_time_pose") is True and manifest.get("target", True) is not False:
         needed.add("projection_check")  # projection v2's ground point is compared with the truth
     if (manifest.get("flags") or {}).get("use_target_estimator") is True:
         needed.add("estimator_check")  # the estimator's bullseye track is compared with the truth
