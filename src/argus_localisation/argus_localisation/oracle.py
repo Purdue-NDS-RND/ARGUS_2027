@@ -26,6 +26,7 @@ build writes into the run folder (the node's `oracle_objects_file`).
 from __future__ import annotations
 
 import bisect
+import math
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,23 @@ Pose = Tuple[float, float, float, float, float, float, float]  # x, y, z, then t
 
 class OracleRefused(RuntimeError):
     """The oracle will not run here. The message says why."""
+
+
+SQUARE_CLASSES = ("marker", "boundary_marker")  # flat squares, boxed at their heading in the picture
+
+
+def _yaw(quaternion: Sequence[float]) -> float:
+    """The heading of an (x, y, z, w) orientation about the vertical, radians. 0 for one that is not four numbers."""
+    try:
+        x, y, z, w = (float(value) for value in quaternion)
+    except (TypeError, ValueError):
+        return 0.0
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def box_spread(turn_rad: float) -> float:
+    """How much wider than its side the upright box of a square is when the square is turned by `turn_rad`: 1 to 1.414."""
+    return abs(math.cos(turn_rad)) + abs(math.sin(turn_rad))
 
 
 def check_sim_only(use_sim_time: bool, sim_only: bool) -> None:
@@ -178,6 +196,10 @@ class OracleDetector:
             if missed:
                 continue
             side = item.size_m * float(self._camera.fx) / below
+            if item.class_id in SQUARE_CLASSES:
+                # A detector's box is upright in the picture and holds the whole plate: a square turned in the
+                # picture needs a wider one (by up to the square root of two, at 45 degrees).
+                side *= box_spread(_yaw(pose[3:7]) - _yaw(orientation))
             found.append(contract.Detection(item.class_id, TRUE_SCORE, float(u + noise[0]), float(v + noise[1]), float(side), float(side)))
         for _ in range(int(self._rng.poisson(self._false)) if self._false > 0.0 else 0):
             side = float(self._rng.uniform(*FALSE_SIZE_PX))

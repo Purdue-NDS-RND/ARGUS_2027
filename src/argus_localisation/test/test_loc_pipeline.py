@@ -571,3 +571,24 @@ def test_a_frames_readings_are_added_to_the_votes_of_the_tracks_its_boxes_went_t
 
     result = pipeline_with(OneMarker(), tracker=marker_tracker.MarkerTracker(), digit_reader=reader, digit_votes=Broken()).process(frame_4k())
     assert "the vote fell over" in result.fault and len(result.ground) == 1 and len(result.readings) == 1
+
+
+def test_the_oracle_boxes_a_turned_marker_whole():
+    """Gate G4's first flights: a marker lying at 37 degrees was boxed at its side's width, the crop cut its corners
+    off, and the digit reader had no plate to find. A detector's box holds the whole marker."""
+    import math
+
+    def boxed(marker_yaw_deg, vehicle_yaw_deg=0.0):
+        detector, world = exact_oracle()
+        poses = truth(orientation=(0.0, 0.0, math.sin(math.radians(vehicle_yaw_deg) / 2.0), math.cos(math.radians(vehicle_yaw_deg) / 2.0)), marker=(0.0, 0.0, 0.02))
+        poses["marker_3"] = (0.0, 0.0, 0.02, 0.0, 0.0, math.sin(math.radians(marker_yaw_deg) / 2.0), math.cos(math.radians(marker_yaw_deg) / 2.0))
+        world.add(10 * S, poses)
+        (found,) = detector.detect_full(10 * S)
+        return found.width
+
+    side = 0.6 * 2334.0 / 9.98
+    assert boxed(0.0) == pytest.approx(side, rel=0.01) and boxed(90.0) == pytest.approx(side, rel=0.01) and boxed(180.0) == pytest.approx(side, rel=0.01)
+    assert boxed(45.0) == pytest.approx(side * math.sqrt(2.0), rel=0.01)
+    assert boxed(37.0) == pytest.approx(side * (math.cos(math.radians(37.0)) + math.sin(math.radians(37.0))), rel=0.01)
+    assert boxed(37.0, vehicle_yaw_deg=37.0) == pytest.approx(side, rel=0.01)  # it is the turn in the picture that counts
+    assert oracle.box_spread(0.0) == 1.0 and oracle.SQUARE_CLASSES == ("marker", "boundary_marker")
