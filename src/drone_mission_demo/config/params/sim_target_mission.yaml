@@ -31,6 +31,16 @@ target_cv:
       stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
       detection_contract: false  # Also publish on the detection contract, /perception/target_cv/detections (FND-02).
 
+ring_fit:  # The near-field bullseye centre finder (CEN-13). Only started by a launch given ring_fit:=true.
+  ros__parameters:
+    image_topic: "camera/image"
+    sim_hsv: true
+    camera_mode: "sim_delivery"  # the sensor mode the images come from (argus_camera modes.yaml): its calibration levels the frame
+    airframe: "sim_iris_downcam"  # and the airframe whose camera mount does (argus_camera robot.yaml)
+    max_height_m: 4.0  # above this height the node does not look
+    features:
+      ring_fit: false  # Fit the bullseye's rings below max_height_m and publish the centre on /perception/ring_fit/detections (ring_fit.py).
+
 session_logger:
   ros__parameters:
     output_base: "~/cuasc_logs"

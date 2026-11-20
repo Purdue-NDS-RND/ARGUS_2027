@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from typing import Any, Deque, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .detection_contract import ContractError, DetectionSet, decode, topic_for
@@ -58,6 +58,14 @@ RESET_MAX_PAIR_GAP_S = 0.12  # two poses further apart than this are not compare
 RESET_MEMORY = 8  # recent resets remembered, for frames taken before one and handled after it
 FORECAST_MAX_AHEAD_S = 0.2  # how far past the newest pose the vehicle's position is forecast
 # The estimator shares the executor's one thread with the 20 Hz tick, so the work of one step is bounded.
+# A detector that is not a box detector says how well it places a centre, in pixels (one standard deviation),
+# and its detections are weighed by that instead of by their box's size. The ring fit's figure is its own
+# PIXEL_SIGMA_PX (drone_target_cv/ring_fit.py; a test holds the two together).
+DETECTOR_PIXEL_SIGMA_PX: Dict[str, float] = {"ring_fit": 2.0}
+# The near-field ring fit (CEN-13) is listened to, beside the detectors of DETECTORS_PARAMETER, when a mission
+# has this flag on.
+RING_FIT_FLAG = "use_ring_fit"
+RING_FIT_DETECTOR = "ring_fit"
 MAX_DETECTIONS_PER_FRAME = 16  # more than this in one frame: the most confident of each class are kept, class by class in turn
 MAX_FRAMES_PER_STEP = 4  # more than this ready at once: the rest wait for the next step
 CLOCK_STEP_BACK_S = 0.5  # the clock this far behind where it was: it has stepped back
@@ -143,8 +151,12 @@ class EstimatorFeed:
         """Frames waiting for the pose of their capture time."""
         return len(self._waiting)
 
-    def add_detections(self, detection_set: DetectionSet, image_size: Optional[Sequence[int]] = None) -> bool:
+    def add_detections(self, detection_set: DetectionSet, image_size: Optional[Sequence[int]] = None, pixel_sigma_px: Optional[float] = None) -> bool:
         """One frame's detections, as decoded from the contract. Handled at the next `step`. False if the frame was refused.
+
+        `pixel_sigma_px` is the detector's own noise model, when it has one:
+        how well it places a centre, in pixels. Without it a detection is
+        weighed by the size of its box.
 
         `image_size` is the size of the image the detector says it ran on,
         when it says: the contract's pixels are those of the calibrated
@@ -161,6 +173,8 @@ class EstimatorFeed:
         if len(detections) > MAX_DETECTIONS_PER_FRAME:
             self._count("trimmed: more detections in a frame than are handled")
             detection_set = DetectionSet(detection_set.stamp_ns, detection_set.frame_id, _most_confident_of_each_class(detections, MAX_DETECTIONS_PER_FRAME))
+        if pixel_sigma_px is not None:
+            detection_set = _WeighedSet(detection_set.stamp_ns, detection_set.frame_id, detection_set.detections, float(pixel_sigma_px))
         if len(self._waiting) >= PENDING_LIMIT:
             self._waiting.popleft()
             self._count("dropped: too many frames waiting")
@@ -243,15 +257,20 @@ class EstimatorFeed:
         shift_east, shift_north = self._shift_for_resets(stamp_ns)
         measurements = []
         camera = self._projector.camera
+        own_sigma = getattr(detection_set, "pixel_sigma_px", None)
         for detection in detection_set.detections:
-            if te.box_is_cut(detection.cx, detection.cy, detection.width, detection.height, camera.width, camera.height):
+            # A detector with its own noise model (the ring fit) found the centre some other way than as the
+            # middle of its box: its box running over the picture's edge says nothing against the centre.
+            if own_sigma is None and te.box_is_cut(detection.cx, detection.cy, detection.width, detection.height, camera.width, camera.height):
                 self._count("skipped: box cut by the image's edge")  # the visible part of a target, not its centre
                 continue
             point = self._projector.project_pixel_to_ground((detection.cx, detection.cy), stamp_ns, te.plane_height_m(detection.class_id))
             if point is None:
                 self._count(f"refused: {self._projector.last_refusal or 'no reason given'}")
                 continue
-            measurement = te.measurement_from_point(detection.class_id, point, detection.width, detection.height, detection.score)
+            measurement = te.measurement_from_point(
+                detection.class_id, point, detection.width, detection.height, detection.score, pixel_sigma_px=own_sigma
+            )
             if shift_east or shift_north:
                 measurement = te.Measurement(
                     measurement.class_id, measurement.east_m + shift_east, measurement.north_m + shift_north, measurement.covariance, measurement.score, measurement.up_m
@@ -360,6 +379,13 @@ def _stamp_ns(stamp: Any) -> int:
     return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
 
 
+@dataclass(frozen=True)
+class _WeighedSet(DetectionSet):
+    """A frame's detections from a detector with its own noise model."""
+
+    pixel_sigma_px: Optional[float] = None
+
+
 def attach_target_estimator(node: Any, specs: Iterable[Any], pose_buffer: Any, ground_height: Any) -> Optional[EstimatorFeed]:
     """An EstimatorFeed running inside `node`, or None when the flag is off."""
     specs = list(specs)
@@ -415,7 +441,7 @@ def attach_target_estimator(node: Any, specs: Iterable[Any], pose_buffer: Any, g
                     throttle_duration_sec=5.0,
                 )
                 return
-        if not feed.add_detections(found, image_size):
+        if not feed.add_detections(found, image_size, DETECTOR_PIXEL_SIGMA_PX.get(detector)):
             logger.error(
                 f"Estimator: {detector} ran on a {image_size[0]} x {image_size[1]} image but sensor mode {camera.name} is calibrated at "
                 f"{camera.width} x {camera.height}; its detections are not used",
@@ -445,6 +471,14 @@ def attach_target_estimator(node: Any, specs: Iterable[Any], pose_buffer: Any, g
 
     node.declare_parameter(DETECTORS_PARAMETER, list(DEFAULT_DETECTORS))
     detectors = list(node.get_parameter(DETECTORS_PARAMETER).get_parameter_value().string_array_value)
+    # use_ring_fit (CEN-13): the near-field centre finder as a second source of the bullseye. The flag is the
+    # only way in: the detectors parameter cannot bring the ring fit past a flag that is off.
+    if any(get_feature_flag(spec.features, RING_FIT_FLAG) for spec in specs):
+        if RING_FIT_DETECTOR not in detectors:
+            detectors.append(RING_FIT_DETECTOR)
+    elif RING_FIT_DETECTOR in detectors:
+        detectors = [detector for detector in detectors if detector != RING_FIT_DETECTOR]
+        logger.error(f"Estimator: {DETECTORS_PARAMETER} names {RING_FIT_DETECTOR} but {RING_FIT_FLAG} is off: it is not listened to")
     for detector in detectors:
         node.create_subscription(vision_messages.Detection2DArray, topic_for(detector), listener(detector), 10)
     if LEGACY_DETECTOR in detectors:

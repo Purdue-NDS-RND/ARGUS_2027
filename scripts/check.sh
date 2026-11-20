@@ -126,6 +126,8 @@ else
     run_test src/drone_target_cv src/drone_target_cv/test/test_target_detector.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_contract_output.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_contract_node.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
@@ -148,6 +150,7 @@ else
     run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_height_log.py
+    run_test "" tools/test/test_ring_fit_try.py
     run_test "" tools/test/test_estimator_step_cost.py
     run_test "" tools/test/test_synth_targets.py
     run_test scripts scripts/test/test_pr_checks_tuning.py

@@ -122,6 +122,81 @@ def test_a_box_cut_by_the_edge_of_the_image_is_not_a_measurement():
     assert feed.estimates(T0 + 950 * MS)[0].state == "COASTING" and feed.totals.accepted == 2
 
 
+def test_a_detector_with_its_own_noise_model_is_weighed_by_it_and_keeps_a_track_alive_where_a_cut_box_cannot():
+    from drone_mission_core import estimator_feed
+
+    assert estimator_feed.DETECTOR_PIXEL_SIGMA_PX == {"ring_fit": 2.0}  # the ring fit's own figure (drone_target_cv/ring_fit.py)
+    # The same small box from two detectors: the box detector's centre is trusted less for the box being small,
+    # the ring fit's centre is trusted as the ring fit says.
+    def variance(pixel_sigma_px):
+        flight = Flight()
+        flight.fly(T0, T0 + 600 * MS)
+        small = Detection("bullseye", 0.9, 640.0, 360.0, 8.0, 8.0)
+        seen = []
+        flight.feed.on_report = lambda report, stamp: None
+        original = flight.feed.estimator.update
+
+        def update(measurements, stamp_ns):
+            seen.extend(measurements)
+            return original(measurements, stamp_ns)
+
+        flight.feed.estimator.update = update
+        flight.feed.add_detections(DetectionSet(T0 + 100 * MS, "down_camera_optical", (small,)), pixel_sigma_px=pixel_sigma_px)
+        flight.feed.step(T0 + 110 * MS)
+        return float(seen[0].covariance[0][0])
+
+    # An 8 px box is given the box detector's largest noise, 8 px. From 10 m up the pixels are one part of the
+    # noise beside the attitude's and the height's, so the variance moves, not by the square of the ratio.
+    assert variance(None) > variance(4.0) > variance(2.0)
+    assert variance(None) - variance(2.0) == pytest.approx((8.0**2 - 2.0**2) * (HEIGHT / 1000.0) ** 2, rel=0.05)
+
+    # Near the ground: the box is cut by the edge on every frame, the ring fit's detection of the same frames is not.
+    flight = Flight()
+    flight.fly(T0, T0 + 1200 * MS)
+    feed = flight.feed
+    for index in range(10):
+        stamp = T0 + (100 + index * 50) * MS
+        whole = flight.frame(stamp, ("bullseye", 2.0, 1.0, 0.0)).detections[0]
+        cut = Detection("bullseye", 0.9, whole.cx, 360.0, 1280.0, 720.0)
+        feed.add_detections(DetectionSet(stamp, "down_camera_optical", (cut,)))
+        feed.add_detections(DetectionSet(stamp, "down_camera_optical", (Detection("bullseye", 0.8, whole.cx, whole.cy, 60.0, 60.0),)), pixel_sigma_px=2.0)
+        feed.step(stamp + 10 * MS)
+    (track,) = feed.estimates(T0 + 600 * MS)
+    assert track.state == CONFIRMED and (track.east_m, track.north_m) == pytest.approx((2.0, 1.0), abs=0.02)
+    assert feed.counters["skipped: box cut by the image's edge"] == 10
+    assert feed.totals.started == 1 and feed.totals.accepted == 9  # the first starts the track, the other nine keep it
+
+    # The ring fit's centre is not the centre of its box: near the picture's edge its box (the innermost ring)
+    # runs over the edge, and the centre is as good as anywhere else. It is not skipped as a cut box.
+    flight = Flight()
+    flight.fly(T0, T0 + 1200 * MS)
+    feed = flight.feed
+    for index in range(4):
+        stamp = T0 + (100 + index * 50) * MS
+        feed.add_detections(DetectionSet(stamp, "down_camera_optical", (Detection("bullseye", 0.8, 30.0, 360.0, 144.0, 144.0),)), pixel_sigma_px=2.0)
+        feed.step(stamp + 10 * MS)
+    assert feed.counters.get("skipped: box cut by the image's edge", 0) == 0 and feed.totals.started == 1 and feed.totals.accepted == 3
+    assert feed.estimates(T0 + 300 * MS)[0].state == CONFIRMED
+
+
+def test_one_frame_counts_once_toward_confirming_a_track_however_many_detectors_saw_it():
+    """Two detectors on the same red pixels are not two sightings: a track still needs three frames."""
+    flight = Flight()
+    flight.fly(T0, T0 + 1200 * MS)
+    feed = flight.feed
+    for index in range(2):
+        stamp = T0 + (100 + index * 50) * MS
+        whole = flight.frame(stamp, ("bullseye", 2.0, 1.0, 0.0))
+        feed.add_detections(whole)  # the box detector
+        feed.add_detections(DetectionSet(stamp, "down_camera_optical", whole.detections), pixel_sigma_px=2.0)  # the ring fit, same frame
+        feed.step(stamp + 10 * MS)
+    assert feed.estimates(T0 + 200 * MS)[0].state == "TENTATIVE"  # four hits, two frames
+    third = flight.frame(T0 + 200 * MS, ("bullseye", 2.0, 1.0, 0.0))
+    feed.add_detections(third)
+    feed.step(T0 + 210 * MS)
+    assert feed.estimates(T0 + 220 * MS)[0].state == CONFIRMED
+
+
 def test_a_frame_that_arrives_before_its_pose_waits_for_it():
     flight = Flight()
     flight.fly(T0, T0 + 100 * MS)

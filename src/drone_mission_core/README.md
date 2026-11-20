@@ -237,6 +237,16 @@ lead is left out, the gain is held to 0.6 and the log says so. The 2026 keys
 `python3 tools/cen_loop_sim.py` runs the same class in a simulated loop, to try a gain
 before it is flown.
 
+`use_ring_fit` (declared, off, in the same eight sequences; needs
+`use_target_estimator`) makes the estimator listen to the near-field ring fit
+(`drone_target_cv`'s `ring_fit` node, CEN-13) on `/perception/ring_fit/detections` as
+well as to the detectors of `estimator_detectors`. Its detections are `bullseye`s like
+the box detector's and go to the same tracks; they are weighed by the ring fit's own
+figure for its centre's noise (2 px, `estimator_feed.DETECTOR_PIXEL_SIGMA_PX`) instead of
+by the size of their box. Near the ground, where the box detector's box is cut by the
+image's edge and is not used, the ring fit is what keeps the track CONFIRMED. The node has
+its own flag, `features.ring_fit`, and is started only by a launch given `ring_fit:=true`.
+
 `use_height_estimator` (declared, off, in the eight sequences that fly a drop or
 delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height
 estimator (`height_estimator.py`, CEN-03), fed by its own subscription to

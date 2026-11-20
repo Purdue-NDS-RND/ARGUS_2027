@@ -105,9 +105,13 @@ def pixel_sigma_px(box_width: float, box_height: float) -> float:
     return PIXEL_SIGMA_PX * min(max(SMALL_BOX_PX / side, 1.0), MAX_PIXEL_SIGMA_GROWTH)
 
 
-def measurement_noise(point: Any, box_width: float, box_height: float, height_source: str) -> np.ndarray:
-    """R = J Sigma J^T for a projected detection: `point` is projection v2's GroundPoint, with its Jacobians."""
-    pixel = pixel_sigma_px(box_width, box_height) ** 2
+def measurement_noise(point: Any, box_width: float, box_height: float, height_source: str, pixel_sigma: Optional[float] = None) -> np.ndarray:
+    """R = J Sigma J^T for a projected detection: `point` is projection v2's GroundPoint, with its Jacobians.
+
+    `pixel_sigma` is the detector's own figure for its centre's noise, in
+    pixels, when it has one; otherwise the box's size decides.
+    """
+    pixel = (pixel_sigma_px(box_width, box_height) if pixel_sigma is None else max(float(pixel_sigma), 0.1)) ** 2
     height = HEIGHT_SIGMA_M.get(height_source, HEIGHT_SIGMA_M["home"]) ** 2  # an unknown source is trusted least
     d_pixel, d_attitude, d_height = np.asarray(point.d_pixel), np.asarray(point.d_attitude), np.asarray(point.d_height)
     return pixel * d_pixel @ d_pixel.T + ATTITUDE_SIGMA_RAD**2 * d_attitude @ d_attitude.T + height * np.outer(d_height, d_height)
@@ -125,14 +129,16 @@ class Measurement:
     up_m: float = 0.0  # height of the plane it was projected onto, in the local frame
 
 
-def measurement_from_point(class_id: str, point: Any, box_width: float, box_height: float, score: float, height_source: Optional[str] = None) -> Measurement:
+def measurement_from_point(
+    class_id: str, point: Any, box_width: float, box_height: float, score: float, height_source: Optional[str] = None, pixel_sigma_px: Optional[float] = None
+) -> Measurement:
     """The measurement for a detection that projection v2 put at `point`."""
     source = height_source if height_source is not None else getattr(point, "height_source", "")
     return Measurement(
         class_id=class_id,
         east_m=float(point.east_m),
         north_m=float(point.north_m),
-        covariance=measurement_noise(point, box_width, box_height, source),
+        covariance=measurement_noise(point, box_width, box_height, source, pixel_sigma_px),
         score=float(score),
         up_m=float(point.up_m),
     )
@@ -206,7 +212,10 @@ class _Track:
             self.recent_hits.clear()
         if stamp_ns >= self.last_hit_ns:
             self.last_hit_ns = stamp_ns
-        self.recent_hits.append(stamp_ns)
+        if stamp_ns not in self.recent_hits:
+            # A frame counts once toward confirming, however many detectors saw the target in it: two
+            # detectors working on the same pixels are one sighting, not two.
+            self.recent_hits.append(stamp_ns)
         if self.state == COASTING:
             self.state = CONFIRMED
         elif self.state == TENTATIVE and len(self.recent_hits) == CONFIRM_HITS:

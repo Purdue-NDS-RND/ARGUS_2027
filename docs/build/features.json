@@ -461,9 +461,9 @@
       "land": "L10",
       "proven_in": "Sim, Bench",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_ring_fit.py + test_ring_fit_node.py -> 35 passed, test_estimator_feed.py + test_executor_target_estimator.py -> 30 passed, test_ring_fit_try.py -> 5 passed; sim/run_scenarios.sh drop/hold_2m_ring_fit --variants on -> OK, hold error p95 0.200 m, no lost track, rings found in 1100 of 1391 frames; docs/results/2026-11-20-ring-fit.md. Left for the lead: the bench check with the printed target and the Jetson timing (tools/ring_fit_try.py; PROGRESS.md, Needs a person), and the node in the aircraft's launch and params (PLT-07)",
       "blocked_reason": ""
     },
     {

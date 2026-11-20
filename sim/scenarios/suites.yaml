@@ -35,6 +35,7 @@ nightly:
     - drop/hold_6m_strong
     - drop/hold_2m_moderate
     - drop/hold_2m_strong
+    - drop/hold_2m_ring_fit
     - drop/release
     - drop/release_wind
     - waypoint_navigation/site_circuit

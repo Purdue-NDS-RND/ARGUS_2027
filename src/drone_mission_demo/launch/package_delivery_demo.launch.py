@@ -55,6 +55,16 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # The near-field ring fit (CEN-13): a 2027 node, started only when asked for.
+    ring_fit_node = Node(
+        package="drone_target_cv",
+        executable="ring_fit",
+        name="ring_fit",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("ring_fit")),
+        parameters=[params],
+    )
+
     session_logger_node = Node(
         package="drone_utils",
         executable="session_logger",
@@ -97,9 +107,15 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="true",
                 description="Start the mission session logger",
             ),
+            DeclareLaunchArgument(
+                "ring_fit",
+                default_value="false",
+                description="Start the near-field ring fit node (its features.ring_fit flag must be on as well)",
+            ),
             takeoff_service_node,
             target_cv_node,
             executor_node,
             session_logger_node,
+            ring_fit_node,
         ]
     )

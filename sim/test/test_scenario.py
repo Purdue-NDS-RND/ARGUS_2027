@@ -373,6 +373,26 @@ def test_node_flags_are_checked_against_the_shipped_params_and_set_in_the_copy(t
 # --- config overrides ---------------------------------------------------------------------
 
 
+def test_a_node_that_exists_only_for_its_flag_is_started_only_when_the_flag_is_on(tmp_path):
+    """The ring fit (CEN-13) is a node of its own: the 2026 launch does not start it, and a scenario's flag does."""
+    scenario = SCENARIOS / "drop" / "hold_2m_ring_fit.yaml"
+    on = read(build_run(scenario, tmp_path / "on", variant="on"), "scenario.json")
+    off = read(build_run(scenario, tmp_path / "off", variant="off"), "scenario.json")
+    assert on["launch"]["arguments"]["ring_fit"] == "true" and "ring_fit" not in off["launch"]["arguments"]
+    assert read(tmp_path / "on", "params.yaml")["ring_fit"]["ros__parameters"]["features"]["ring_fit"] is True
+    assert read(tmp_path / "off", "params.yaml")["ring_fit"]["ros__parameters"]["features"]["ring_fit"] is False
+    assert on["flags"]["use_ring_fit"] is True
+    # A scenario that does not ask for it never passes the argument, flags on or not.
+    plain = read(build_run(SCENARIOS / "drop" / "hold_2m.yaml", tmp_path / "plain", variant="on"), "scenario.json")
+    assert "ring_fit" not in plain["launch"]["arguments"]
+    for launch in ("package_drop_demo.launch.py", "package_delivery_demo.launch.py"):
+        text = (ROOT / "src" / "drone_mission_demo" / "launch" / launch).read_text()
+        import re
+
+        assert re.search(r'DeclareLaunchArgument\(\s*"ring_fit",\s*default_value="false"', text)  # off unless asked for
+        assert 'condition=IfCondition(LaunchConfiguration("ring_fit"))' in text
+
+
 def test_config_overrides_change_the_named_mission_only(tmp_path):
     path = scenario_file(tmp_path, config={"package_delivery": {"delivery_dwell_s": 2.0}})
     built = missions(read(build_run(path, tmp_path / "run"), "sequence.yaml"))

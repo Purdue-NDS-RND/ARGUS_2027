@@ -123,6 +123,30 @@ def test_the_estimator_needs_the_pose_history(executor_module, monkeypatch, wiri
         start(executor_module, monkeypatch, feature_overrides="use_target_estimator")
 
 
+def test_the_ring_fit_is_listened_to_only_with_its_flag_and_with_its_own_noise(executor_module, monkeypatch, wiring):
+    from drone_mission_core.features import FLAG_REQUIRES
+
+    assert FLAG_REQUIRES["use_ring_fit"] == ("use_target_estimator",)
+    ring_fit_topic = "/perception/ring_fit/detections"
+    plain = start(executor_module, monkeypatch, feature_overrides=FLAGS)
+    assert plain._target_estimator is not None and wiring.callbacks(ring_fit_topic) == []
+    node = start(executor_module, monkeypatch, feature_overrides=FLAGS + ",use_ring_fit")
+    assert len(wiring.callbacks(ring_fit_topic)) == 1
+    feed = node._target_estimator
+    taken = []
+    original = feed.add_detections
+    feed.add_detections = lambda found, image_size=None, pixel_sigma_px=None: taken.append((image_size, pixel_sigma_px)) or original(found, image_size, pixel_sigma_px)
+    wiring.callbacks(ring_fit_topic)[0](contract_message(BASE + 100 * MS, (320.0, 180.0)))
+    assert taken == [(None, 2.0)]  # no image size to wait for (it is on the contract), and the ring fit's 2 px
+    with pytest.raises(ValueError, match="use_ring_fit requires use_target_estimator"):
+        start(executor_module, monkeypatch, feature_overrides="use_frame_time_pose,use_ring_fit")
+    # The flag is the only way in: a detectors parameter that names the ring fit does not get it past a flag that is off.
+    before = len(wiring.callbacks(ring_fit_topic))
+    listed = start(executor_module, monkeypatch, feature_overrides=FLAGS, estimator_detectors=["target_cv", "ring_fit"])
+    assert listed._target_estimator is not None and len(wiring.callbacks(ring_fit_topic)) == before
+    assert len(wiring.callbacks(CONTRACT_TOPIC)) >= 1
+
+
 def test_flag_on_runs_the_estimator_in_the_executor_from_the_contract_topic_to_the_targets_topic(executor_module, monkeypatch, wiring):
     node = start(executor_module, monkeypatch, feature_overrides=FLAGS)
     feed = node._target_estimator

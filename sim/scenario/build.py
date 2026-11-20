@@ -59,6 +59,9 @@ SITES_DIR = SIM_DIR / "sites"
 BASE_WORLD = SIM_DIR / "worlds" / "argus_runway.sdf"
 RUNS_DIR = SIM_DIR / ".state" / "runs"
 FALLBACK_LAUNCH = "multi_mission_demo.launch.py"
+# Nodes the demo launches start only on a launch argument of their own name, which a scenario gives by turning
+# the node's flag of the same name on: `node_flags: {ring_fit: {ring_fit: true}}`.
+FLAG_STARTED_NODES = ("ring_fit",)
 
 # Height of the surface an object stands on when it is placed on top of another.
 SURFACE_HEIGHT_M = {"x_mat": 0.03, "bullseye": 0.04, "marker": 0.02}
@@ -466,6 +469,11 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     launch_arguments = {"sequence": str(run_dir / "sequence.yaml"), "params": str(run_dir / "params.yaml")}
     if sim_time:
         launch_arguments["use_sim_time"] = "true"
+    if flags_on:
+        # A node that exists only for its flag is not in the 2026 launch: the launch starts it when asked to.
+        for node in FLAG_STARTED_NODES:
+            if (scenario.node_flags.get(node) or {}).get(node) is True:
+                launch_arguments[node] = "true"
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,

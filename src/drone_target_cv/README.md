@@ -7,6 +7,16 @@ Current nodes:
 - `target_cv`
 - `usb_grabber`
 - `mipi_grabber`
+- `ring_fit` (2027, behind `features.ring_fit`, default false): the near-field bullseye
+  centre finder (`ring_fit.py`, CEN-13). Below `max_height_m` (4 m) it fits the target's
+  red and white rings in each frame and publishes the centre as a `bullseye` on
+  `/perception/ring_fit/detections`. It takes images with a queue of one, and levels each
+  frame with the vehicle's attitude (`/mavros/local_position/pose`) and the camera's
+  calibration and mount (`camera_mode` and `airframe`, read as the estimator reads them),
+  so a tilted vehicle's view of the rings is fitted as circles. A frame with no pose
+  within 0.1 s of its stamp, or of another size than the calibrated mode's, is not used. The demo
+  launches start it only with `ring_fit:=true`. Try it on a saved frame with
+  `python3 tools/ring_fit_try.py --image <frame>`.
 
 These were split from `vision_pipeline` so mission-demo launch files can depend
 on a narrower CV package while the older vision stack remains available during
