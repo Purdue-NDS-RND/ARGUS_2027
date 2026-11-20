@@ -16,6 +16,7 @@ from drone_mission_core.features import get_feature_flag
 from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.mission_context import MissionContext
+from drone_mission_core.reacquire import REACQUIRE_FLAG
 from drone_mission_core.time_guard import (
     DEFAULT_HOLD_TIMEOUT_S,
     TIME_HEALTH_FLAG,
@@ -106,6 +107,17 @@ class RedBullseyeMissionBase(BaseMission):
             self._estimator_centring = EstimatorCentring(
                 frame_projection.payload_offset_from_config(spec.config, spec.name)
             )
+        # Smart re-acquisition (CEN-06), only with the smart_reacquire flag on:
+        # a lost track is looked for from the height that shows three sigma
+        # of it and a margin, in place of the 2026 one-metre climb.
+        self._smart_reacquire = None
+        if get_feature_flag(spec.features, REACQUIRE_FLAG):
+            from drone_mission_core.reacquire import half_footprint_per_m
+
+            from .smart_reacquire import SmartReacquire
+
+            camera = None if self._frame_camera is None else self._frame_camera[0]
+            self._smart_reacquire = SmartReacquire(self, half_footprint_per_m(camera))
         # The retuned controller (CEN-02), only with the centring_retune flag
         # on: soft deadband, Kp, a speed cap that follows the height above the
         # ground, and a slew limit, in place of the 2026 gain and speed cap.
@@ -583,6 +595,10 @@ class RedBullseyeMissionBase(BaseMission):
         )
 
     def _target_loss_grace_expired(self, context: MissionContext) -> bool:
+        if self._smart_reacquire is not None and self._smart_reacquire.track_is_lost(context):
+            # smart_reacquire: the estimator has called the track LOST after
+            # its own two seconds, and that is the grace.
+            return True
         if self._target_loss_start is None:
             self._target_loss_start = context.now()
             context.logger.warn(
@@ -623,6 +639,13 @@ class RedBullseyeMissionBase(BaseMission):
                 f"{self._time_guard_hold_timeout_s:.1f} s; giving up the target recovery"
             )
             return RecoveryCommandResult(failed=True, reached_altitude=False)
+
+        if self._smart_reacquire is not None:
+            # smart_reacquire (CEN-06): None when there is no estimate to look
+            # round, and then the 2026 recovery below is flown.
+            smart = self._smart_reacquire.update(context)
+            if smart is not None:
+                return smart
 
         if self._recovery_target_altitude is None or self._recovery_hold_position is None:
             if self._recovery_attempts >= self._max_recovery_attempts:

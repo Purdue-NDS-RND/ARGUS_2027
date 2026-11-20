@@ -265,6 +265,19 @@ still the `DROP_PAYLOAD` state and `fake_drop` still decides whether the actuato
 commanded. While the release command cannot be sent the mission stays on the gates,
 steering; a command that fails is sent again only after the gates have held again.
 
+`smart_reacquire` (declared, off, in the eight sequences that fly a drop or a delivery;
+needs `use_target_estimator` and `centre_on_estimator`) replaces the 2026 recovery climb
+(`reacquire.py`, and `smart_reacquire.py` in `drone_mission_demo`, CEN-06). When the track
+the mission was flying to is LOST, the mission does not wait its own
+`target_loss_grace_s`: it goes to the height (3 sigma + 2.5 m) / k over the track's last
+estimate, where k is half the camera footprint's short side per metre of height (0.463
+for the drop camera mode; taken from the mission's calibrated camera), never lower than it
+is and never over `max_recovery_altitude_m`. From arriving there (within
+`recovery_alt_tolerance_m` and 1 m of the estimate) it holds up to 10 s for the class's
+primary track to be CONFIRMED and freshly hit, then goes to ACQUIRE_TARGET as in 2026;
+otherwise the mission fails and its failure policy acts. Each look is one of
+`max_recovery_attempts`. A mission that never had a track flies the 2026 recovery.
+
 `delivery_soft_set_down` (declared, off, in the four sequences that fly a delivery; needs
 `use_target_estimator`, `centre_on_estimator` and `use_height_estimator`) replaces the
 delivery's fixed GPS column with FINAL_SET_DOWN (`set_down.py`, and `delivery_set_down.py`

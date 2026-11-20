@@ -36,6 +36,8 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     # The delivery's soft set-down (CEN-05) comes down on the estimator's track through the centring, and its
     # contact rule reads the rangefinder the height estimator keeps.
     "delivery_soft_set_down": ("use_target_estimator", "centre_on_estimator", "use_height_estimator"),
+    # Smart re-acquisition (CEN-06) climbs by the lost track's uncertainty, over where the centring last had it.
+    "smart_reacquire": ("use_target_estimator", "centre_on_estimator"),
     # Centring on the estimator (CEN-01) steers on its track of the target.
     "centre_on_estimator": ("use_target_estimator",),
     # The retuned centring controller (CEN-02) is fed the estimator's error.

@@ -1,0 +1,39 @@
+# Smart re-acquisition (CEN-06), on the gated drop's lost track.
+# As drop/gated_track_loss: a 2.8 m bullseye and no ring fit, so the box
+# detector's box is cut at about 3 m and the track is lost above the release
+# band. There, with the 2026 recovery, the mission waits 4 s and climbs a
+# metre. Here `smart_reacquire` is on. What must be seen, each time the track
+# is LOST: no second grace time; a climb to (3 sigma + 2.5 m) / 0.463, about
+# 5.5 m, over the track's last estimate; "CONFIRMED again" within the 10 s;
+# then the mission's own acquisition and the descent again. The target cannot
+# be kept below 3 m, so the fourth look is the last attempt, the mission
+# fails with nothing released, and the sequence moves on.
+description: A target lost at 3 m is looked for from the height that shows three sigma of its track and 2.5 m, and confirmed again each time.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  drop_release_gates: true
+  smart_reacquire: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 2.8
+    rings: 6
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

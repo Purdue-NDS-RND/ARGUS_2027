@@ -517,9 +517,9 @@
       "land": "L10",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_smart_reacquire.py 18 passed, test_reacquire.py 11 passed; sim drop/reacquire on: four losses at 2.9 m, each looked for at once from 5.9 m above the ground over the last estimate, CONFIRMED again on arriving, then the attempt limit and FAILURE to the policy: OK; docs/results/2026-11-20-smart-reacquire.md; flight-guardian no blocker (one concern for the lead: the survey's 7.62 m), spec-auditor complete (round 2)",
       "blocked_reason": ""
     },
     {

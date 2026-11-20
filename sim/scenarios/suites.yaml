@@ -44,6 +44,7 @@ nightly:
     - drop/gated_track_loss
     - drop/gated_timeout
     - drop/gated_floor
+    - drop/reacquire
     - waypoint_navigation/site_circuit
     - geofence/breach
   seeds: [1, 2, 3]
