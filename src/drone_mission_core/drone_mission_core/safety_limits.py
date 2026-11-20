@@ -154,6 +154,9 @@ def check_mission(spec: Any) -> List[str]:
     starts its drop: the configured altitude minus its tolerance. The mission
     releases after a hover with no further height check, so a passing
     configuration is necessary for a legal drop, not proof of one.
+
+    For any mission that names a `survey_height_m` (the localisation survey,
+    LOC-1) it is that height against the survey's floor.
     """
     problems: List[str] = []
     config = spec.config or {}
@@ -171,6 +174,15 @@ def check_mission(spec: Any) -> List[str]:
                     f"{spec.name} ({spec.type_name}): drop_altitude_m {float(altitude):.2f} minus its tolerance {abs(float(tolerance)):.2f} "
                     f"allows a release at {lowest:.2f} m, below the {DROP_MIN_RELEASE_HEIGHT_M:.2f} m (6 ft) rule"
                 )
+    if "survey_height_m" in config:
+        # Any mission that names a survey height (LOC-1): never under the survey's floor.
+        height = config["survey_height_m"]
+        if not _is_number(height):
+            problems.append(f"{spec.name} ({spec.type_name}): survey_height_m is {height!r}, not a number")
+        elif float(height) < SURVEY_MIN_HEIGHT_M - 1.0e-9:
+            problems.append(
+                f"{spec.name} ({spec.type_name}): survey_height_m {float(height):.2f} is below the {SURVEY_MIN_HEIGHT_M:.2f} m (25 ft) rule for a survey"
+            )
     return problems
 
 

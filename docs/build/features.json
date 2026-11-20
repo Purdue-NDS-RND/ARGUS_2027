@@ -572,9 +572,9 @@
       "land": "L12",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "test_survey_height.py 21 passed, test_safety_limits.py (survey height in the start-up check) passed; CHECK_STRICT=1 scripts/check.sh -> OK. Unit half only: the Sim half, the flag and the wiring are owed by LOC-3's search_pattern mission (PROGRESS.md Decisions, row 'LOC-1, LOC-3': a flag-on test through context.height_agl(), a sim dip under 8.22 m that climbs back and one under 7.77 m that ends the survey). spec-auditor round 2 was INCOMPLETE on a watching gate that was then removed; that removal has not been re-audited",
       "blocked_reason": ""
     },
     {

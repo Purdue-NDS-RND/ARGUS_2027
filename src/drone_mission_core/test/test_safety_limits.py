@@ -280,3 +280,13 @@ def test_violations_are_only_enforced_when_the_flag_is_on():
 def test_every_mission_sequence_declares_the_flag_off(path):
     for item in load_sequence_file(str(path)):
         assert item.features.get("enforce_safety_limits") is False
+
+
+def test_a_survey_height_under_the_rules_floor_is_caught_when_the_sequence_is_checked():
+    """LOC-1: any mission that names a `survey_height_m` has it held to the 25 ft floor at start-up, whatever its type."""
+    assert limits.check_mission(spec("search_pattern", survey_height_m=10.668)) == []
+    assert limits.check_mission(spec("search_pattern")) == []  # none named: the mission's default, which is above the floor
+    low = limits.check_mission(spec("search_pattern", survey_height_m=7.5))
+    assert len(low) == 1 and "survey_height_m 7.50" in low[0] and "7.62 m (25 ft)" in low[0]
+    assert len(limits.check_mission(spec("search_pattern", survey_height_m="high"))) == 1
+    assert limits.check_mission(spec("search_pattern", survey_height_m=7.62)) == []  # the floor itself is not under it
