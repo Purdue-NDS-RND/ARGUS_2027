@@ -215,10 +215,22 @@ def build_report(
         # shows which of them the tracks carried.
         if median_wanted and last.get("track_positions") != "median":
             problems.append(f"the scenario asks for tracks at the weighted median of their sightings, and the node says it reports '{last.get('track_positions')}'")
+    # The digit reader, the vote and the judges' list say for themselves when they could not run (LOC-6, LOC-8, LOC-10).
+    digits, listing = last.get("digits") or {}, last.get("list") or {}
+    if digits.get("error"):
+        problems.append(f"the digit reader was asked for and did not run: {digits['error']}")
+    if (digits.get("vote") or {}).get("faults"):
+        problems.append(f"the digit vote faulted {digits['vote']['faults']} time(s): {digits['vote'].get('fault') or 'no reason kept'}")
+    if listing.get("error"):
+        problems.append(f"the judges' list was asked for and was not kept: {listing['error']}")
+    elif listing and not listing.get("statustexts"):
+        problems.append(f"the judges' list's count never went to the ground station as a STATUSTEXT: {listing.get('statustext_error') or 'none was sent'}")
     return {
         "passed": not problems,
         "problems": problems,
         "tracks": track_verdict,
+        "digits": last.get("digits"),  # the reader's counts and the vote's, as the node last gave them; None with the reader off
+        "list": last.get("list"),  # the judges' list's rows, unread markers and writes; None with the list off
         "track_positions": last.get("track_positions"),
         "started": started,
         "stopped": stopped,

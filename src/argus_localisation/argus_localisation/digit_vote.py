@@ -212,6 +212,10 @@ class DigitVotes:
             self.last_solve_ms = (time.perf_counter() - started) * 1000.0
         return dict(self._answer[1])
 
+    def settle(self) -> None:
+        """The next answer is worked out afresh, whatever the period: for the end of a survey, when the list is closed."""
+        self._solved_at = None
+
     def contested(self) -> List[int]:
         """Tracks whose own votes are sure of a digit that the last assignment could not give them."""
         return [] if self._answer is None else list(self._answer[2])

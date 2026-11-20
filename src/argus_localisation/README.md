@@ -14,6 +14,7 @@ Everything here is behind node flags that default to false. As shipped, the node
 | `survey_frame_log` | Every frame of the survey is logged as JPEG under `frame_log_dir`, giving way to the detector. |
 | `digit_reader` | The digit of every marker crop is read, or the reader abstains. |
 | `digit_vote` | A track's digit is the weighted vote of its readings, one digit to one track (needs `marker_tracker` and `digit_reader`). |
+| `judges_list` | The judges' list (`ID,Latitude,Longitude`), a KML and a map are written in `judges_list_dir` as the tracks change (needs `marker_tracker`). |
 | `template_digit_classifier` | The reader's stand-in classifier for the sim's marker model (needs `digit_reader`; sim only). Not a trained model. |
 
 ## Per frame
@@ -45,6 +46,10 @@ The pipeline is off until `/loc/set_enabled` (std_srvs/SetBool) starts it; the s
 ## The vote
 
 `digit_vote.py` (LOC-8) turns a track's readings into its digit. Each reading adds its ten log-probabilities to its track's, weighted by the marker's size in the crop, the patch's sharpness, how nearly overhead it was seen and the detector's confidence. A track has a digit when its best score beats "nothing can be said" and its second best by odds of 9 to 1. With `digit_ids_unique` (the default) the digits are given out by one assignment over tracks and digits, so of two tracks claiming a digit the one with the evidence has it; claims the evidence does not separate are left unknown. Only listed tracks (confirmed markers inside the search area) take part. The digit and the summed log-probabilities go out on `/loc/tracks` (`digit`, `digit_log_prob`), and `/loc/status` has `digits.vote`.
+
+## The judges' list
+
+`judges_list.py` (LOC-10) writes the mission's result during the flight, so that it exists before the vehicle lands. A row is a listed track with a digit, at the track's reported position, as latitude and longitude to seven decimal places; a listed track with no digit yet is counted as unread and is not a row. The local frame is placed on the earth from the vehicle's own GPS fixes, each paired with the local position of its moment (the median of the pairs). `judges_list.csv`, `judges_list.kml` and `judges_list.png` are each replaced whole (a temporary file beside it, synced, renamed), at most once a second on a thread of the list's own and at once when the pipeline stops. The count goes to the ground station as a STATUSTEXT, and `/loc/status` has `list`.
 
 ## Logging the survey's frames
 

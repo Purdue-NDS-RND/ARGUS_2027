@@ -277,3 +277,18 @@ def test_the_assignment_is_over_the_twenty_strongest_claims():
         votes.add(track, reading(track % 10, 0.9), 0.5)
     digits = votes.digits()
     assert [digits[track] for track in range(1, 11)] == [track % 10 for track in range(1, 11)] and all(digits[track] == dv.UNKNOWN for track in range(11, 36))
+
+
+def test_settling_the_votes_has_the_next_answer_worked_out_afresh_within_the_period():
+    """For the end of a survey, when the judges' list is closed: the digits as the votes now stand, not as they stood half a second ago."""
+    now = [10.0]
+    votes = dv.DigitVotes(solve_period_s=0.5, clock=lambda: now[0])
+    for _ in range(5):
+        votes.add(1, reading(2), 0.9)
+    assert votes.digits(only=[1]) == {1: 2}
+    for _ in range(40):
+        votes.add(1, reading(8), 0.9)
+    now[0] = 10.1
+    assert votes.digits(only=[1]) == {1: 2}  # within the period
+    votes.settle()
+    assert votes.digits(only=[1]) == {1: 8} and votes.solves == 2

@@ -102,7 +102,7 @@ def test_the_scenario_hands_the_oracle_the_true_objects_and_starts_the_node(tmp_
     assert manifest["launch"]["file"] == "search_pattern_demo.launch.py" and manifest["launch"]["arguments"]["loc_node"] == "true"
     assert manifest["truth_poses"] is True
     settings = yaml.safe_load((run / "params.yaml").read_text())["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True, "loc_median_position": True, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False}
+    assert settings["features"] == {"loc_node": True, "sim_oracle_detector": True, "loc_tiling": False, "marker_tracker": True, "loc_median_position": True, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False, "judges_list": False}
     assert settings["oracle_objects_file"] == str(run / "oracle_objects.json") and settings["sim_only"] is True and settings["oracle_seed"] == 1
     objects = json.loads((run / "oracle_objects.json").read_text())
     assert objects["vehicle"] == manifest["vehicle"]["model"]
@@ -186,3 +186,48 @@ def test_a_scenario_that_asks_for_the_median_position_is_failed_if_the_node_says
     silent = loc_check.build_report(a_survey(track_positions="filter"), boxes(), {"marker"}, **asked)
     assert not silent["passed"] and any("weighted median" in problem for problem in silent["problems"])
     assert any("median" in line for line in loc_check.summary_lines(told))
+
+
+def test_the_list_scenario_has_the_node_write_its_list_in_the_run_folder_where_the_runner_watches(tmp_path):
+    """LOC-10: the scenario scored by the localisation judge. Its list goes where the runner's capture looks."""
+    import yaml
+
+    listing = SIM / "scenarios" / "localisation" / "survey_list.yaml"
+    run = build_run(listing, tmp_path / "run", variant="on")
+    manifest = json.loads((run / "scenario.json").read_text())
+    settings = yaml.safe_load((run / "params.yaml").read_text())["loc_node"]["ros__parameters"]
+    assert manifest["mission"] == "localisation" and manifest["list_file"] == str(run / "list" / "judges_list.csv")
+    assert settings["judges_list_dir"] == str(run / "list") and (run / "list").parent.is_dir()
+    on = {name for name, value in settings["features"].items() if value is True}
+    assert on == {"loc_node", "sim_oracle_detector", "marker_tracker", "loc_median_position", "digit_reader", "template_digit_classifier", "digit_vote", "judges_list"}
+    assert "LOC list: 3 markers" in manifest["expect_log"]
+    truth = json.loads((run / "truth.json").read_text())
+    assert sorted(marker["id"] for marker in truth["markers"]) == [1, 3, 7, 9] and truth["survey_area"] == [[20.0, 10.0], [80.0, 10.0], [80.0, 50.0], [20.0, 50.0]]
+    # The judge can score the run's truth: a list with the three markers inside the area, each where it is.
+    sys.path.insert(0, str(SIM))
+    from judge.geometry import point_in_polygon
+
+    assert [point_in_polygon(marker["e"], marker["n"], truth["survey_area"]) for marker in sorted(truth["markers"], key=lambda item: item["id"])] == [True, True, True, False]
+    # Flags off: nothing writes a list, and the runner has none to watch for.
+    off = build_run(listing, tmp_path / "off", variant="off")
+    assert json.loads((off / "scenario.json").read_text())["list_file"] is None
+    assert yaml.safe_load((off / "params.yaml").read_text())["loc_node"]["ros__parameters"]["judges_list_dir"] == ""
+    # The survey pipeline's scenario, which keeps no list, is as it was.
+    assert json.loads((build_run(SURVEY, tmp_path / "plain", variant="on") / "scenario.json").read_text())["list_file"] is None
+
+
+def test_the_readers_the_votes_and_the_lists_own_word_is_kept_and_their_failures_fail_the_flight():
+    digits = {"read": 80, "abstained": 30, "skipped": 0, "faults": 0, "last_ms": 2.1, "classifier": "template (stand-in)", "vote": {"tracks": 4, "decided": {"1": 3}, "contested": [], "faults": 0, "fault": ""}}
+    listing = {"rows": 3, "unread": 0, "written": 40, "file": "judges_list.csv", "origin_fixes": 400, "error": "", "statustexts": 6, "statustext_error": ""}
+    good = loc_check.build_report(a_survey(digits=digits, list=listing), boxes(), {"marker"})
+    assert good["passed"] and good["digits"]["read"] == 80 and good["list"]["rows"] == 3
+    plain = loc_check.build_report(a_survey(), boxes(), {"marker"})
+    assert plain["passed"] and plain["digits"] is None and plain["list"] is None
+    for status, said in (
+        ({"digits": {"error": "the digit reader needs digit_model_path"}}, "the digit reader was asked for and did not run"),
+        ({"digits": {**digits, "vote": {**digits["vote"], "faults": 2, "fault": "RuntimeError: x"}}}, "the digit vote faulted 2 time(s)"),
+        ({"list": {**listing, "error": "the judges' list could not be written"}}, "the judges' list was asked for and was not kept"),
+        ({"list": {**listing, "statustexts": 0, "statustext_error": "No module named 'mavros_msgs'"}}, "never went to the ground station as a STATUSTEXT: No module named"),
+    ):
+        report = loc_check.build_report(a_survey(**status), boxes(), {"marker"})
+        assert not report["passed"] and any(said in problem for problem in report["problems"]), status

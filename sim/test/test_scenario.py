@@ -647,7 +647,7 @@ def test_a_survey_scenario_gives_the_mission_its_area_and_the_judge_the_track_en
     site = site_file.load_site(SIM / "sites" / "apollo_xi.yaml")
     for (latitude, longitude), corner in zip(config["search_area"], scenario.survey["area"]):
         assert site.to_enu(latitude, longitude) == pytest.approx((corner["east_m"], corner["north_m"]), abs=0.05)
-    assert truth["survey_area"] == [{"e": c["east_m"], "n": c["north_m"]} for c in scenario.survey["area"]]
+    assert truth["survey_area"] == [[c["east_m"], c["north_m"]] for c in scenario.survey["area"]]  # the form the localisation judge reads
     assert [w["name"] for w in truth["waypoints"]] == [p["name"] for p in scenario.waypoints["points"]] and not (run / "waypoints.yaml").exists()
     assert sequence["features"]["survey_search"] is True
     off = yaml.safe_load((build_run(path, tmp_path / "off", variant="off") / "sequence.yaml").read_text())["mission_sequence"]

@@ -101,7 +101,7 @@ def node_with(monkeypatch, **parameters):
     qos = types.SimpleNamespace(QoSProfile=QoSProfile, HistoryPolicy=types.SimpleNamespace(KEEP_LAST="keep_last"), ReliabilityPolicy=types.SimpleNamespace(BEST_EFFORT="best_effort"), qos_profile_sensor_data="sensor_data")
     monkeypatch.setitem(sys.modules, "rclpy.qos", qos)
     monkeypatch.setitem(sys.modules, "geometry_msgs.msg", types.SimpleNamespace(PoseStamped=object, TwistStamped=object))
-    monkeypatch.setitem(sys.modules, "sensor_msgs.msg", types.SimpleNamespace(Image=object, Range=object))
+    monkeypatch.setitem(sys.modules, "sensor_msgs.msg", types.SimpleNamespace(Image=object, Range=object, NavSatFix=object))
     monkeypatch.setitem(sys.modules, "std_msgs", types.SimpleNamespace(msg=types.SimpleNamespace(String=String)))
     monkeypatch.setitem(sys.modules, "std_msgs.msg", types.SimpleNamespace(String=String))
     monkeypatch.setitem(sys.modules, "std_srvs.srv", types.SimpleNamespace(SetBool=object))
@@ -354,7 +354,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False, "judges_list": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -809,3 +809,98 @@ def test_the_vote_is_behind_its_flag_and_a_tracks_digit_goes_out_with_the_track(
         short = fly(frames=1, **missing, **{"features.digit_vote": True})
         assert short.runtime is not None and short.runtime.pipeline.digit_votes is None and needs in short.logger.error.call_args[0][0]
         assert len(short.publishers["/loc/detections"].sent) == 1
+
+
+def test_the_judges_list_is_behind_its_flag_and_is_written_as_the_tracks_get_their_digits(ros, tmp_path):
+    """LOC-10 through the node: four frames of a drawn 7, GPS fixes beside the poses, and the list on the disk."""
+    sys.path.insert(0, str(SRC.parent / "tools"))
+    import synth_targets
+
+    from argus_localisation import judges_list as jl
+
+    with_vision_msgs(ros)
+    options = synth_targets.RenderOptions(width=1280, height=720, mpp=0.0045, rotation_deg=25.0, background="noise", supersample=2)
+    picture, _drawn = synth_targets.render(synth_targets.SurveyMarker(digit=7), options, seed=3)
+    home = (40.4237000, -86.9212000)
+
+    class Boxer(Model):
+        def __call__(self, image, conf, verbose):
+            box = types.SimpleNamespace(xyxy=[[640.0 - 95.0, 360.0 - 95.0, 640.0 + 95.0, 360.0 + 95.0]], conf=[0.9], cls=[0])
+            return [types.SimpleNamespace(boxes=[box])]
+
+    class StatusText:
+        def __init__(self):
+            self.severity, self.text = 0, ""
+
+    def fix(ns, east, north, status=0):
+        latitude, longitude = jl.local_to_latlon(east, north, *home)
+        return types.SimpleNamespace(header=types.SimpleNamespace(stamp=stamp(ns)), status=types.SimpleNamespace(status=status), latitude=latitude, longitude=longitude)
+
+    def fly(frames=4, fixes=True, **flags):
+        file = tmp_path / "yolo.engine"
+        file.write_bytes(b"stand-in")
+        ros.setitem(sys.modules, "ultralytics", types.SimpleNamespace(YOLO=lambda path, task: Boxer()))
+        ros.setitem(sys.modules, "mavros_msgs", types.SimpleNamespace(msg=types.SimpleNamespace(StatusText=StatusText)))
+        ros.setitem(sys.modules, "mavros_msgs.msg", types.SimpleNamespace(StatusText=StatusText))
+        settings = {"camera_mode": "sim_survey", "airframe": "sim_iris_downcam", "detector": "engine", "engine_path": str(file), "sim_only": True, "use_sim_time": True}
+        node = node_with(ros, **{**settings, "features.loc_node": True, "start_enabled": True, **flags})
+        for frame in range(frames):
+            ns = T0 + frame * 100_000_000
+            for index in range(-3, 1):
+                node.subscriptions[POSE_TOPIC](pose(ns + index * 33_000_000, east=30.0, north=12.0))
+                if fixes and "/mavros/global_position/global" in node.subscriptions:
+                    node.subscriptions["/mavros/global_position/global"](fix(ns + index * 33_000_000, 30.0, 12.0))
+            RecordingNode.now_ns = ns + 10_000_000
+            message = image(ns)
+            message.data = picture.tobytes()
+            node.subscriptions[IMAGE_TOPIC](message)
+            tick(node)
+        return node
+
+    everything = {"features.marker_tracker": True, "features.digit_reader": True, "features.template_digit_classifier": True, "features.digit_vote": True}
+    plain = fly(**everything, judges_list_dir=str(tmp_path / "unused"))
+    assert plain._list_writer is None and "list" not in status_of(plain) and not (tmp_path / "unused").exists()
+    assert "/mavros/global_position/global" not in plain.subscriptions and "/mavros/statustext/send" not in plain.publishers
+    folder = tmp_path / "list"
+    node = fly(**everything, **{"features.judges_list": True, "judges_list_dir": str(folder)})
+    assert node.logger.error.call_args is None
+    node._list_writer.stop(wait_s=5.0)  # (the writer has its own thread; the test waits for it)
+    rows = (folder / "judges_list.csv").read_text().splitlines()
+    assert rows[0] == "ID,Latitude,Longitude" and len(rows) == 2 and rows[1].startswith("7,")
+    from drone_mission_core.target_access import latlon_to_local_enu
+
+    track = node.publishers["/loc/tracks"].sent[-1].tracks[0]
+    _id, latitude, longitude = rows[1].split(",")
+    assert latlon_to_local_enu(float(latitude), float(longitude), home[0], home[1], 0.0, 0.0) == pytest.approx((track.position_enu.x, track.position_enu.y), abs=0.05)
+    assert (folder / "judges_list.kml").exists() and (folder / "judges_list.png").exists()
+    # The count went to the ground station as it changed: found and unread, then read.
+    # The count goes to the ground station when it changes, and no more often than every two seconds: the first at
+    # once, the next (0.2 s later here) when the period is up, by the status timer.
+    texts = lambda made: [(message.severity, message.text) for message in made.publishers["/mavros/statustext/send"].sent]  # noqa: E731
+    assert texts(node) == [(6, "LOC list: 0 markers")]
+    assert status_of(node)["list"]["statustexts"] == 1 and texts(node) == [(6, "LOC list: 0 markers")]  # still inside the period
+    RecordingNode.now_ns += 3 * S
+    listed = status_of(node)["list"]
+    assert texts(node) == [(6, "LOC list: 0 markers"), (6, "LOC list: 1 marker")] and (listed["statustexts"], listed["statustext_error"], listed["kept_earlier"]) == (2, "", "")
+    status_of(node)
+    assert len(texts(node)) == 2  # nothing new to say
+    assert (listed["rows"], listed["unread"], listed["error"], listed["file"]) == (1, 0, "", str(folder / "judges_list.csv")) and listed["written"] >= 1 and listed["origin_fixes"] == 16
+    # With no GPS fix there is no latitude to give: the marker is found, unread, and the list has its header alone.
+    blind = fly(fixes=False, **everything, **{"features.judges_list": True, "judges_list_dir": str(tmp_path / "blind")})
+    blind._list_writer.stop(wait_s=5.0)
+    assert (tmp_path / "blind" / "judges_list.csv").read_text() == "ID,Latitude,Longitude\n" and status_of(blind)["list"]["unread"] == 1
+    RecordingNode.now_ns += 3 * S
+    status_of(blind)
+    assert blind.publishers["/mavros/statustext/send"].sent[-1].text == "LOC list: 0 markers, 1 more unread"
+    # Stopping the pipeline writes the list as it finally stands.
+    closing = fly(frames=3, **everything, **{"features.judges_list": True, "judges_list_dir": str(tmp_path / "closing")})
+    set_enabled(closing, False)
+    closing._list_writer.stop(wait_s=5.0)
+    assert (tmp_path / "closing" / "judges_list.csv").read_text().splitlines()[1].startswith("7,")
+    # A list that cannot be kept (no folder given, no tracker, a parent that is not there) is said; the node runs on.
+    for wrong, why in (({"judges_list_dir": ""}, "judges_list_dir must be set"), ({"judges_list_dir": str(tmp_path / "no" / "such" / "list")}, "is not a folder that exists")):
+        short = fly(frames=1, **everything, **{"features.judges_list": True, **wrong})
+        assert short.runtime is not None and short._list_writer is None and why in short.logger.error.call_args[0][0] and why in status_of(short)["list"]["error"]
+        assert len(short.publishers["/loc/detections"].sent) == 1
+    alone = fly(frames=1, **{"features.judges_list": True, "judges_list_dir": str(folder)})
+    assert alone.runtime is not None and "needs features.marker_tracker" in alone.logger.error.call_args[0][0]

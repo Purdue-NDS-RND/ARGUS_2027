@@ -40,6 +40,7 @@ loc_node:  # The localisation node (LOC-5). Only started by a launch given loc_n
     digit_model_path: ""         # the trained digit classifier's ONNX file; with none the digit reader does not start, and the node runs without it
     digit_min_confidence: 0.9    # the digit reader answers only when its best digit has at least this probability; written with a decimal point
     digit_ids_unique: true       # the rules give each digit to one marker: two tracks claiming one digit are settled by one assignment over tracks and digits. False switches that step off.
+    judges_list_dir: ""          # the folder the judges' list is written in; its parent must exist
     frame_log_dir: ""            # the folder the survey's frames are logged under (a new folder each survey); it must exist: outside the repo, on the NVMe
     frame_log_workers: 3         # threads that encode the JPEGs (the Orin Nano has no hardware encoder); 1 or more, a whole number
     frame_log_jpeg_quality: 90   # JPEG quality of the logged frames; a whole number
@@ -55,3 +56,4 @@ loc_node:  # The localisation node (LOC-5). Only started by a launch given loc_n
       digit_reader: false          # Read the digit of every marker crop, or abstain (digit_reader.py, LOC-6).
       template_digit_classifier: false  # The digit reader's stand-in classifier for the sim's marker model; not a trained model. Needs digit_reader, sim time and sim_only.
       digit_vote: false            # A track's digit is the weighted vote of its readings, one digit to one track (digit_vote.py, LOC-8). Needs marker_tracker and digit_reader.
+      judges_list: false           # Write the judges' list (ID,Latitude,Longitude), a KML and a map in judges_list_dir as the tracks change (judges_list.py, LOC-10). Needs marker_tracker.

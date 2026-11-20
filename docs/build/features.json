@@ -730,9 +730,9 @@
       "land": "L14",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test sim/test/test_loc_check.py -> 189 passed; strict check OK; sim/run_scenarios.sh localisation/survey_list --seeds 1 --variants on -> OK, 3.75 points, 3 of 4 markers correct (the fourth outside the area by design), list before landing (docs/results/2026-11-20-judges-list.md)",
       "blocked_reason": ""
     },
     {

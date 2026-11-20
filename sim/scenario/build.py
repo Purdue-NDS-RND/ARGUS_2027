@@ -387,7 +387,7 @@ def build_sequence(scenario: Scenario, shipped: dict, objects: list[dict], site:
             if not point_in_polygon(east, north, site.boundary):
                 raise BuildError(f"survey: corner {index + 1} of the area is outside the flight boundary")
             corners.append(list(latlon_for(lat0, lon0, north, east)))
-            truth["survey_area"].append({"e": east, "n": north})
+            truth["survey_area"].append([east, north])  # as the site's own survey area is written: the judge reads either
         config["search_area"] = corners
         if scenario.survey.get("boundary", False):
             config["flight_boundary"] = [[latitude, longitude] for latitude, longitude in site.boundary_geo]
@@ -497,6 +497,12 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         oracle = oracle_objects(objects, profile["model"])
         params["loc_node"]["ros__parameters"]["oracle_objects_file"] = str(run_dir / "oracle_objects.json")
         params["loc_node"]["ros__parameters"]["oracle_seed"] = int(seed)
+    # The localisation node's judges' list is written in the run folder, where the runner watches for it.
+    list_file = scenario.list_file
+    if flags_on and params is not None and (scenario.node_flags.get("loc_node") or {}).get("judges_list") is True:
+        params["loc_node"]["ros__parameters"]["judges_list_dir"] = str(run_dir / "list")
+        if list_file is None:
+            list_file = str(run_dir / "list" / "judges_list.csv")
     bridge = None
     if hung:
         if scenario.driver is not None:
@@ -571,7 +577,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "gps_events": scenario.gps_events,
         "coordinate_error": error,
         "sun": scenario.sun,
-        "list_file": scenario.list_file,
+        "list_file": list_file,
     }
     if dry_run:
         return run_dir

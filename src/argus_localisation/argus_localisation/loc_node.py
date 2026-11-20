@@ -62,6 +62,12 @@ With it on:
     LOC-8), with one assignment over tracks and digits while
     `digit_ids_unique` is true. The digit and the summed log-probabilities
     go out in the track's own fields on `/loc/tracks`.
+  - `features.judges_list` (with the tracker on) writes the judges' list
+    (judges_list.py, LOC-10) in `judges_list_dir`: `judges_list.csv`
+    (`ID,Latitude,Longitude`), a KML and a map image, each replaced whole
+    as the list changes, on a thread of its own. The local frame is placed
+    on the earth from the fixes on GPS_TOPIC, and the count goes to the
+    ground station as a STATUSTEXT.
   - `features.loc_median_position` (with the tracker on) makes a track's
     published position the weighted median of its sightings
     (final_position.py, LOC-9) instead of the filter's position.
@@ -86,6 +92,9 @@ ENABLE_SERVICE = "/loc/set_enabled"
 POSE_TOPIC = "/mavros/local_position/pose"
 VELOCITY_TOPIC = "/mavros/local_position/velocity_local"  # lets the pose history carry on a few milliseconds past its newest pose
 RANGEFINDER_TOPIC = "/mavros/rangefinder/rangefinder"
+GPS_TOPIC = "/mavros/global_position/global"  # the flight controller's own latitude and longitude, for the judges' list
+STATUSTEXT_TOPIC = "/mavros/statustext/send"  # to the ground station, through the flight controller
+STATUSTEXT_INFO = 6  # MAV_SEVERITY_INFO
 TICK_S = 0.01  # how often the node looks for a new frame
 STATUS_EVERY_S = 1.0
 READ_RETRY_S = 0.2  # the pause after a failed read of the camera
@@ -106,6 +115,15 @@ class LocNode(Node):
         self._reader: Optional[threading.Thread] = None
         self._stopping = threading.Event()
         self._seq = 0
+        self._list_writer: Any = None  # the judges' list (LOC-10), with the flag on
+        self._list_origin: Any = None
+        self._list_text = ""  # the count as it now stands
+        self._list_text_sent = ""  # and as it last went to the ground station
+        self._list_text_sent_ns: Optional[int] = None
+        self._statustexts = 0
+        self._statustext_error = ""
+        self._list_counts = (0, 0)
+        self._statustext: Any = None
         try:
             self.declare_parameter("features.loc_node", False)
             self.declare_parameter("features.sim_oracle_detector", False)
@@ -116,6 +134,7 @@ class LocNode(Node):
             self.declare_parameter("features.digit_reader", False)
             self.declare_parameter("features.template_digit_classifier", False)
             self.declare_parameter("features.digit_vote", False)
+            self.declare_parameter("features.judges_list", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -161,6 +180,12 @@ class LocNode(Node):
         except Exception as error:  # noqa: BLE001
             self._vote_settings_problem = str(error)
             self.get_logger().error(f"digit_ids_unique could not be declared ({error}): the digit vote, if on, takes IDs to be unique")
+        self._list_settings_problem = ""
+        try:
+            self.declare_parameter("judges_list_dir", "")
+        except Exception as error:  # noqa: BLE001
+            self._list_settings_problem = str(error)
+            self.get_logger().error(f"judges_list_dir could not be declared ({error}): the judges' list cannot be written")
         if not self._flag("features.loc_node"):
             self.get_logger().info("Localisation node off (features.loc_node): nothing subscribed, nothing published, no camera opened")
             return
@@ -266,6 +291,32 @@ class LocNode(Node):
         )
         return votes
 
+    def _judges_list(self) -> None:
+        """Make the judges' list's writer when its flag is on. Like the reader and the vote, nothing here stops the node:
+        a list that cannot be kept is an error in the log and in `/loc/status`."""
+        self._list_error = ""
+        if not self._flag("features.judges_list"):
+            return
+        try:
+            if self._tracker is None:
+                raise ValueError("it needs features.marker_tracker: the list is the tracker's listed tracks")
+            if self._list_settings_problem:
+                raise ValueError(f"judges_list_dir could not be declared ({self._list_settings_problem})")
+            from . import judges_list
+
+            folder = judges_list.JudgesList(self._text("judges_list_dir"))
+            if not folder.folder.parent.is_dir():
+                raise ValueError(f"judges_list_dir is {folder.folder}, and {folder.folder.parent} is not a folder that exists")
+        except Exception as error:  # noqa: BLE001
+            self._list_error = str(error)
+            self.get_logger().error(f"features.judges_list is on but the judges' list cannot be kept ({error}): no list is written")
+            return
+        self._judges_list_module = judges_list
+        self._list_origin = judges_list.OriginEstimate()
+        self._list_writer = judges_list.ListWriter(folder)
+        self._list_writer.start()
+        self.get_logger().info(f"Judges' list on (features.judges_list): {folder.csv_path}, rewritten as it changes")
+
     def _start(self) -> None:
         import vision_msgs.msg as vision_messages
         from geometry_msgs.msg import PoseStamped, TwistStamped
@@ -333,6 +384,7 @@ class LocNode(Node):
             self._resets = PositionResetDetector()  # a step in the reported position that the reported velocity does not explain
         reader, digit_error = self._digit_reader(camera)
         votes = self._digit_votes(reader)
+        self._judges_list()
         chain = pipeline.LocPipeline(
             detector,
             projector,
@@ -366,6 +418,23 @@ class LocNode(Node):
             from . import oracle
 
             self.create_subscription(TFMessage, oracle.TRUTH_TOPIC, self._on_truth, qos_profile_sensor_data)
+        if self._list_writer is not None:
+            # Where the local frame is on the earth, from the vehicle's own fixes; and the count, to the ground station.
+            try:
+                from sensor_msgs.msg import NavSatFix
+
+                self.create_subscription(NavSatFix, GPS_TOPIC, self._on_fix, qos_profile_sensor_data)
+            except Exception as error:  # noqa: BLE001
+                self._list_error = f"no GPS fixes to place the list by ({error})"
+                self.get_logger().error(f"the judges' list has {self._list_error}: its markers stay unread")
+            try:
+                from mavros_msgs.msg import StatusText
+
+                self._StatusText = StatusText
+                self._statustext = self.create_publisher(StatusText, STATUSTEXT_TOPIC, 10)
+            except Exception as error:  # noqa: BLE001
+                self._statustext_error = str(error)
+                self.get_logger().error(f"the judges' list's count cannot be sent to the ground station ({error}); the list is still written")
         self._detections = self.create_publisher(vision_messages.Detection2DArray, DETECTIONS_TOPIC, 10)
         self._status = self.create_publisher(String, STATUS_TOPIC, 10)
         self._tracks = None
@@ -475,12 +544,56 @@ class LocNode(Node):
         if self._tracks is None:
             return
         try:
-            tracks = self._tracks_out.encode_tracks(self._tracker.tracks(), result.stamp_ns, self._track_messages)
+            states = self._tracker.tracks()
+            tracks = self._tracks_out.encode_tracks(states, result.stamp_ns, self._track_messages)
         except Exception as error:  # noqa: BLE001  (the tracks are extra to the boxes: a fault here is counted, and the node goes on)
             self.runtime.note_fault(f"{type(error).__name__}: {error}")
             self.get_logger().error(f"localisation: the marker tracks could not go out ({error})", throttle_duration_sec=10.0)
             return
         self._tracks.publish(tracks)
+        self._offer_list(states)
+
+    def _offer_list(self, states: Any) -> None:
+        """The judges' list as the tracks now make it, to its writer; and its count to the ground station when it changes."""
+        if self._list_writer is None:
+            return
+        try:
+            module = self._judges_list_module
+            rows, unread = module.rows_from_tracks(states, self._list_origin.origin())
+            self._list_writer.offer(rows, unread, module.boundary_of(states))
+            self._list_counts = (len(rows), len(unread))
+            text = module.status_text(rows, unread, not_written=bool(self._list_writer.judges_list.error))
+            if text != self._list_text:
+                self._list_text = text
+                self.get_logger().info(f"localisation: {text}")
+            self._send_count()
+        except Exception as error:  # noqa: BLE001  (the list is extra to the tracks)
+            self.runtime.note_fault(f"{type(error).__name__}: {error}")
+            self.get_logger().error(f"localisation: the judges' list could not be made up ({error})", throttle_duration_sec=10.0)
+
+    def _send_count(self) -> None:
+        """The list's count to the ground station when it has changed, and no more often than STATUSTEXT_PERIOD_S:
+        a marker on the edge of the search area must not fill the flight controller's link."""
+        if self._statustext is None or not self._list_text or self._list_text == self._list_text_sent:
+            return
+        now_ns = int(self.get_clock().now().nanoseconds)
+        since = None if self._list_text_sent_ns is None else now_ns - self._list_text_sent_ns
+        if since is not None and 0 <= since < int(self._judges_list_module.STATUSTEXT_PERIOD_S * 1_000_000_000):
+            return  # the newest count goes out when the period is up (the status timer asks again)
+        message = self._StatusText()
+        message.severity, message.text = STATUSTEXT_INFO, self._list_text
+        self._statustext.publish(message)
+        self._list_text_sent, self._list_text_sent_ns = self._list_text, now_ns
+        self._statustexts += 1
+
+    def _on_fix(self, message: Any) -> None:
+        """A GPS fix, paired with the local position of its own moment: one more say in where the local frame is."""
+        if getattr(getattr(message, "status", None), "status", 0) < 0:  # sensor_msgs/NavSatStatus: -1 is no fix
+            return
+        stamp = message.header.stamp
+        at = self._poses.pose_at(int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec))
+        if at is not None:
+            self._list_origin.add(message.latitude, message.longitude, at.position[0], at.position[1])
 
     def _publish_status(self) -> None:
         status = self.runtime.status()
@@ -488,6 +601,24 @@ class LocNode(Node):
             # The logger gives way to the detector: it is shown the pipeline's status once a second.
             self._frame_log.review(status, int(self.get_clock().now().nanoseconds))
             status["frame_log"] = self._frame_log.status()
+        if self._list_writer is not None or self._list_error:
+            kept = None if self._list_writer is None else self._list_writer.judges_list
+            if kept is not None:
+                try:
+                    self._send_count()  # a count held back by the period goes out now
+                except Exception as error:  # noqa: BLE001
+                    self._statustext_error = str(error)
+            status["list"] = {
+                "rows": self._list_counts[0],
+                "unread": self._list_counts[1],  # listed markers with no digit yet, or no origin to place them by
+                "written": 0 if kept is None else int(kept.written),
+                "file": "" if kept is None else str(kept.csv_path),
+                "origin_fixes": 0 if self._list_origin is None else int(self._list_origin.pairs),
+                "statustexts": self._statustexts,  # counts sent to the ground station
+                "statustext_error": self._statustext_error,  # why none can be sent, if none can
+                "kept_earlier": "" if kept is None else kept.kept_earlier,  # a list found in the folder at the start, put aside
+                "error": self._list_error or ("" if kept is None else kept.error),
+            }
         message = self._String()
         message.data = json.dumps({"camera_mode": self._mode_name, **status})
         self._status.publish(message)
@@ -503,13 +634,32 @@ class LocNode(Node):
         response.message = self.runtime.set_enabled(bool(request.data))
         if self.runtime.enabled and not was_on:
             self._start_frame_log()
-        elif was_on and not self.runtime.enabled and self._frame_log is not None:
-            self._frame_log.stop()
+        elif was_on and not self.runtime.enabled:
+            if self._frame_log is not None:
+                self._frame_log.stop()
+            self._close_list()
         self.get_logger().info(f"{ENABLE_SERVICE}: {response.message}")
         return response
 
+    def _close_list(self) -> None:
+        """The survey has stopped: the list as it finally stands, written now (on the writer's thread, not this one)."""
+        if self._list_writer is None:
+            return
+        try:
+            votes = getattr(self.runtime.pipeline, "digit_votes", None)
+            if votes is not None:
+                votes.settle()  # the digits are given out afresh, not as they stood half a second ago
+            self._offer_list(self._tracker.tracks())
+        except Exception as error:  # noqa: BLE001  (the list as it was last offered is still written)
+            self.runtime.note_fault(f"{type(error).__name__}: {error}")
+            self.get_logger().error(f"localisation: the judges' list could not be closed afresh ({error}); it is written as it last stood")
+        finally:
+            self._list_writer.wake()
+
     def destroy_node(self) -> None:
         self._stopping.set()
+        if self._list_writer is not None:
+            self._list_writer.stop(wait_s=2.0)  # what is waiting is written; a stalled disk does not hold the shutdown
         if self._frame_log is not None:
             self._frame_log.stop(wait_s=2.0)  # the frames still queued get two seconds; a stalled disk does not hold the shutdown
         if self._reader is not None:

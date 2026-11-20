@@ -1,0 +1,65 @@
+# The judges' list from a survey (LOC-10), scored by the localisation judge. The survey of
+# waypoint_navigation/survey_pipeline over the same field: three numbered markers inside the four corner markers,
+# and a fourth, marker_9, 3.5 m beyond the east corners, which must stay off the list.
+# The localisation node runs the whole chain beside the executor: the sim's oracle detector (no trained detector
+# exists while training data is on hold) boxes the true markers; the tracker (LOC-7) and the weighted median
+# (LOC-9) place them; the digit reader (LOC-6), with its template stand-in classifier for the sim's marker
+# model, reads each crop of the camera's own picture; the vote (LOC-8) gives each track its digit; and the node
+# writes `ID,Latitude,Longitude` in the run folder as the tracks change (LOC-10). The runner copies the list as
+# it stood while the vehicle was flying, and the judge matches it to the true markers: 3 of 4 correct is the
+# whole of what can be had here (marker_9 is outside the search area and is not listed).
+# The sim's survey camera is 1280 x 720, a marker 44 px across: about one crop in six gets no answer, and the
+# vote over a track's sightings is what reads it.
+# Variant "off" is every flag false: the node is not started, the survey mission is skipped, and no list is
+# written (scored 0). Fly it with --variants on.
+description: Survey with the whole localisation chain; the judges' list is written during the flight and scored.
+mission: localisation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: sim_survey_mission.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+    marker_tracker: true
+    loc_median_position: true
+    digit_reader: true
+    template_digit_classifier: true
+    digit_vote: true
+    judges_list: true
+config:
+  search_pattern:
+    localisation_required: true
+objects:
+  - {name: marker_3, kind: marker, digit: 3, size_m: 0.6, at: {east_m: 35.0, north_m: 20.0}}
+  - {name: marker_7, kind: marker, digit: 7, size_m: 0.6, at: {east_m: 62.0, north_m: 31.0}}
+  - {name: marker_1, kind: marker, digit: 1, size_m: 0.6, at: {east_m: 48.0, north_m: 44.0}}
+  - {name: marker_9, kind: marker, digit: 9, size_m: 0.6, at: {east_m: 83.5, north_m: 30.0}}
+  - {name: corner_sw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 10.0}}
+  - {name: corner_se, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 10.0}}
+  - {name: corner_ne, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 50.0}}
+  - {name: corner_nw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 50.0}}
+expect_log:
+  - "localisation pipeline started"
+  - "survey finished: 3 of 3 tracks flown"
+  - "localisation pipeline stopped after"
+  - "LOC list: 3 markers"
+wind: {level: calm}
