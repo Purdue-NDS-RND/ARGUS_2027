@@ -247,6 +247,19 @@ python3 sim/gate.py check G0 sim/.state/suites/G0-<time>     # PASS, FAIL or INV
 - A gate's seeds and variants are fixed in `gates.yaml`; `--seeds` and `--variants` are refused for a gate. To compare flags off with on, fly its scenario by name.
 - G0-W2, G0-W3 and G0-W4 are G0 again after a later wave. G1 to G6 have their rules but no scenarios yet; the lane that builds a gate's scenarios adds them to `gates.yaml`. G7 and G8 need field data and a real flight.
 
+## A/B: flags off against flags on
+
+`sim/ab/run_ab.py` flies a plan's scenarios with every seed twice, flags off (the 2026 flight) and flags on, and says whether the plan's flag may be turned on (CEN-12). The plans are in `sim/ab/plans.yaml`: `drop` decides `drop_release_gates`, `delivery` decides `delivery_soft_set_down`; each has scenarios in calm air and in the strong wind (7 m/s), all on the 2027 sequences' sim copies, so the tuning compared is the aircraft's.
+
+```bash
+python3 sim/ab/run_ab.py drop                              # 12 flights with the plan's three seeds, about an hour
+python3 sim/ab/run_ab.py drop --seeds 1                    # one seed: 4 flights
+python3 sim/ab/run_ab.py drop --from sim/.state/suites/<folder> ...   # report from suites already flown
+python3 sim/ab/run_ab.py drop --report docs/results/YYYY-MM-DD-ab-drop.md
+```
+
+The report gives each side's flights, failures, median and largest error and median flight time, for calm and for wind. The flag passes when, with the flags on, the drop's median error is at most 0.15 m in calm air and 0.30 m in wind, nothing was released or flown under the floor (a delivery: released above 1.83 m), and there were no more failures than with the flags off. A missing or INVALID flight makes the comparison not a pass. The command's exit code is 0 for a pass.
+
 ## Competition sites
 
 `sim/sites/<name>.yaml` holds a field's coordinates: origin, ground elevation, runway, flight boundary, maximum height, takeoff point, compass rose and survey area. `sim/sites/apollo_xi.yaml` is the 2027 site; its coordinates are placeholders until someone checks them against the organisers' field map.

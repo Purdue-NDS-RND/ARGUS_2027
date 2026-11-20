@@ -554,9 +554,9 @@
       "land": "L11",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; sim/test/test_ab.py 11 passed; python3 sim/ab/run_ab.py drop (12 flights): flags off 0.28 m calm / 0.95 m wind, flags on 0.02 m / 0.09 m (largest 0.14 m), no floor violation, PASS with one flags-on wind flight's projection check (0.304 m against 0.30 m) named; the first reading of 'failure' gave FAIL and both readings are under Needs a person; delivery plan flown with one seed (wind failure found, ring fit range widened in the sim, re-flown: delivered 0.40 m off); docs/results/2026-11-20-ab-drop.md, docs/results/2026-11-20-ab-delivery.md; spec-auditor one round, its two points acted on",
       "blocked_reason": ""
     },
     {

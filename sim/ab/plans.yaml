@@ -1,0 +1,24 @@
+# The A/B plans (CEN-12): what sim/ab/run_ab.py flies to decide whether a flag may be turned on.
+#
+# flag      the flag the plan decides on. Every scenario below turns it on in its "on" variant,
+#           with the flags it needs; "off" is every flag false, the 2026 flight.
+# mission   the judge that scores the flights (drop: where the package comes to rest; delivery: the same).
+# calm      scenarios in calm air.
+# wind      the same in the sim's strong wind: 7 m/s with gusts.
+# seeds     each scenario is flown with each seed, off and on.
+#
+# The scenarios fly the 2027 sequences' sim copies, so the tuning compared is the aircraft's.
+
+drop:
+  flag: drop_release_gates
+  mission: drop
+  calm: [drop/live_tuning_2027]
+  wind: [drop/live_tuning_2027_wind]
+  seeds: [1, 2, 3]
+
+delivery:
+  flag: delivery_soft_set_down
+  mission: delivery
+  calm: [delivery/live_tuning_2027]
+  wind: [delivery/live_tuning_2027_wind]
+  seeds: [1, 2, 3]

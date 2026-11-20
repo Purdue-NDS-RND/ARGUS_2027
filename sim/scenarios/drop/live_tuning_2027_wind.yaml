@@ -1,0 +1,35 @@
+# drop/live_tuning_2027 in the sim's strong wind (7 m/s from the south-west, with gusts): the windy half
+# of the A/B plan for the drop (sim/ab/plans.yaml, CEN-12). Variant "off" is the 2026 live flight in the
+# same wind and seed; variant "on" the 2027 flight flags.
+description: The 2027 drop sequence with its live tuning, flags off and on, bullseye 18 m from the takeoff point, strong wind.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_drop_2027.yaml
+params: sim_target_mission.yaml
+launch: package_drop_demo.launch.py
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  smart_reacquire: true
+  drop_release_gates: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: strong, direction_deg: 225.0}
