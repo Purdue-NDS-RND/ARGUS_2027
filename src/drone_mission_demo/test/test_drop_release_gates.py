@@ -109,7 +109,10 @@ def test_the_flag_needs_centring_on_the_estimator_and_is_declared_off_in_the_dro
         if any(entry["type"] == "package_drop" for entry in root["missions"]):
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
-    assert declaring == ["final_waypoint_drop.yaml", "package_drop_demo.yaml", "package_drop_live.yaml", "sim_package_drop_live.yaml"]
+    assert declaring == [
+        "final_waypoint_drop.yaml", "package_drop_2027.yaml", "package_drop_demo.yaml", "package_drop_live.yaml",
+        "sim_package_drop_2027.yaml", "sim_package_drop_live.yaml",
+    ]  # fmt: skip
 
 
 def test_flag_off_the_mission_goes_down_its_fixed_column_as_in_2026():

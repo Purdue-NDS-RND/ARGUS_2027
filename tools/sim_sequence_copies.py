@@ -4,11 +4,12 @@
   python3 tools/sim_sequence_copies.py            # check the committed copies are up to date (also --check)
   python3 tools/sim_sequence_copies.py --write    # regenerate them after a live file changed
 
-A sim copy is its live file, line for line, with four changes and no others:
+A sim copy is its live file, line for line, with five changes and no others:
 
   target_latitude, target_longitude   the sim's default target (a scenario sets its own)
   fake_drop                           true: a sim copy never commands a release
   camera_mode, airframe               the sim's camera and vehicle, for projection v2
+  package_height_m                    the sim's own, where the live file has the setting (CEN-05)
   the note above the coordinates      says it is a sim copy
 
 Every gain, height, deadband, dwell and flag is the live file's. The copies are
@@ -30,6 +31,8 @@ SEQUENCES = REPO / "src" / "drone_mission_demo" / "config" / "sequences"
 COPIES = {
     "package_drop_live.yaml": "sim_package_drop_live.yaml",
     "package_delivery_live.yaml": "sim_package_delivery_live.yaml",
+    "package_drop_2027.yaml": "sim_package_drop_2027.yaml",
+    "package_delivery_2027.yaml": "sim_package_delivery_2027.yaml",
 }
 
 # Where the 2026 demo sequences put the target: beside SITL's default home.
@@ -37,8 +40,11 @@ SIM_LATITUDE = -35.3631271
 SIM_LONGITUDE = 149.1653479
 SIM_CAMERA_MODE = "sim_delivery"
 SIM_AIRFRAME = "sim_iris_downcam"
+# What the sim's rangefinder reads with the vehicle standing (0.01 m), and a margin: the sim's own
+# package_height_m (CEN-05), where a live file has the aircraft's or none.
+SIM_PACKAGE_HEIGHT_M = 0.05
 
-CHANGED_KEYS = {"target_latitude", "target_longitude", "fake_drop", "camera_mode", "airframe"}
+CHANGED_KEYS = {"target_latitude", "target_longitude", "fake_drop", "camera_mode", "airframe", "package_height_m"}
 
 _SETTING = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z_]\w*):(?P<gap>\s*)(?P<value>[^#\s][^#]*?)?(?P<tail>\s*#.*)?$")
 _CAMERA_COMMENTS = {
@@ -95,6 +101,8 @@ def sim_copy_text(live_text: str, live_name: str) -> str:
         elif key == "fake_drop":
             drops += 1
             out.append(_with_value(match, "true"))
+        elif key == "package_height_m":
+            out.append(f"{match['indent']}package_height_m: {SIM_PACKAGE_HEIGHT_M} # Sim copy: what the sim's rangefinder reads with the vehicle standing, plus a margin (delivery_soft_set_down).")
         else:
             out.append(line)
     if not targets:
@@ -132,6 +140,8 @@ def _verify(live_text: str, sim_text: str, live_name: str) -> None:
             expected.update(target_latitude=SIM_LATITUDE, target_longitude=SIM_LONGITUDE, camera_mode=SIM_CAMERA_MODE, airframe=SIM_AIRFRAME)
         if "fake_drop" in old:
             expected["fake_drop"] = True
+        if "package_height_m" in old:
+            expected["package_height_m"] = SIM_PACKAGE_HEIGHT_M
         if strip(before) != strip(after) or not different <= CHANGED_KEYS or new != expected:
             raise CopyError(
                 f"{live_name}: mission '{before.get('name')}' did not copy cleanly (settings that differ: {sorted(different)}); "

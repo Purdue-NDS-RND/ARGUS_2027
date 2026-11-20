@@ -97,7 +97,7 @@ def test_the_flag_needs_the_estimator_and_every_drop_and_delivery_sequence_decla
         if any(entry["type"] in ("package_drop", "package_delivery") for entry in root["missions"]):
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
-    assert len(declaring) == 8
+    assert len(declaring) == 12
 
 
 def test_the_payload_offset_comes_from_the_robot_description_of_the_missions_airframe(tmp_path):
@@ -438,7 +438,7 @@ def test_the_retune_flag_needs_centring_on_the_estimator_and_is_declared_off():
         for path in sorted((SRC / "drone_mission_demo" / "config" / "sequences").glob("*.yaml"))
         if real_yaml.safe_load(path.read_text())["mission_sequence"]["features"].get(RETUNE, "missing") is False
     ]
-    assert len(declaring) == 8
+    assert len(declaring) == 12
 
 
 @pytest.mark.parametrize("kind", list(KINDS))

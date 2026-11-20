@@ -28,6 +28,8 @@ PAIRS = sorted(copies.COPIES.items())
 SCENARIOS = {
     "sim_package_delivery_live.yaml": ROOT / "sim" / "scenarios" / "delivery" / "live_tuning.yaml",
     "sim_package_drop_live.yaml": ROOT / "sim" / "scenarios" / "drop" / "live_tuning.yaml",
+    "sim_package_delivery_2027.yaml": ROOT / "sim" / "scenarios" / "delivery" / "live_tuning_2027.yaml",
+    "sim_package_drop_2027.yaml": ROOT / "sim" / "scenarios" / "drop" / "live_tuning_2027.yaml",
 }
 
 
@@ -87,6 +89,8 @@ def test_copy_differs_from_the_live_file_only_where_the_sim_needs_it(live, sim):
             expected.update(camera_mode=copies.SIM_CAMERA_MODE, airframe=copies.SIM_AIRFRAME)
         if "fake_drop" in live_config:
             expected["fake_drop"] = True
+        if "package_height_m" in live_config:
+            expected["package_height_m"] = copies.SIM_PACKAGE_HEIGHT_M  # the sim's own, where the live file has the aircraft's or none
         assert sim_config == expected, sim_mission["name"]
     assert retargeted == 1
 
@@ -179,9 +183,13 @@ def test_scenario_flies_the_live_tuning_at_the_sim_target_without_a_release(sim,
     assert len(tracking) == 1
     live_config = next(m for m in missions(shipped) if m["name"] == tracking[0]["name"])["config"]
     different = {key for key in set(live_config) | set(tracking[0]["config"]) if live_config.get(key) != tracking[0]["config"].get(key)}
-    assert different == {"target_latitude", "target_longitude", "fake_drop", "camera_mode", "airframe"}
+    always = {"target_latitude", "target_longitude", "fake_drop", "camera_mode", "airframe"}
+    assert different - {"package_height_m"} == always
+    assert ("package_height_m" in different) == ("package_height_m" in live_config)
     assert tracking[0]["config"]["fake_drop"] is True
-    assert all(value is False for value in flown["mission_sequence"]["features"].values())
+    flags = flown["mission_sequence"]["features"]
+    wanted = load_scenario(SCENARIOS[sim]).flags if variant == "on" else {}
+    assert {name for name, value in flags.items() if value} == {name for name, value in wanted.items() if value}  # the 2026 files' scenarios turn nothing on
     manifest = json.loads((run_dir / "scenario.json").read_text())
     # The fallback launch has no detector; the live tuning needs the one the 2026 demo launch starts.
     assert manifest["launch"]["file"] in ("package_delivery_demo.launch.py", "package_drop_demo.launch.py")

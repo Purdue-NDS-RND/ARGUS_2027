@@ -151,6 +151,7 @@ else
     run_test "" src/drone_mission_demo/test/test_drop_release_gates.py
     run_test "" src/drone_mission_demo/test/test_delivery_set_down.py
     run_test "" src/drone_mission_demo/test/test_smart_reacquire.py
+    run_test "" src/drone_mission_demo/test/test_sequences_2027.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py

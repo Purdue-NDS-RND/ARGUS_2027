@@ -40,6 +40,7 @@ EARTH_RADIUS_M = 6_371_000.0
 # tracking solution. A remembered ground point would otherwise let the vehicle
 # reach "centred" by its own movement, with no fresh image to say so.
 DEFAULT_FRAME_TIME_MAX_AGE_S = 0.5
+MAX_ESTIMATOR_CENTERING_TOLERANCE_M = 1.0  # "centred on the estimator's track" is never looser than this
 TRANSIT_YAW_DEG = 90.0
 HOLD_YAW_DEG = 90.0
 
@@ -107,6 +108,23 @@ class RedBullseyeMissionBase(BaseMission):
             self._estimator_centring = EstimatorCentring(
                 frame_projection.payload_offset_from_config(spec.config, spec.name)
             )
+        # How close to the estimator's track counts as centred (CEN-10), where
+        # the sequence says: read with centre_on_estimator on only, and checked
+        # here, when the sequence is built. A track that may not be descended
+        # on is given an infinite error, so the tolerance has to be finite.
+        self._estimator_centering_tolerance_m: float | None = None
+        if self._estimator_centring is not None and "estimator_centering_tolerance_m" in spec.config:
+            tolerance = spec.config["estimator_centering_tolerance_m"]
+            if (
+                isinstance(tolerance, bool)
+                or not isinstance(tolerance, (int, float))
+                or not 0.0 < tolerance <= MAX_ESTIMATOR_CENTERING_TOLERANCE_M
+            ):
+                raise ValueError(
+                    f"mission '{spec.name}': estimator_centering_tolerance_m must be a distance above 0 m and "
+                    f"no more than {MAX_ESTIMATOR_CENTERING_TOLERANCE_M:g} m, got {tolerance!r}"
+                )
+            self._estimator_centering_tolerance_m = float(tolerance)
         # Smart re-acquisition (CEN-06), only with the smart_reacquire flag on:
         # a lost track is looked for from the height that shows three sigma
         # of it and a margin, in place of the 2026 one-metre climb.
@@ -137,6 +155,11 @@ class RedBullseyeMissionBase(BaseMission):
         self._transit_altitude_m = float(config.get("transit_altitude_m", 20.0))
         self._fake_drop = bool(config.get("fake_drop", False))
         self._centering_tolerance_m = float(config.get("centering_tolerance_m", 0.35))
+        if self._estimator_centering_tolerance_m is not None:
+            # centre_on_estimator only (CEN-10): how close counts as centred on
+            # the estimator's track. The 2026 tolerance was tuned for the raw
+            # detection's noise and stays what the flag-off path uses.
+            self._centering_tolerance_m = self._estimator_centering_tolerance_m
         self._arrival_radius_m = float(config.get("arrival_radius_m", 3.0))
         self._arrival_alt_tolerance_m = float(
             config.get("arrival_alt_tolerance_m", 2.0)

@@ -394,9 +394,9 @@
       "land": "L09",
       "proven_in": "Sim",
       "note": "",
-      "status": "PARTIAL",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "python3 -m pytest -q tools/test/test_sim_sequence_copies.py -> 19 passed; sim/run_scenarios.sh delivery/live_tuning -> OK 0.43 m, drop/live_tuning -> OK 0.27 m (flags off, seed 1); docs/results/2026-11-20-live-tuning.md. Left: sim copies of package_drop_2027.yaml and package_delivery_2027.yaml, which CEN-10 writes: the session building CEN-10 adds them to COPIES in tools/sim_sequence_copies.py, runs --write, adds their live_tuning scenarios, then sets this row DONE",
+      "evidence": "tools/sim_sequence_copies.py --check -> 4 sim copies up to date (the 2026 and the 2027 drop and delivery files); test_sim_sequence_copies.py 31 passed; live_tuning scenarios for all four copies; the 2027 copies flown under CEN-10, docs/results/2026-11-20-sequences-2027.md; the 2026 ones in docs/results/2026-11-20-live-tuning.md",
       "blocked_reason": ""
     },
     {
@@ -535,9 +535,9 @@
       "land": "L11",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_sequences_2027.py 9 passed; tools/sim_sequence_copies.py --check -> 4 sim copies up to date; sim drop/live_tuning_2027 on (gated release 0.026 m from the target) and delivery/live_tuning_2027 on (set down 0.029 m from it), eight of ten flags on, live rates and heights: OK; docs/results/2026-11-20-sequences-2027.md; flight-guardian NO FINDINGS (round 2), spec-auditor rows fixed",
       "blocked_reason": ""
     },
     {

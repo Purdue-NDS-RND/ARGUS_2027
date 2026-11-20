@@ -111,6 +111,11 @@ def test_only_the_sim_sequences_name_a_camera_and_the_aircrafts_do_not_yet():
         # The generated sim copies of the live files (CEN-11) name the sim's camera; the live files stay without one.
         "sim_package_delivery_live.yaml": ("package_delivery", "sim_delivery", "sim_iris_downcam"),
         "sim_package_drop_live.yaml": ("package_drop", "sim_delivery", "sim_iris_downcam"),
+        # The 2027 files (CEN-10) name the aircraft's mode and airframe, which do not load until they are measured; their sim copies the sim's.
+        "package_delivery_2027.yaml": ("package_delivery", "imx519_720p60", "argus_2027"),
+        "package_drop_2027.yaml": ("package_drop", "imx519_720p60", "argus_2027"),
+        "sim_package_delivery_2027.yaml": ("package_delivery", "sim_delivery", "sim_iris_downcam"),
+        "sim_package_drop_2027.yaml": ("package_drop", "sim_delivery", "sim_iris_downcam"),
     }
 
 

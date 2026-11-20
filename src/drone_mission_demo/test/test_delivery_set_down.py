@@ -142,9 +142,12 @@ def test_the_flag_is_declared_off_in_the_delivery_sequences_and_the_rate_is_the_
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
             heights = [(entry.get("config") or {}).get("package_height_m") for entry in root["missions"] if entry["type"] == "package_delivery"]
-            # The sim's own sequence has the sim's value. On the aircraft nobody has measured it: no value, and the flag cannot fly without one.
-            assert heights == ([0.05] if path.name == "package_delivery_demo.yaml" else [None]), path.name
-    assert declaring == ["final_curcuit_delivery.yaml", "package_delivery_demo.yaml", "package_delivery_live.yaml", "sim_package_delivery_live.yaml"]
+            # The sim's own sequences have the sim's value. On the aircraft nobody has measured it: no value, and the flag cannot fly without one.
+            assert heights == ([0.05] if path.name in ("package_delivery_demo.yaml", "sim_package_delivery_2027.yaml") else [None]), path.name
+    assert declaring == [
+        "final_curcuit_delivery.yaml", "package_delivery_2027.yaml", "package_delivery_demo.yaml", "package_delivery_live.yaml",
+        "sim_package_delivery_2027.yaml", "sim_package_delivery_live.yaml",
+    ]  # fmt: skip
 
 
 def test_with_the_flag_off_the_delivery_goes_to_its_fixed_column_as_in_2026():

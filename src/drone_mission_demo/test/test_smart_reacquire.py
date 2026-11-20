@@ -106,7 +106,7 @@ def test_the_flag_is_declared_off_in_every_sequence_with_a_vision_mission():
         if any(entry["type"] in ("package_drop", "package_delivery") for entry in root["missions"]):
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
-    assert len(declaring) == 8
+    assert len(declaring) == 12
 
 
 def test_with_the_flag_off_a_lost_track_is_the_2026_recovery():

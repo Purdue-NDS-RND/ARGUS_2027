@@ -1,0 +1,41 @@
+# The 2027 delivery sequence's own tuning, flown in the sim (CEN-10, CEN-11).
+# sim_package_delivery_2027.yaml is package_delivery_2027.yaml with sim
+# coordinates, the sim camera, the sim's package height and fake_drop on:
+# every height, rate and tolerance is the one the aircraft would fly. Variant
+# "off" is every flag false, which is the 2026 live file's flight (as
+# delivery/live_tuning); variant "on" turns on the flight flags the delivery
+# has (all but time_health_guard and enforce_safety_limits), so the soft
+# set-down is flown from the live file's handoff height (8 m,
+# with its 3 m window) and with its rates, not the demo's.
+description: The 2027 delivery sequence with its live tuning, flags off and on, bullseye 18 m from the takeoff point, calm.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_delivery_2027.yaml
+params: sim_target_mission.yaml
+launch: package_delivery_demo.launch.py
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  smart_reacquire: true
+  delivery_soft_set_down: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+targets:
+  package_delivery: delivery_target
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

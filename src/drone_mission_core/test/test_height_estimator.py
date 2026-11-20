@@ -247,7 +247,7 @@ def test_every_shipped_sequence_with_a_vision_mission_declares_the_flag_off():
         if any(entry["type"] in ("package_drop", "package_delivery") for entry in root["missions"]):
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
-    assert len(declaring) == 8
+    assert len(declaring) == 12
 
 
 def pose_message(ns, up=HEIGHT, tilt_deg=0.0):

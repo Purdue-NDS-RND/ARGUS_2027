@@ -1,0 +1,83 @@
+# The 2027 drop sequence (CEN-10): package_drop_live.yaml with the 2027 settings added.
+# Every 2026 value is the live file's and every flag is false, so as it stands this file
+# flies as the live file does. A profile (profiles/, FND-08) or the executor's
+# feature_overrides turns flags on; nothing in this file is edited to do it.
+# Its sim copy is sim_package_drop_2027.yaml (tools/sim_sequence_copies.py); a test holds the
+# 2026 values equal to the live file's (src/drone_mission_demo/test/test_sequences_2027.py).
+mission_sequence:
+    on_failure: abort_and_rtl # Abort the remaining sequence and request RTL on failure.
+    features: # Mission feature flags; a missing flag means false.
+        use_frame_time_pose: false # Keep 5 s of pose history in the executor (pose_buffer.py).
+        use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
+        enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+        time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
+        use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
+        centre_on_estimator: false # Drop and delivery centre the payload on the estimator's bullseye track, not the raw detection (centring.py). Needs use_target_estimator.
+        centring_retune: false # Centring uses the 2027 controller: soft deadband, Kp 0.6, speed cap by height, slew limit (centring_controller.py). Needs centre_on_estimator.
+        use_ring_fit: false # The estimator also takes the near-field ring fit's bullseye centres, /perception/ring_fit/detections (ring_fit.py). Needs use_target_estimator.
+        smart_reacquire: false # A lost target is looked for from the height that shows three sigma of its track plus 2.5 m, over its last estimate, for up to 10 s (reacquire.py, CEN-06). Needs use_target_estimator, centre_on_estimator.
+        drop_release_gates: false # The drop descends on the estimator to its release height and lets go when the release gates hold (release_gates.py, drop_final_align.py). Needs centre_on_estimator.
+    missions:
+        - type: takeoff # Mission type registered in the mission framework.
+          name: takeoff # Human-readable mission instance name for logs.
+          config:
+              target_altitude_m: 15.0 # Target climb altitude after takeoff in meters.
+
+        - type: package_drop # Vision-guided package-drop mission.
+          name: package_drop # Human-readable mission instance name for logs.
+          failure_policy: continue_to_next # Keep the sequence running after this mission fails.
+          config:
+              # Live-flight template: edit these coordinates before real flight.
+              # The copied defaults below are inherited from the simulation demo and
+              # are not safe operating coordinates on a real field.
+              target_latitude: 35.0498030 # GPS latitude of the delivery target.
+              target_longitude: -118.1509860 # GPS longitude of the delivery target.
+              transit_altitude_m: 15.0 # Cruise altitude used while flying to the target area.
+              drop_altitude_m: 6.0 # Target altitude for the package release.
+              fake_drop: false # Simulate payload release without sending the sprayer release command.
+              descent_rate_mps: 0.5 # Descent speed while centered over the target.
+              camera_fx_px: 2334.99647 # Camera focal length in pixels along the x-axis.
+              camera_fy_px: 2338.06625 # Camera focal length in pixels along the y-axis.
+              camera_calibration_width_px: 3840.0 # Image width used when the camera intrinsics were calibrated.
+              camera_calibration_height_px: 2160.0 # Image height used when the camera intrinsics were calibrated.
+              camera_yaw_offset_deg: 0.0 # Fixed yaw rotation between the camera and vehicle body.
+              centering_tolerance_m: 0.50 # Ground-error threshold considered centered enough to descend.
+              centering_deadband_m: 0.40 # Small projected errors below this are treated as zero.
+              tracking_low_pass_alpha: 0.12 # Low-pass filter weight; higher values react faster but noisier.
+              centering_gain_mps_per_m: 0.15 # XY velocity gain applied to projected ground error.
+              max_centering_speed_mps: 0.45 # Maximum commanded lateral tracking speed.
+              arrival_radius_m: 3.0 # Horizontal GPS radius used to declare arrival at the target area.
+              arrival_alt_tolerance_m: 2.0 # Altitude tolerance used when checking target heights.
+              not_found_ascent_m: 1.0 # Climb amount per retry when the visual target is lost.
+              max_recovery_altitude_m: 40.0 # Hard ceiling for target-recovery climbs.
+              max_recovery_attempts: 4 # Maximum number of visual reacquisition attempts.
+              target_loss_grace_s: 4.0 # Hold briefly on CV loss before starting recovery.
+              recovery_alt_tolerance_m: 0.5 # Altitude tolerance for visual recovery climbs.
+              min_projection_altitude_m: 0.75 # Minimum altitude where ground projection is considered valid.
+              max_projection_distance_m: 25.0 # Reject projected detections farther than this from the drone.
+              centering_dwell_s: 0.5 # Time to remain centered before committing to the drop phase.
+              drop_altitude_tolerance_m: 3.0 # Altitude tolerance for the package release height.
+              drop_column_handoff_altitude_m: 8.0 # Freeze GPS column below this height once centered.
+              drop_hover_dwell_s: 8.0 # Hover time at drop altitude before releasing the payload.
+              target_timeout_s: 2.0 # Detection freshness timeout before the target is considered lost.
+
+              # --- 2027 settings (CEN-10). Each is read only with the flag named on. With every flag off this
+              # --- file flies exactly as package_drop_live.yaml does: every line above is that file's.
+              camera_mode: imx519_720p60 # use_frame_time_pose: the sensor mode the detector's images come from (argus_camera modes.yaml).
+              airframe: argus_2027 # use_frame_time_pose: the airframe in argus_camera robot.yaml. Its row is NOT MEASURED yet, so no flag that needs it starts on the aircraft.
+              frame_time_max_age_s: 0.5 # use_frame_time_pose: a detection older than this is not projected.
+              time_guard_hold_timeout_s: 10.0 # time_health_guard: how long a descent is held on an unhealthy time base before the mission fails.
+              estimator_centering_tolerance_m: 0.20 # centre_on_estimator: how close to the estimator's track counts as centred. Takes the place of centering_tolerance_m, which was tuned for the raw detection.
+              ground_below_home_m: 0.0 # use_height_estimator: how far the ground at the target is known to be below home (negative: above). Added to a barometer height.
+              centring_kp: 0.6 # centring_retune: Kp, m/s per metre of error.
+              centring_soft_deadband_m: 0.03 # centring_retune: error under which the command eases to zero.
+              centring_speed_cap_per_m_height: 0.08 # centring_retune: speed cap per metre of height above the ground.
+              centring_speed_cap_min_mps: 0.25 # centring_retune: the cap is never under this.
+              centring_speed_cap_max_mps: 1.0 # centring_retune: nor over this.
+              centring_slew_mps2: 0.5 # centring_retune: how fast the command may change.
+              centring_lead_s: 0.5 # centring_retune: how far ahead the vehicle's own velocity is taken into the error.
+
+        - type: rtl # Return-to-launch mission.
+          name: rtl # Human-readable mission instance name for logs.
+          config:
+              rtl_mode: "RTL" # Flight mode string sent to the FCU for return-to-launch.

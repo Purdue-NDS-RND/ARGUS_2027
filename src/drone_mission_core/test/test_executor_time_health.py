@@ -78,7 +78,7 @@ def test_shipped_sequences_with_a_vision_mission_declare_the_flag_off():
         if vision:
             assert root["features"].get(FLAG) is False, path.name
             declaring.append(path.name)
-    assert len(declaring) == 8  # six 2026 files and the two generated sim copies of the live ones (CEN-11)
+    assert len(declaring) == 12  # six 2026 files, the two 2027 ones (CEN-10), and the sim copies of the four live ones (CEN-11)
 
 
 def test_flag_on_feeds_the_monitor_and_missions_read_it(executor_module, monkeypatch, recording):
