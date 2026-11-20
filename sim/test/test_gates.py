@@ -154,7 +154,7 @@ def test_g0_fails_when_a_flight_is_missing_or_was_flown_with_flags_on():
 
 def test_gate_with_nothing_to_fly_yet_cannot_be_checked():
     with pytest.raises(gate.GateError, match="cannot run yet"):
-        gate.check("G4", [])
+        gate.check("G5", [])
     with pytest.raises(gate.GateError, match="field"):
         gate.check("G7", [])
 
@@ -285,7 +285,7 @@ def test_cli_exit_codes_tell_pass_fail_and_invalid_apart(tmp_path):
     assert run_cli("check", "G0", suite_folder(tmp_path / "a", [0.02, 0.03, 0.02, 0.09, 0.4])).returncode == 1
     invalid = run_cli("check", "G0", suite_folder(tmp_path / "b", [0.02, 0.03, 0.02, 0.09, 0.1], slow_seed=3))
     assert invalid.returncode == 3 and "G0: INVALID" in invalid.stdout
-    assert run_cli("check", "G4", suite_folder(tmp_path / "c", [0.1])).returncode == 2
+    assert run_cli("check", "G5", suite_folder(tmp_path / "c", [0.1])).returncode == 2
     assert run_cli("check", "G9", tmp_path).returncode == 2
 
 
@@ -401,3 +401,28 @@ def test_result_file_names_the_flags_that_were_on_including_node_flags(tmp_path)
     assert "use_estimator=True" in text
     assert "marker_detector.features.sim_oracle_detector=True" in text
     assert "none on" not in text
+
+
+def test_gate_g4_flies_the_survey_over_ten_markers_with_the_whole_localisation_chain_on(tmp_path):
+    """G4's flights: the spec's own field (digits 0 to 9), placed by the seed, scored by the localisation judge."""
+    import json
+
+    sys.path.insert(0, str(SIM))
+    from scenario.build import build_run
+    from scenario.spec import load_scenario
+
+    flights = gate.flights("G4")
+    assert [(flight["scenario"].name, flight["seed"], flight["variant"]) for flight in flights] == [("gate_field.yaml", seed, "on") for seed in (1, 2, 3)]
+    scenario = load_scenario(flights[0]["scenario"])
+    assert scenario.mission == "localisation" and {name for name, on in scenario.node_flags["loc_node"].items() if on} >= {"sim_oracle_detector", "digit_reader", "template_digit_classifier", "digit_vote", "judges_list"}
+    places = {}
+    for seed in (1, 2):
+        run = build_run(flights[0]["scenario"], tmp_path / f"s{seed}", variant="on", seed=seed)
+        truth = json.loads((run / "truth.json").read_text())
+        markers = sorted(truth["markers"], key=lambda item: item["id"])
+        assert [marker["id"] for marker in markers] == list(range(10))  # every digit, the 6 and the 9 among them
+        assert all(23.0 <= marker["e"] <= 77.0 and 13.0 <= marker["n"] <= 47.0 for marker in markers)
+        assert min(((a["e"] - b["e"]) ** 2 + (a["n"] - b["n"]) ** 2) ** 0.5 for a in markers for b in markers if a is not b) >= 6.0
+        places[seed] = [(marker["e"], marker["n"]) for marker in markers]
+        assert json.loads((run / "scenario.json").read_text())["list_file"] == str(run / "list" / "judges_list.csv")
+    assert places[1] != places[2]  # a different field for each seed

@@ -111,7 +111,11 @@ G3:
 G4:
   proves: Localisation
   pass: ≥ 95% listed and IDs correct; error median ≤ 1.0 m, p95 ≤ 2.0 m; never below 7.62 m; CSV before landing
-  needs: survey scenarios and the localisation pipeline on the oracle detector (LOC-3, LOC-10, LOC-11)
+  # The survey over ten markers, digits 0 to 9, placed by the seed (localisation/gate_field), with the whole
+  # localisation chain on. The detector is the sim's oracle (no trained detector while training data is on hold)
+  # and the digit classifier the template stand-in: the result file says so. Three seeds: thirty markers.
+  scenarios: [localisation/gate_field]
+  seeds: [1, 2, 3]
   variants: ["on"]
   rules:
     - name: at least 95% of the markers listed with the right ID

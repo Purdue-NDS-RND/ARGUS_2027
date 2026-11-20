@@ -1,0 +1,65 @@
+# Gate G4's field (FEATURES.md, SIM-11): the survey of localisation/survey_list over the field the spec lays
+# out for its own field test (LOC-13): ten 0.6 m markers, digits 0 to 9, each at its own heading, inside the four
+# 1.2 m corner markers. The ten are placed at random by the seed, at least 6 m apart and 3 m inside the area.
+# The whole localisation chain runs beside the executor, as in survey_list: the sim's oracle detector (no
+# trained detector exists while training data is on hold), the tracker, the weighted median, the digit reader
+# with its template stand-in for the sim's marker model, the vote, and the judges' list.
+# The gate's line is 95% of the markers listed with the right ID. The sim's marker model has nothing that says
+# which way up it is, so its 6 and its 9 are the same picture turned half round, and the reader answers neither
+# (LOC-6; organiser question 8): the field has both, as a real one may.
+description: Gate G4's field, ten markers 0 to 9 at random places and their own headings; the judges' list is scored.
+mission: localisation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: sim_survey_mission.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+    marker_tracker: true
+    loc_median_position: true
+    digit_reader: true
+    template_digit_classifier: true
+    digit_vote: true
+    judges_list: true
+config:
+  search_pattern:
+    localisation_required: true
+objects:
+  - {name: marker_0, kind: marker, digit: 0, size_m: 0.6, heading_deg: 0.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_1, kind: marker, digit: 1, size_m: 0.6, heading_deg: 37.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_2, kind: marker, digit: 2, size_m: 0.6, heading_deg: 90.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_3, kind: marker, digit: 3, size_m: 0.6, heading_deg: 123.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_4, kind: marker, digit: 4, size_m: 0.6, heading_deg: 180.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_5, kind: marker, digit: 5, size_m: 0.6, heading_deg: 200.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_6, kind: marker, digit: 6, size_m: 0.6, heading_deg: 270.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_7, kind: marker, digit: 7, size_m: 0.6, heading_deg: 333.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_8, kind: marker, digit: 8, size_m: 0.6, heading_deg: 61.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_9, kind: marker, digit: 9, size_m: 0.6, heading_deg: 245.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: corner_sw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 10.0}}
+  - {name: corner_se, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 10.0}}
+  - {name: corner_ne, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 50.0}}
+  - {name: corner_nw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 50.0}}
+expect_log:
+  - "localisation pipeline started"
+  - "survey finished: 3 of 3 tracks flown"
+  - "localisation pipeline stopped after"
+wind: {level: calm}
