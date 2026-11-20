@@ -24,14 +24,6 @@ export ROS_LOCALHOST_ONLY=1
 export GZ_IP=127.0.0.1
 export GZ_PARTITION=argus_sim
 
-# A run that asked for a Fast DDS profile (a scenario's dds_profile; start.sh writes the marker, inside the
-# container, when the sim starts): every process sourced from here uses it. No marker, nothing set.
-export ARGUS_DDS_PROFILE_FILE=/tmp/argus-dds-profile
-if [[ -s $ARGUS_DDS_PROFILE_FILE ]]; then
-    FASTRTPS_DEFAULT_PROFILES_FILE=$(<"$ARGUS_DDS_PROFILE_FILE")
-    export FASTRTPS_DEFAULT_PROFILES_FILE
-fi
-
 export GZ_VERSION=harmonic
 export GZ_SIM_SYSTEM_PLUGIN_PATH=/opt/ardupilot_gazebo/build
 export GZ_SIM_RESOURCE_PATH="$ARGUS_SIM/models:$ARGUS_SIM/worlds:/opt/ardupilot_gazebo/models:/opt/ardupilot_gazebo/worlds"

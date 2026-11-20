@@ -618,12 +618,14 @@ def test_a_scenario_can_ask_for_the_large_frame_dds_profile_and_only_then_is_it_
     bad.write_text((SIM / "scenarios" / "hover" / "survey_camera.yaml").read_text().replace("dds_profile: large_frames", "dds_profile: huge"))
     with pytest.raises(BuildError, match="dds_profile"):
         load_scenario(bad)
-    # The container side: env.sh points Fast DDS at the profile only when start.sh has said the run asks for one,
-    # so the tools the runner starts in the container get the same transports as the sim's own processes.
+    # The container side: start.sh hands the profile to the camera bridge when the run asks for one.
     start = (SIM / "container" / "start.sh").read_text()
     env = (SIM / "container" / "env.sh").read_text()
-    assert "dds_profile" in start and "ARGUS_DDS_PROFILE_FILE" in start
-    assert "FASTRTPS_DEFAULT_PROFILES_FILE" in env and "ARGUS_DDS_PROFILE_FILE" in env
+    # Only the camera bridge, which publishes the frames, is given the profile. Every process of the container on
+    # a 256 MB segment overran the container's 1 GB of shared memory as soon as a flight had more than three
+    # processes on ROS: the rest lost shared memory, and a flight with the localisation node never armed (LOC-5).
+    assert "dds_profile" in start and 'env "FASTRTPS_DEFAULT_PROFILES_FILE=$DDS_PROFILE_FILE" ros2 run ros_gz_bridge parameter_bridge' in start
+    assert "export FASTRTPS_DEFAULT_PROFILES_FILE" not in start and "FASTRTPS_DEFAULT_PROFILES_FILE" not in env
 
 
 def test_a_survey_scenario_gives_the_mission_its_area_and_the_judge_the_track_ends(tmp_path):
