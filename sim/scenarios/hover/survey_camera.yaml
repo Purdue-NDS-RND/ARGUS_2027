@@ -15,6 +15,7 @@ timeout_s: 600
 sim_time: true
 sensor_profile: survey
 sensor_check: true
+dds_profile: large_frames   # 2.8 MB frames: Fast DDS with a shared-memory segment that holds them (sim/config/fastdds_large_frames.xml)
 truth_poses: true
 driver:
   tool: hover

@@ -364,7 +364,7 @@
       "note": "",
       "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "Pass line NOT MET: survey makes 10.0 Hz of sim time at real-time factor 0.99 but 5.5 Hz of frames arrive at a best-effort ROS subscriber (8 needed), loss not located (lead decides how large frames travel; sim/run_scenarios.sh hover/survey_camera --seeds 1 --variants on -> FAIL until then). Pass line met: rangefinder 0.006 m from true height at p95 in a hover (limit 0.1). python3 -m pytest -q sim/test/test_sensors.py -> 23 passed in 0.21s; docs/results/2026-11-18-sim-sensors.md. Left: survey frame arrivals and the flow profile's real-time factor 0.58 on a club laptop (lead); the P1 Gazebo lidar, not built (REC-2, lead carries it into the spec); rangefinder is RNGFND1_TYPE 1 because type 100 cannot arm with the Gazebo backend; flow field of view is a stand-in; one seed per flight",
+      "evidence": "Survey pass line now MET: sim/run_scenarios.sh hover/survey_camera --seeds 1 --variants off -> OK, 10.0 Hz of frames arriving at a best-effort subscriber (8 needed) with dds_profile: large_frames (sim/config/fastdds_large_frames.xml, a 256 MB shared-memory segment); 4K still: 1.0 Hz arriving of 1.0 made; docs/results/2026-11-20-survey-frames.md. Rangefinder 0.007 m from true height at p95 in a hover (limit 0.1). Left: the flow profile's real-time factor 0.58 on a club laptop (lead); the P1 Gazebo lidar, not built (REC-2); rangefinder is RNGFND1_TYPE 1 because type 100 has no data with the Gazebo backend",
       "blocked_reason": ""
     },
     {

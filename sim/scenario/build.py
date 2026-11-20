@@ -509,6 +509,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         },
         "sensor_check": scenario.sensor_check,  # true: sim/sensor_check.py runs beside the flight, which must pass it
         "truth_poses": scenario.truth_poses,  # true: sim/truth_poses.py publishes true poses during the flight
+        "dds_profile": scenario.dds_profile,  # a Fast DDS profile for the container (sim/container/start.sh), or None
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
         "gps_events": scenario.gps_events,

@@ -20,9 +20,12 @@ KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
-    "sensor_check", "truth_poses",
+    "sensor_check", "truth_poses", "dds_profile",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
+# Fast DDS profiles a scenario may ask for (`dds_profile`): sim/config/fastdds_<name>.xml. Asked for only by
+# scenarios that carry large camera frames; everything else runs on the built-in transports.
+DDS_PROFILES = ("large_frames",)
 
 # Tools that fly the vehicle themselves, in place of a mission launch, with
 # the settings each takes. fence_check: sim/fence_check.py.
@@ -103,6 +106,7 @@ class Scenario:
     sim_time: bool = False  # variant on runs the whole sim on Gazebo's clock (FND-03); off is wall time, as in 2026
     sensor_check: bool = False  # the flight is run beside sim/sensor_check.py and must pass it (SIM-05)
     truth_poses: bool = False  # true poses go out on /sim/truth/poses during the flight (sim/truth_poses.py)
+    dds_profile: Optional[str] = None  # a Fast DDS profile for the run's container (sim/config/fastdds_<name>.xml), or None: the built-in transports
     description: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -243,6 +247,9 @@ def parse_scenario(data, path: Path) -> Scenario:
     for key in ("sensor_check", "truth_poses"):
         if not isinstance(data.get(key, False), bool):
             raise BuildError(f"{where}: {key} must be true or false, got {data[key]!r}")
+    dds_profile = data.get("dds_profile")
+    if dds_profile is not None and dds_profile not in DDS_PROFILES:
+        raise BuildError(f"{where}: dds_profile '{dds_profile}' does not exist (profiles: {', '.join(DDS_PROFILES)})")
 
     return Scenario(
         path=path,
@@ -274,6 +281,7 @@ def parse_scenario(data, path: Path) -> Scenario:
         sim_time=sim_time,
         sensor_check=data.get("sensor_check", False),
         truth_poses=data.get("truth_poses", False),
+        dds_profile=dds_profile,
         description=str(data.get("description", "")),
     )
 

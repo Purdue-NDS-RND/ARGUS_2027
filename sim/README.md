@@ -430,6 +430,10 @@ sim/run_scenarios.sh hover/survey_camera --seeds 1 --variants on   # the pass fl
 
 The rangefinder is SITL's, from the default parameters (`RNGFND1_TYPE 1`): it reads the height above the flat ground and sees no bucket or target. On sim-time runs MAVROS starts with the sim's own plugin list, `sim/config/mavros_sim.yaml`: the flight's twelve plugins plus `optical_flow`, `vision_pose`, `vision_speed` and `distance_sensor`. Wall-time runs start MAVROS as in 2026.
 
+### Large frames (`dds_profile`)
+
+A 1280 x 720 frame is 2.8 MB and a 4K one 25 MB; on Fast DDS's built-in transports a best-effort subscriber loses about half of them. A scenario that carries such frames says `dds_profile: large_frames`, and its container then runs Fast DDS with `sim/config/fastdds_large_frames.xml` (a 256 MB shared-memory segment). `hover/survey_camera` and `hover/still4k_camera` do; scenarios on the 640 x 360 delivery camera do not need it and do not get it.
+
 ## GPS faults
 
 Two different things can be wrong with GPS in a scenario (SIM-04):

@@ -52,6 +52,20 @@ if [[ -n $RUN_DIR ]]; then
     SIM_TIME=$(python3 -c 'import json, sys; print(1 if json.load(open(sys.argv[1])).get("sim_time") is True else 0)' "$RUN_DIR/scenario.json")
     SITE_FILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["site_file"])' "$RUN_DIR/scenario.json")
     BRIDGE_FILE="$RUN_DIR/bridge.yaml"
+    # A scenario that carries large camera frames asks for a Fast DDS profile (dds_profile; SIM-05). Its file is
+    # named in a marker that env.sh reads, so every process of this container, the runner's tools among them,
+    # uses the same transports. Without the key nothing is set and Fast DDS runs on its built-in transports.
+    DDS_PROFILE=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("dds_profile") or "")' "$RUN_DIR/scenario.json")
+    rm -f "$ARGUS_DDS_PROFILE_FILE"
+    if [[ -n $DDS_PROFILE ]]; then
+        if [[ ! -f $ARGUS_SIM/config/fastdds_$DDS_PROFILE.xml ]]; then
+            echo "ERROR: the run asks for the DDS profile '$DDS_PROFILE', and sim/config/fastdds_$DDS_PROFILE.xml does not exist." >&2
+            exit 1
+        fi
+        echo "$ARGUS_SIM/config/fastdds_$DDS_PROFILE.xml" >"$ARGUS_DDS_PROFILE_FILE"
+        export FASTRTPS_DEFAULT_PROFILES_FILE="$ARGUS_SIM/config/fastdds_$DDS_PROFILE.xml"
+        echo "== Fast DDS profile for this run: $FASTRTPS_DEFAULT_PROFILES_FILE"
+    fi
     # A camera profile too heavy to render beside a window (still4k) is flown headless or not at all.
     if [[ ${HEADLESS:-0} != 1 ]] && python3 -c 'import json, sys; sys.exit(0 if (json.load(open(sys.argv[1])).get("vehicle") or {}).get("headless_only") is True else 1)' "$RUN_DIR/scenario.json"; then
         echo "ERROR: this run's camera profile is headless only. Start it with HEADLESS=1 (sim/run_scenarios.sh does)." >&2

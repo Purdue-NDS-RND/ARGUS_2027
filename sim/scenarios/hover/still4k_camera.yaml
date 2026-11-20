@@ -8,6 +8,7 @@ seed: 1
 timeout_s: 600
 sensor_profile: still4k
 sensor_check: true
+dds_profile: large_frames   # 25 MB frames: Fast DDS with a shared-memory segment that holds them (sim/config/fastdds_large_frames.xml)
 driver:
   tool: hover
   height_m: 10.0

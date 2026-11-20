@@ -588,7 +588,7 @@ def test_the_gated_drop_aims_the_carried_parcel_not_the_vehicle_at_the_target():
     """The sim hangs a carried payload 0.13 m to the left of the vehicle's centre. A drop that centres the vehicle
     leaves the package that far off (0.13 to 0.14 m in five flights); the airframe row sim_iris_parcel gives the
     missions the parcel's place, and the gated drop's scenario names it."""
-    from scenario import build
+    from scenario import build, load_scenario
 
     rows = yaml.safe_load((ROOT / "src" / "argus_camera" / "config" / "robot.yaml").read_text())["airframes"]
     parcel, plain = rows["sim_iris_parcel"], rows["sim_iris_downcam"]
@@ -597,3 +597,30 @@ def test_the_gated_drop_aims_the_carried_parcel_not_the_vehicle_at_the_target():
     gated = yaml.safe_load((SIM / "scenarios" / "drop" / "gated.yaml").read_text())
     assert gated["config"]["package_drop"] == {"fake_drop": False, "airframe": "sim_iris_parcel"}
     assert any(item.get("carried") is True for item in gated["objects"])
+
+
+def test_a_scenario_can_ask_for_the_large_frame_dds_profile_and_only_then_is_it_used(tmp_path):
+    """SIM-05's survey camera loses frames on Fast DDS's built-in transports. A scenario that carries large frames
+    asks for `dds_profile: large_frames`; every other scenario, the flags-off baseline and G0 among them, runs as before."""
+    from scenario import build, load_scenario
+    from scenario.spec import BuildError
+
+    survey = load_scenario(SIM / "scenarios" / "hover" / "survey_camera.yaml")
+    assert survey.dds_profile == "large_frames"
+    assert json.loads((build.build_run(survey.path, tmp_path / "survey") / "scenario.json").read_text())["dds_profile"] == "large_frames"
+    for name in ("delivery/baseline", "delivery/set_down", "drop/gated"):
+        plain = load_scenario(SIM / "scenarios" / f"{name}.yaml")
+        assert plain.dds_profile is None
+        assert json.loads((build.build_run(plain.path, tmp_path / name.replace("/", "-")) / "scenario.json").read_text())["dds_profile"] is None
+    assert (SIM / "config" / "fastdds_large_frames.xml").is_file()
+    ET.parse(SIM / "config" / "fastdds_large_frames.xml")  # well-formed
+    bad = tmp_path / "bad.yaml"
+    bad.write_text((SIM / "scenarios" / "hover" / "survey_camera.yaml").read_text().replace("dds_profile: large_frames", "dds_profile: huge"))
+    with pytest.raises(BuildError, match="dds_profile"):
+        load_scenario(bad)
+    # The container side: env.sh points Fast DDS at the profile only when start.sh has said the run asks for one,
+    # so the tools the runner starts in the container get the same transports as the sim's own processes.
+    start = (SIM / "container" / "start.sh").read_text()
+    env = (SIM / "container" / "env.sh").read_text()
+    assert "dds_profile" in start and "ARGUS_DDS_PROFILE_FILE" in start
+    assert "FASTRTPS_DEFAULT_PROFILES_FILE" in env and "ARGUS_DDS_PROFILE_FILE" in env

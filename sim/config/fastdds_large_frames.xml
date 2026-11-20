@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS transports for sim scenarios that carry large camera frames (SIM-05's survey and 4K profiles).
+
+  Used only when a scenario asks for it (`dds_profile: large_frames`): sim/container/start.sh then points
+  FASTRTPS_DEFAULT_PROFILES_FILE at this file for every process in the container. Every other scenario, the
+  flags-off baseline and gate G0 among them, runs on Fast DDS's built-in transports as before.
+
+  Why: a 1280 x 720 frame is 2.8 MB and a 4K one 25 MB. Fast DDS's built-in shared-memory transport has a
+  0.5 MB segment, so a frame is cut into fragments that overrun it, and a best-effort subscriber loses the
+  frame. A 256 MB segment holds several whole frames. The container's /dev/shm is 1 GB (sim/compose.yaml).
+  UDP stays as the second transport, for discovery with anything outside the container.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <transport_descriptors>
+        <transport_descriptor>
+            <transport_id>argus_large_shm</transport_id>
+            <type>SHM</type>
+            <segment_size>268435456</segment_size>
+        </transport_descriptor>
+        <transport_descriptor>
+            <transport_id>argus_udp</transport_id>
+            <type>UDPv4</type>
+        </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="argus_large_frames" is_default_profile="true">
+        <rtps>
+            <userTransports>
+                <transport_id>argus_large_shm</transport_id>
+                <transport_id>argus_udp</transport_id>
+            </userTransports>
+            <useBuiltinTransports>false</useBuiltinTransports>
+        </rtps>
+    </participant>
+</profiles>
