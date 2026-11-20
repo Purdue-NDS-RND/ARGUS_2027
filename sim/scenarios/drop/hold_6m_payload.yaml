@@ -1,0 +1,48 @@
+# The 6 m hold of drop/hold_6m, with the payload aimed (CEN-01). The mission's
+# airframe is sim_iris_payload_ahead: the sim's Iris described as if its
+# release point were 0.30 m ahead of the flight controller and 0.10 m to its
+# left. With centre_on_estimator on, the mission must hold that point, not
+# the vehicle's centre, over the target. The judge places the point with the
+# vehicle's true heading from Gazebo and reports its distance from the target
+# (details.hold_error_p95_m), and the vehicle's own beside it
+# (details.hold_vehicle_error_p95_m), which should be about 0.32 m.
+# This flies the offset's sign and the yaw convention against real poses,
+# which a unit test cannot. Only variant "on" means anything: the 2026
+# centring knows no payload offset, so "off" holds the vehicle over the
+# target and the judged point is 0.32 m away.
+description: Hold a release point 0.30 m ahead and 0.10 m left of the vehicle over the bullseye at 6 m for 20 s; the point's true error is reported.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  centre_on_estimator: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+config:
+  package_drop:
+    drop_altitude_m: 6.0
+    drop_altitude_tolerance_m: 0.3
+    drop_column_handoff_altitude_m: 0.0
+    centering_dwell_s: 20.0
+    airframe: sim_iris_payload_ahead
+    drop_hover_dwell_s: 0.0
+judge:
+  hold_height_m: 6.0
+  hold_point_body_m: [0.30, 0.10]
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 1.5
+    rings: 4
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

@@ -36,3 +36,20 @@ airframes:
         image_yaw_deg: 0.0
         source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
     payload_offset_m: [0.0, 0.0, 0.0]
+
+  # Not a vehicle of its own: the sim's Iris described as if its release point
+  # were 0.30 m ahead of the flight controller and 0.10 m to its left, so that
+  # aiming the payload (CEN-01) can be flown and judged with an offset that is
+  # not zero (sim/scenarios/drop/hold_6m_payload.yaml). The camera is the sim
+  # Iris's own.
+  sim_iris_payload_ahead:
+    description: The sim's Iris with a release point taken to be ahead and to the left of the flight controller, for testing payload aiming.
+    verified: true
+    cameras:
+      down:
+        optical_frame: down_camera_optical
+        position_m: [0.0, 0.0, 0.0]
+        image_yaw_deg: 0.0
+        source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
+    payload_offset_m: [0.30, 0.10, -0.25]
+    payload_source: chosen for the test; there is no such mount on the sim's vehicle

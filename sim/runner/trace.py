@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
+
+
+def yaw_of_quaternion(x: float, y: float, z: float, w: float) -> float:
+    """The heading of a model's +x axis from the world's +x (east), counter-clockwise, in radians."""
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 class TraceWriter:
@@ -14,13 +20,16 @@ class TraceWriter:
         self._interval = pose_interval_s
         self._last_pose: dict[str, float] = {}
 
-    def pose(self, t: float, name: str, e: float, n: float, u: float) -> bool:
-        """Record a true pose, at most once per pose interval for each name."""
+    def pose(self, t: float, name: str, e: float, n: float, u: float, yaw: float | None = None) -> bool:
+        """Record a true pose, at most once per pose interval for each name. `yaw` (radians from east, counter-clockwise) is kept when given."""
         last = self._last_pose.get(name)
         if last is not None and t - last < self._interval - 1.0e-9:
             return False
         self._last_pose[name] = t
-        self._write({"t": round(t, 4), "pose": name, "e": round(e, 4), "n": round(n, 4), "u": round(u, 4)})
+        line = {"t": round(t, 4), "pose": name, "e": round(e, 4), "n": round(n, 4), "u": round(u, 4)}
+        if yaw is not None:
+            line["yaw"] = round(yaw, 4)
+        self._write(line)
         return True
 
     def event(self, t: float, kind: str, **fields) -> None:

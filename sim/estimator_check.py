@@ -15,8 +15,12 @@ MAVROS's local position, whose origin is the take-off point.
 Pass lines (FEATURES.md, FND-06, calm): the 95th percentile of the horizontal
 error at most 0.30 m at 15 m, 0.15 m at 6 m and 0.08 m at 2.4 m. Each is
 judged on the samples taken while the vehicle was within a band around that
-height, of which there must be at least 20. The run folder gets
-estimator_check.json; sim/runner/result.py reads it.
+height, of which there must be at least 20. A band the vehicle was never in
+is "not flown" and is not judged (a hold at 6 m never reaches 2.4 m); a
+flight in none of the bands fails. Only samples taken within 5 m of the
+target, horizontally, count: the climb after take-off and the landing at
+home pass through the bands with nothing to track. The run folder gets estimator_check.json;
+sim/runner/result.py reads it.
 
 The arithmetic and the verdict are plain functions with no ROS in them.
 """
@@ -36,6 +40,9 @@ from projection_check import target_in_local_frame
 # (height, half-width of the band around it, limit on the 95th percentile), all in metres.
 LINES = ((15.0, 1.5, 0.30), (6.0, 1.0, 0.15), (2.4, 0.4, 0.08))
 MIN_IN_BAND = 20
+# A sample counts for a band only while the vehicle is within this of the target, horizontally:
+# climbing out after take-off and landing at home pass through the bands with no target to track.
+NEAR_TARGET_M = 5.0
 FLAG = "use_target_estimator"
 CLASS_ID = "bullseye"
 STATE_ORDER = ("CONFIRMED", "COASTING", "TENTATIVE", "LOST")
@@ -100,15 +107,21 @@ def build_report(records: list[dict], messages: int) -> dict:
             "median_sigma_m": sigmas[len(sigmas) // 2] if sigmas else None,
             "within_3_sigma": (sum(1 for r in confirmed if r["error_m"] <= 3.0 * r["sigma_m"]) / len(confirmed)) if confirmed else None,
             "passed": False,
+            # A band the vehicle was never in has nothing to judge: a hold at 6 m never reaches 2.4 m.
+            "flown": bool(in_band),
         }
         low, high = height_m - half_width_m, height_m + half_width_m
-        if messages and len(confirmed) < MIN_IN_BAND:
+        if messages and not in_band:
+            pass
+        elif messages and len(confirmed) < MIN_IN_BAND:
             problems.append(f"only {len(confirmed)} samples of a confirmed bullseye track between {low:g} and {high:g} m (at least {MIN_IN_BAND} needed)")
         elif messages and spread["p95_m"] > limit_m:
             problems.append(f"the bullseye track is {spread['p95_m']:.2f} m from the truth at the 95th percentile at {height_m:g} m (limit {limit_m:g} m)")
         elif messages:
             band["passed"] = True
         bands[band_name(height_m)] = band
+    if messages and not any(band["flown"] for band in bands.values()):
+        problems.append("the vehicle was at none of the heights the estimator is judged at (" + ", ".join(f"{height_m:g} m" for height_m, _half, _limit in LINES) + ")")
     return {
         "passed": not problems,
         "problems": problems,
@@ -134,16 +147,20 @@ class Checker:
     def __init__(self, target_en: tuple[float, float]) -> None:
         self.target = target_en
         self.height_m: Optional[float] = None
+        self.near_target = True  # until a position says otherwise
         self.records: list[dict] = []
         self.messages = 0
 
-    def on_height(self, up_m: float) -> None:
+    def on_height(self, up_m: float, east_m: Optional[float] = None, north_m: Optional[float] = None) -> None:
+        """The vehicle's height, and with its position whether it is over the target's area."""
         self.height_m = float(up_m)
+        if east_m is not None and north_m is not None:
+            self.near_target = math.hypot(float(east_m) - self.target[0], float(north_m) - self.target[1]) <= NEAR_TARGET_M
 
     def on_targets(self, tracks: list[dict]) -> None:
         """One publication: each track is {"id": "<class>/<n>/<STATE>", "east_m", "north_m", "sigma_m"}."""
         self.messages += 1
-        if self.height_m is None:
+        if self.height_m is None or not self.near_target:
             return
         confirmed, states = [], set()
         for track in tracks:
@@ -193,7 +210,7 @@ def listen(folder: Path) -> dict:
             tracks.append({"id": detection.id, "east_m": position.x, "north_m": position.y, "sigma_m": 0.5 * detection.bbox.size.x})
         checker.on_targets(tracks)
 
-    node.create_subscription(PoseStamped, POSE_TOPIC, lambda m: checker.on_height(m.pose.position.z), qos_profile_sensor_data)
+    node.create_subscription(PoseStamped, POSE_TOPIC, lambda m: checker.on_height(m.pose.position.z, m.pose.position.x, m.pose.position.y), qos_profile_sensor_data)
     node.create_subscription(Detection3DArray, TARGETS_TOPIC, on_targets, 50)
 
     def write() -> dict:
@@ -219,7 +236,9 @@ def summary_lines(report: dict) -> list[str]:
     for height_m, _half_width_m, limit_m in LINES:
         band = report.get(band_name(height_m)) or {}
         error = band.get("error")
-        if not error:
+        if band.get("flown") is False and report.get("messages"):
+            lines.append(f"at {height_m:g} m: not flown")
+        elif not error:
             lines.append(f"at {height_m:g} m: no confirmed bullseye track in {band.get('samples', 0)} samples")
         else:
             lines.append(

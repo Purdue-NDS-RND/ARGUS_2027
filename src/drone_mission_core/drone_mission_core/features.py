@@ -31,6 +31,8 @@ def get_feature_flag(features: Optional[Mapping[str, Any]], name: str) -> Any:
 FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     # The drop's release gates (CEN-04) read the target estimator (FND-06).
     "drop_release_gates": ("use_target_estimator",),
+    # Centring on the estimator (CEN-01) steers on its track of the target.
+    "centre_on_estimator": ("use_target_estimator",),
     # The height estimator (CEN-03) corrects each rangefinder reading with the
     # tilt the vehicle had at that moment, from the pose history (FND-04).
     "use_height_estimator": ("use_frame_time_pose",),

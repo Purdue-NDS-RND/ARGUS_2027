@@ -471,6 +471,82 @@ def test_fake_drop_scores_the_vehicle_position_at_the_release_line():
     assert score["base_points"] == pytest.approx(14.0 - 0.5)
 
 
+def hold_flight(offsets, hold_height=6.0, hold_s=20.0, release=True):
+    """Come down over the target to the hold height, stay `hold_s` at the offsets given (east of the target, cycled), release, leave."""
+    knots = [(0, 0, 0, 0), (10, 0, 0, 12), (30, 30, 40, 12), (42, 30, 40, hold_height)]
+    steps = int(hold_s * 2)
+    for index in range(steps + 1):
+        knots.append((42 + 0.5 * index, 30 + offsets[index % len(offsets)], 40, hold_height))
+    end = 42 + hold_s
+    knots += [(end + 5, 30, 40, 12), (end + 25, 0, 0, 12), (end + 35, 0, 0, 0)]
+    parts = [flight(knots)]
+    if release:
+        parts.append(event(end, "release", fake=True))
+    return record(*parts)
+
+
+def test_drop_without_a_hold_height_reports_no_hold():
+    details = drop(drop_flight())["details"]
+    assert "hold_error_p95_m" not in details
+
+
+def test_drop_hold_error_is_the_vehicles_true_distance_from_the_target_while_it_holds():
+    # Mostly 0.05 m off, a tenth of the time 0.30 m off: the 95th percentile is in the tenth.
+    score = drop(hold_flight([0.05] * 9 + [0.30]), {"hold_height_m": 6.0})
+    details = score["details"]
+    assert details["hold_error_median_m"] == pytest.approx(0.05, abs=0.03)
+    assert 0.2 < details["hold_error_p95_m"] <= 0.30 and details["hold_error_max_m"] == pytest.approx(0.30, abs=0.01)
+    assert details["hold_s"] == pytest.approx(19.0, abs=0.2)  # the last second of the descent and 20 s at the height, less the 2 s to settle
+    assert details["hold_height_mean_m"] == pytest.approx(6.0, abs=0.01) and score["notes"] == []
+    steady = drop(hold_flight([0.04]), {"hold_height_m": 6.0})["details"]
+    assert steady["hold_error_p95_m"] == pytest.approx(0.04, abs=0.005)
+
+
+def test_drop_hold_counts_only_the_time_at_the_hold_height_before_the_release():
+    # The approach from 12 m and the climb away are far from the target's column in neither case, but they are not the hold:
+    # a hold 1 m off that is flown at the wrong height is not measured at all.
+    score = drop(hold_flight([0.05], hold_height=6.0), {"hold_height_m": 2.0})
+    assert score["details"]["hold_error_p95_m"] is None
+    assert any("hold" in note and "2" in note for note in score["notes"])
+
+
+def test_drop_hold_that_is_too_short_or_never_released_is_not_a_number():
+    short = drop(hold_flight([0.05], hold_s=6.0), {"hold_height_m": 6.0})
+    assert short["details"]["hold_error_p95_m"] is None and short["details"]["hold_s"] == pytest.approx(5.0, abs=0.2)
+    assert any("at least 10" in note for note in short["notes"])
+    never = drop(hold_flight([0.05], release=False), {"hold_height_m": 6.0})
+    assert never["details"]["hold_error_p95_m"] is None
+
+
+def test_drop_hold_can_be_judged_at_the_payloads_point_not_the_vehicles():
+    # The release point is 0.30 m ahead of the vehicle and 0.10 m to its left. Nose north (yaw 90 degrees):
+    # with the payload over the target, the vehicle is 0.30 m south and 0.10 m east of it.
+    rec = hold_flight([0.10])
+    lines = []
+    for name, track in rec.poses.items():
+        for pose in track:
+            lines.append({"t": pose.t, "pose": name, "e": pose.e, "n": pose.n - 0.30 if pose.u < 7 and 40 < pose.t < 63 else pose.n, "u": pose.u, "yaw": math.pi / 2.0})
+    with_yaw = Record.from_lines(lines + rec.events)
+    assert with_yaw.poses["vehicle"][0].yaw == pytest.approx(math.pi / 2.0)
+    settings = {"hold_height_m": 6.0, "hold_point_body_m": [0.30, 0.10]}
+    details = judge_run("drop", with_yaw, truth(target=TARGET, payload={"name": "payload"}), settings)["details"]
+    assert details["hold_error_p95_m"] == pytest.approx(0.0, abs=0.005)  # the payload's point is on the target
+    assert details["hold_vehicle_error_p95_m"] == pytest.approx(math.hypot(0.30, 0.10), abs=0.005)  # the vehicle is not
+    # The same flight judged at the vehicle is 0.32 m off.
+    plain = judge_run("drop", with_yaw, truth(target=TARGET, payload={"name": "payload"}), {"hold_height_m": 6.0})["details"]
+    assert plain["hold_error_p95_m"] == pytest.approx(math.hypot(0.30, 0.10), abs=0.005) and "hold_vehicle_error_p95_m" not in plain
+    # A trace without the vehicle's yaw cannot say where the payload's point was.
+    no_yaw = drop(hold_flight([0.05]), settings)
+    assert no_yaw["details"]["hold_error_p95_m"] is None and any("yaw" in note for note in no_yaw["notes"])
+
+
+def test_drop_hold_settings_can_be_set_and_a_typo_is_refused():
+    wide = drop(hold_flight([0.05], hold_s=6.0), {"hold_height_m": 6.0, "hold_min_s": 3.0, "hold_settle_s": 1.0, "hold_band_m": 0.3})
+    assert wide["details"]["hold_error_p95_m"] == pytest.approx(0.05, abs=0.03)
+    with pytest.raises(ValueError, match="hold_heigth_m"):
+        drop(hold_flight([0.05]), {"hold_heigth_m": 6.0})
+
+
 def test_drop_without_a_release_scores_nothing():
     rec = record(flight([(0, 0, 0, 0), (10, 0, 0, 10), (30, 30, 40, 10), (60, 0, 0, 10), (70, 0, 0, 0)]))
     score = drop(rec)

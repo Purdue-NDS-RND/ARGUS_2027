@@ -120,6 +120,41 @@ def test_report_file_round_trip(tmp_path):
 # --- the runner ---
 
 
+def test_a_band_the_flight_never_entered_is_not_flown_and_is_not_held_against_it():
+    # A hold at 6 m (gate G1) comes down from 15 m and never reaches 2.4 m.
+    checker = estimator_check.Checker(TARGET)
+    for height in [15.0] * 100 + [15.0 - 0.02 * step for step in range(450)] + [6.0] * 400:
+        checker.on_height(height)
+        checker.on_targets([track(0.05)])
+    report = checker.report()
+    assert report["passed"] is True and report["problems"] == []
+    assert report["at_15_m"]["flown"] is True and report["at_6_m"]["passed"] is True
+    assert report["at_2_4_m"]["flown"] is False and report["at_2_4_m"]["passed"] is False and report["at_2_4_m"]["samples"] == 0
+    assert estimator_check.summary_lines(report)[2] == "at 2.4 m: not flown"
+    # Passing through a band far from the target (the climb after take-off, the landing at home) is not being in it.
+    home = estimator_check.Checker(TARGET)
+    for height in [15.0] * 100 + [6.0] * 100:
+        home.on_height(height, TARGET[0] + 0.2, TARGET[1])
+        home.on_targets([track(0.05)])
+    for step in range(60):  # returned home, 18 m from the target, and landing through 2.4 m with no track
+        home.on_height(3.0 - 0.02 * step, 0.0, 0.0)
+        home.on_targets([])
+    assert home.report()["passed"] is True and home.report()["at_2_4_m"]["flown"] is False
+    assert estimator_check.NEAR_TARGET_M == 5.0
+    # A band that was entered with no confirmed track in it is still a failure.
+    blind = estimator_check.Checker(TARGET)
+    for height in [15.0] * 100 + [6.0] * 100:
+        blind.on_height(height)
+        blind.on_targets([track(0.05)] if height > 10.0 else [track(0.05, state="COASTING")])
+    assert blind.report()["passed"] is False and "between 5 and 7 m" in blind.report()["problems"][0]
+    # And a flight with the estimator on that entered none of the bands has shown nothing.
+    nowhere = estimator_check.Checker(TARGET)
+    for _ in range(50):
+        nowhere.on_height(10.0)
+        nowhere.on_targets([track(0.05)])
+    assert nowhere.report()["passed"] is False and "none of the heights" in nowhere.report()["problems"][0]
+
+
 def test_the_check_runs_beside_flights_with_the_flag_on_and_only_those(tmp_path):
     calm = {"wind": {"level": "calm"}, "gps_events": []}
     both = {"use_frame_time_pose": True, "use_target_estimator": True}

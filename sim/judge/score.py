@@ -41,7 +41,20 @@ MISSIONS = {
     ),
     "drop": (
         missions.judge_drop,
-        {"max_points": 14.0, "points_per_metre": 1.0, "min_height_m": SIX_FEET_M, "low_release_penalty": 6.0, "low_flight_penalty": 6.0},
+        {
+            "max_points": 14.0,
+            "points_per_metre": 1.0,
+            "min_height_m": SIX_FEET_M,
+            "low_release_penalty": 6.0,
+            "low_flight_penalty": 6.0,
+            # Gate G1's hold, not a rule of the competition: set hold_height_m and the details
+            # gain the vehicle's true distance from the target while it held there before the release.
+            "hold_height_m": None,
+            "hold_band_m": 0.5,
+            "hold_settle_s": 2.0,
+            "hold_min_s": 10.0,
+            "hold_point_body_m": None,  # [forward, left] of the vehicle's centre: judge the hold at the payload's release point
+        },
     ),
     "delivery": (
         missions.judge_delivery,

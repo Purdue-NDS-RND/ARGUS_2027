@@ -31,7 +31,7 @@ sys.path.insert(0, str(SIM_DIR))
 
 from runner import events  # noqa: E402
 from runner.helpers import ListCapture, SideTools, stop_group  # noqa: E402
-from runner.trace import TraceWriter  # noqa: E402
+from runner.trace import TraceWriter, yaw_of_quaternion  # noqa: E402
 from runner.watch import DONE, EndWatch  # noqa: E402
 
 # Tools a scenario may need, started with the run folder as their argument
@@ -96,7 +96,9 @@ class Recorder:
             for pose in message.pose:
                 name = self.names.get(pose.name)
                 if name is not None:
-                    self.writer.pose(when, name, pose.position.x, pose.position.y, pose.position.z)
+                    # The vehicle's true heading goes with its pose: a judge that scores a point off the vehicle's centre needs it.
+                    yaw = yaw_of_quaternion(pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w) if name == "vehicle" else None
+                    self.writer.pose(when, name, pose.position.x, pose.position.y, pose.position.z, yaw)
                     contact = self.landing.update(name, when, (pose.position.x, pose.position.y, pose.position.z))
                     if contact is not None:
                         self.writer.event(when, contact.pop("event"), **contact)

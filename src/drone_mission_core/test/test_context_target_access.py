@@ -102,6 +102,9 @@ def test_flag_on_a_mission_reads_the_primary_target_and_the_rules_in_process(exe
     assert 0.0 <= target.age_s < 0.2 and target.for_ns == context.actuation_time_ns()
     assert context.may_descend("bullseye") and context.may_release("bullseye")
     assert context.primary_target("bucket") is None and not context.may_descend("bucket")
+    # A mission that keeps to one track reads that track by its id, whichever track is the class's primary one.
+    assert context.tracked_target("bullseye", target.track_id) == context.primary_target("bullseye")
+    assert context.tracked_target("bullseye", target.track_id + 7) is None and context.tracked_target("bucket", target.track_id) is None
 
     # 0.4 s after the last frame: too old to release on, and COASTING, so not to descend on either.
     last_frame_ns = wiring.now_ns - 100 * MS - 33 * MS

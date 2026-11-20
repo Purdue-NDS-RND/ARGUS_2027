@@ -1,0 +1,34 @@
+# The 2026 delivery centring on the estimator (CEN-01). As delivery/estimator
+# (one clock, the detection contract, the estimator running in the executor),
+# with centre_on_estimator on as well: TRACK_AND_DESCEND steers on the
+# estimator's bullseye track, for the payload's release point, with no
+# deadband and no low-pass filter, and descends only while the descend rule
+# says yes. From 6 m the mission still goes down its fixed GPS column
+# (CEN-05 replaces that). sim/estimator_check.py holds the track to the
+# FND-06 lines as before.
+# The bullseye is 1.5 m across so that it fits inside the image down to the
+# column's start. Variant "off" is the 2026 baseline on the same target.
+description: 2026 delivery mission centring on the estimator's bullseye track.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  centre_on_estimator: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 1.5
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}

@@ -1,0 +1,52 @@
+# A hold over the bullseye at 6 m, for gate G1 (estimator and centring).
+# The 2026 drop mission is made to hold: its drop height is 6 m, it never
+# hands over to the fixed GPS column (handoff height 0), and it must stay
+# centred for 20 s before it releases (a fake release, at once: no hover on a
+# GPS point first). So for those 20 s the vehicle is held over the target by
+# TRACK_AND_DESCEND's centring alone, and the judge reports how far its true
+# position was from the target's (details.hold_error_p95_m).
+# In variant "on" the centring is the estimator's (CEN-01): the sim is on one
+# clock, the 2026 detector publishes on the detection contract with its
+# image's stamps, and use_frame_time_pose, use_target_estimator and
+# centre_on_estimator are on. Variant "off" is the 2026 centring on the raw
+# detection, on wall time, holding the same way.
+# The bullseye is 1.5 m across so that it fits inside the image at the hold
+# height (a box cut by the image's edge is not used by the estimator), and
+# has four rings, not eight: with eight, a ring is 2.4 pixels wide at 15 m,
+# the detector's blur turns red and white to pink, and it sees no red at all
+# for seconds at a time. The 20 s of being centred are asked of the
+# acquisition at 15 m too, so there the target has to be seen steadily.
+description: Hold over the bullseye at 6 m for 20 s on TRACK_AND_DESCEND's centring, calm; the true error while holding is reported.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  centre_on_estimator: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+config:
+  package_drop:
+    drop_altitude_m: 6.0
+    drop_altitude_tolerance_m: 0.3
+    drop_column_handoff_altitude_m: 0.0
+    centering_dwell_s: 20.0
+    drop_hover_dwell_s: 0.0
+judge:
+  hold_height_m: 6.0
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 1.5
+    rings: 4
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}

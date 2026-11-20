@@ -17,6 +17,8 @@ still where it was.
 
 from __future__ import annotations
 
+import math
+
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
@@ -77,6 +79,34 @@ def camera_from_config(config: Mapping[str, Any], mission_name: str, config_dir:
             "(the sensor mode the detector's images come from, and the airframe in argus_camera's robot.yaml)"
         )
     return load_camera(str(config[CAMERA_MODE_KEY]).strip(), str(config[AIRFRAME_KEY]).strip(), config_dir)
+
+
+def payload_offset_from_config(config: Mapping[str, Any], mission_name: str, config_dir: Optional[Path] = None) -> Tuple[float, float, float]:
+    """Where the payload's release point is in the body frame (forward, left, up of the flight controller), for a mission's airframe (CEN-01).
+
+    From argus_camera's robot.yaml, the one description of the airframe. As
+    for the camera's mount, an airframe nobody has measured is refused: a
+    payload aimed with a guessed offset is aimed at the wrong place.
+    """
+    name = str(config.get(AIRFRAME_KEY, "") or "").strip()
+    if not name:
+        raise FrameProjectionError(
+            f"mission '{mission_name}': centre_on_estimator is on, so its config must name {AIRFRAME_KEY} (the airframe in argus_camera's robot.yaml, for the payload's offset)"
+        )
+    try:
+        from argus_camera import robot_description
+        from argus_camera.bench import default_config_dir
+    except ImportError as error:
+        raise FrameProjectionError(f"the payload's offset is read from the argus_camera package, which cannot be imported ({error})") from error
+    config_dir = Path(config_dir) if config_dir is not None else default_config_dir()
+    try:
+        airframe = robot_description.get_airframe(robot_description.load(config_dir / "robot.yaml"), name)
+    except ValueError as error:  # RobotDescriptionError: unknown, or not measured
+        raise FrameProjectionError(f"mission '{mission_name}': {error}") from error
+    offset = tuple(float(value) for value in airframe.payload_offset_m)
+    if len(offset) != 3 or not all(math.isfinite(value) for value in offset):
+        raise FrameProjectionError(f"airframe {name}: payload_offset_m must be three numbers (forward, left, up), got {airframe.payload_offset_m!r}")
+    return offset
 
 
 class TargetOffset:

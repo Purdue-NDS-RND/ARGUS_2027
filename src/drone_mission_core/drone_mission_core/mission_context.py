@@ -144,6 +144,21 @@ class MissionContext:
         estimate = feed.primary(class_id, self._now_ns(), near)
         return None if estimate is None else from_estimate(estimate)
 
+    def tracked_target(self, class_id: str, track_id: int):
+        """The track with this id, of this class, as a `target_access.PrimaryTarget`, or None when it is gone or the estimator is off.
+
+        For a mission that keeps to the track it chose (from
+        `primary_target(...).track_id`), whichever track is the class's
+        primary one now.
+        """
+        feed = getattr(self._node, "_target_estimator", None)
+        if feed is None:
+            return None
+        for estimate in feed.estimates(self._now_ns(), class_id):
+            if estimate.track_id == track_id:
+                return from_estimate(estimate)
+        return None
+
     def _target_to_judge(self, class_id: str, near, track_id: Optional[int]):
         """(the track a rule is asked about, or None; why there is none)."""
         feed = getattr(self._node, "_target_estimator", None)

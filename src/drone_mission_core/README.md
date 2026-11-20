@@ -189,10 +189,30 @@ A mission reads the estimator through its context (`MissionContext`, rules in
 | `primary_target(cls, near=None)` (`near` by keyword) | The class's track to act on: `position` (east, north, up), `covariance`, `sigma_m`, `age_s`, `state`, for the actuation time. None with the flag off or no track. It may be COASTING, TENTATIVE or LOST |
 | `may_descend(cls, near=None, track_id=None)` (both by keyword) | True only on a CONFIRMED track no older than 0.5 s. Otherwise false, with `.reason`. Pass the `track_id` of the track being flown to, or the answer is about whichever track of the class is primary now |
 | `may_release(cls, near=None, track_id=None)` | True only on a CONFIRMED track no older than 0.3 s. Otherwise false, with `.reason`. `track_id` as above |
+| `tracked_target(cls, track_id)` | The track with that id, whichever track is the class's primary one now; None when it is gone or the flag is off |
 | `pose_at(stamp_ns)` | The vehicle's pose at a past instant, from the pose history (`use_frame_time_pose`) |
 | `height_agl(ground_below_home_m=0.0)` | `value_m` and `source`: `rangefinder` when its ground is healthy, else `baro`, which is the height above home plus `ground_below_home_m` (how far the ground here is known to be below home; 0 when nothing is known, and then it is not the height above the ground wherever the ground is not at home's height). None when the newest pose is over 0.5 s old; `pose_age_s` says how old it was. Needs no flag; with `use_height_estimator` on the answer is the height estimator's (below) |
 | `actuation_time_ns()` | Now + 0.08 s, the time the estimator's outputs are given for |
 | `latlon_to_local_enu(lat, lon)` | (east, north) in MAVROS's local frame, from the GPS fix and the local position of the same moment. None without a fix under 2 s old and a pose of its moment (ask again next tick). Needs no flag |
+
+`centre_on_estimator` (declared, off, in the eight sequences that fly a drop or delivery;
+needs `use_target_estimator`) makes the drop and delivery missions centre on the
+estimator's bullseye track instead of the latest raw detection (`centring.py`, CEN-01).
+The error steered on is `target − R(yaw) · payload offset − vehicle`: the payload's
+release point (`payload_offset_m` of the mission's `airframe` in argus_camera's
+`robot.yaml`, forward, left, up of the flight controller) is put over the target, not the
+camera. The 2026 low-pass filter and deadband are not applied; the 2026 gain, speed cap,
+tolerance and dwell still are, and so do the 2026 limits `min_projection_altitude_m` and
+`max_projection_distance_m`. A CONFIRMED or COASTING track is steered on, but only while
+`may_descend` says yes for that track does the mission descend or count itself centred, so
+it never starts its fixed column or the dwell before a release on a point it only
+remembers. A TENTATIVE or LOST track, or none, is a lost target, for acquisition as well
+as tracking, whatever the raw detector says: the mission's 2026 grace time and recovery
+climb follow. One approach flies to one track: the first taken is the one nearest the
+mission's own GPS target, it is kept to by its id (`tracked_target`), and if it is lost
+another track of the class is not taken over until the recovery climb has started. From
+the fixed column down, the 2026 code is unchanged and asks nothing of the estimator. An
+airframe that is not `verified` stops the executor at start-up.
 
 `use_height_estimator` (declared, off, in the eight sequences that fly a drop or
 delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height

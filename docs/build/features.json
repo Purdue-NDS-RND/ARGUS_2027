@@ -427,9 +427,9 @@
       "land": "L09",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_centring_missions.py -> 34 passed; sim/run_scenarios.sh drop/hold_6m, drop/hold_2m, drop/hold_6m_payload, delivery/centring --variants on -> 4 OK: hold error p95 0.024 m at 6 m, 0.018 m at 2 m, payload point 0.019 m (vehicle 0.321 m), delivery 0.01 m; docs/results/2026-11-20-centring.md",
       "blocked_reason": ""
     },
     {

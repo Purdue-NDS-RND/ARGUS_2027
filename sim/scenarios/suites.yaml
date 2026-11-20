@@ -18,6 +18,7 @@ nightly:
     - delivery/frame_time
     - delivery/estimator
     - delivery/height_estimator
+    - delivery/centring
     - delivery/release
     - delivery/wind_moderate
     - delivery/wind_strong
@@ -27,6 +28,9 @@ nightly:
     - hover/gps_glitch
     - drop/baseline
     - drop/live_tuning
+    - drop/hold_6m
+    - drop/hold_2m
+    - drop/hold_6m_payload
     - drop/release
     - drop/release_wind
     - waypoint_navigation/site_circuit

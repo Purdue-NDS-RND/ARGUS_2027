@@ -298,6 +298,69 @@ def _resting_place(run: Run, release: dict, key: str) -> tuple[tuple[float, floa
     return (vehicle.e, vehicle.n), "vehicle at release"
 
 
+def _hold_details(run: Run, target: dict) -> dict:
+    """How well the vehicle held over the target before the release, when the scenario sets `hold_height_m` (gate G1). {} otherwise.
+
+    The hold is the last unbroken stretch, ending at the release, in which
+    the vehicle was within `hold_band_m` of the hold height; its first
+    `hold_settle_s` are left out. The error is the vehicle's true horizontal
+    distance from the target. A hold shorter than `hold_min_s`, or a flight
+    with no release to end it, has no number: nothing is reported as held
+    that was not.
+
+    With `hold_point_body_m` ([forward, left] of the vehicle's centre, the
+    payload's release point) the error is that point's, placed with the
+    vehicle's true heading, and the vehicle's own is reported beside it.
+    """
+    s = run.settings
+    height = s["hold_height_m"]
+    if height is None:
+        return {}
+    details = {"hold_error_p95_m": None, "hold_error_median_m": None, "hold_error_max_m": None, "hold_s": 0.0, "hold_height_mean_m": None, "hold_samples": 0}
+    release = run.first_event("release")
+    if release is None:
+        run.notes.append(f"hold: nothing was released, so the hold at {height:g} m has no end and is not measured")
+        return details
+    held: list[Pose] = []
+    for pose in reversed([pose for pose in run.vehicle() if pose.t <= release["t"]]):
+        if abs(pose.u - height) > s["hold_band_m"]:
+            break
+        held.append(pose)
+    held.reverse()
+    if not held:
+        run.notes.append(f"hold: the vehicle was not within {s['hold_band_m']:g} m of {height:g} m at the release")
+        return details
+    held = [pose for pose in held if pose.t >= held[0].t + s["hold_settle_s"]]
+    hold_s = held[-1].t - held[0].t if len(held) >= 2 else 0.0
+    details.update(hold_s=hold_s, hold_samples=len(held))
+    if hold_s < s["hold_min_s"]:
+        run.notes.append(f"hold: held at {height:g} m for {hold_s:.1f} s after settling (at least {s['hold_min_s']:g} s needed), not measured")
+        return details
+    vehicle_errors = sorted(math.hypot(pose.e - target["e"], pose.n - target["n"]) for pose in held)
+    errors = vehicle_errors
+    point = s["hold_point_body_m"]
+    if point is not None:
+        forward, left = float(point[0]), float(point[1])
+        if any(pose.yaw is None for pose in held):
+            run.notes.append("hold: the trace has no yaw for the vehicle, so where the payload's point was cannot be said; not measured")
+            return details
+        errors = sorted(
+            math.hypot(
+                pose.e + forward * math.cos(pose.yaw) - left * math.sin(pose.yaw) - target["e"],
+                pose.n + forward * math.sin(pose.yaw) + left * math.cos(pose.yaw) - target["n"],
+            )
+            for pose in held
+        )
+        details["hold_vehicle_error_p95_m"] = vehicle_errors[min(len(vehicle_errors) - 1, math.ceil(0.95 * len(vehicle_errors)) - 1)]
+    details.update(
+        hold_error_p95_m=errors[min(len(errors) - 1, math.ceil(0.95 * len(errors)) - 1)],
+        hold_error_median_m=errors[len(errors) // 2],
+        hold_error_max_m=errors[-1],
+        hold_height_mean_m=sum(pose.u for pose in held) / len(held),
+    )
+    return details
+
+
 def judge_drop(run: Run) -> tuple[float, dict]:
     s = run.settings
     target = run.need("target")
@@ -305,6 +368,7 @@ def judge_drop(run: Run) -> tuple[float, dict]:
     min_height = min((pose.u for pose in low), default=None)
     flew_low = min_height is not None and min_height < s["min_height_m"]
     details = {"released": False, "distance_m": None, "release_height_m": None, "released_low": False, "flew_low": flew_low, "min_height_m": min_height, "scored_from": None}
+    details.update(_hold_details(run, target))
 
     release = run.first_event("release")
     if release is None:

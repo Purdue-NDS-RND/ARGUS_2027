@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from drone_mission_core.centring import CENTRE_FLAG, EstimatorCentring
 from drone_mission_core.features import get_feature_flag
 from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
@@ -85,6 +86,20 @@ class RedBullseyeMissionBase(BaseMission):
             self._frame_time_max_age_s = float(
                 spec.config.get("frame_time_max_age_s", DEFAULT_FRAME_TIME_MAX_AGE_S)
             )
+        # Centring on the estimator (CEN-01), only with the centre_on_estimator
+        # flag on: the error steered on is to the estimator's track, for the
+        # payload's release point. The offset is read when the sequence is
+        # built, so an airframe nobody has measured stops the executor on the
+        # ground.
+        self._estimator_centring: EstimatorCentring | None = None
+        self._last_centring_log: Time | None = None
+        self._last_centring_refusal_log: Time | None = None
+        if get_feature_flag(spec.features, CENTRE_FLAG):
+            from drone_mission_core import frame_projection
+
+            self._estimator_centring = EstimatorCentring(
+                frame_projection.payload_offset_from_config(spec.config, spec.name)
+            )
 
     def _load_common_vision_config(self, config: dict) -> None:
         self._target_latitude = float(config.get("target_latitude", 0.0))
@@ -162,6 +177,8 @@ class RedBullseyeMissionBase(BaseMission):
         self._last_velocity_log_time: Time | None = None
         self._time_guard = TimeGuard(self.name, self._time_guard_hold_timeout_s)
         self._time_guard_hold: tuple[float, float, float] | None = None
+        if self._estimator_centring is not None:
+            self._estimator_centring.forget()
 
     def _time_is_unhealthy(self, context: MissionContext) -> bool:
         """The stale-data guard (FND-03). Always False with its flag off."""
@@ -273,6 +290,9 @@ class RedBullseyeMissionBase(BaseMission):
     def _has_recent_target_detection(self, context: MissionContext) -> bool:
         if self._time_is_unhealthy(context):
             return False  # an unhealthy time base is "no target" (flag on only)
+        if self._estimator_centring is not None:
+            # centre_on_estimator: the target is the estimator's track, not the raw detection.
+            return self._estimator_solution(context) is not None
         detection = context.target_detection
         if detection is None:
             return False
@@ -287,6 +307,10 @@ class RedBullseyeMissionBase(BaseMission):
         context: MissionContext,
         max_centering_speed_mps: float | None = None,
     ) -> tuple[float, float, float] | None:
+        if self._estimator_centring is not None:
+            # centre_on_estimator (CEN-01): the estimator's track, aimed for the payload.
+            return self._estimator_tracking_solution(context, max_centering_speed_mps)
+
         if not self._has_recent_target_detection(context):
             return None
 
@@ -358,6 +382,72 @@ class RedBullseyeMissionBase(BaseMission):
             max_speed_mps=max_speed,
         )
         return filtered_error_m, velocity_east, velocity_north
+
+    def _estimator_solution(self, context: MissionContext):
+        """centre_on_estimator only: this tick's `CentringSolution`, or None when there is no track to steer on.
+
+        The two 2026 limits on a usable target apply as before: none below
+        min_projection_altitude_m, and none further from the vehicle than
+        max_projection_distance_m.
+        """
+        centring = self._estimator_centring
+        if context.local_pose is None:
+            return None
+        if float(context.local_pose.pose.position.z) < self._min_projection_altitude_m:
+            return None
+        near = context.latlon_to_local_enu(self._target_latitude, self._target_longitude)
+        solution = centring.solve(context, near)
+        if solution is not None and solution.error_m > self._max_projection_distance_m:
+            return None
+        if solution is None and centring.track_id is not None and centring.last_refusal:
+            last = self._last_centring_refusal_log
+            if last is None or context.seconds_since(last) >= 2.0:
+                self._last_centring_refusal_log = context.now()
+                context.logger.warn(f"[{self.name}] no target to centre on: {centring.last_refusal}")
+        return solution
+
+    def _estimator_tracking_solution(
+        self,
+        context: MissionContext,
+        max_centering_speed_mps: float | None = None,
+    ) -> tuple[float, float, float] | None:
+        """centre_on_estimator only: (error, east velocity, north velocity) from the estimator's track.
+
+        The error is from the vehicle to where it must be for the payload to
+        be over the track. The estimator has filtered it, so the 2026
+        low-pass filter and deadband are not applied.
+
+        On a track the context's descend rule says no to (COASTING, or not
+        hit for 0.5 s) the steering goes on, toward where the estimator
+        expects the target, but the error is reported as infinite: the
+        mission does not descend, does not count itself centred, and so does
+        not start its fixed column or its release on a point it only
+        remembers. No track that can be steered on is no solution, which the
+        callers treat as a lost target.
+        """
+        if self._time_is_unhealthy(context):
+            return None
+        solution = self._estimator_solution(context)
+        if solution is None:
+            return None
+        max_speed = self._max_centering_speed_mps
+        if max_centering_speed_mps is not None:
+            max_speed = max(0.0, float(max_centering_speed_mps))
+        velocity_east, velocity_north = ground_offset_to_velocity(
+            east_error_m=solution.east_m,
+            north_error_m=solution.north_m,
+            gain_mps_per_m=self._centering_gain_mps_per_m,
+            max_speed_mps=max_speed,
+        )
+        if not solution.may_descend:
+            last = self._last_centring_log
+            if last is None or context.seconds_since(last) >= 2.0:
+                self._last_centring_log = context.now()
+                context.logger.warn(
+                    f"[{self.name}] not descending: {solution.why_not or 'the descend rule says no'}"
+                )
+            return math.inf, velocity_east, velocity_north
+        return solution.error_m, velocity_east, velocity_north
 
     def _frame_time_projection(
         self,
@@ -475,6 +565,10 @@ class RedBullseyeMissionBase(BaseMission):
                     f"{self._max_recovery_attempts} attempts"
                 )
                 return RecoveryCommandResult(failed=True, reached_altitude=False)
+            if self._estimator_centring is not None:
+                # centre_on_estimator: the mission is looking again, so the track
+                # it was flying to is given up and the next one found is taken.
+                self._estimator_centring.forget()
 
             current_altitude = context.local_pose.pose.position.z
             next_altitude = current_altitude + self._not_found_ascent_m

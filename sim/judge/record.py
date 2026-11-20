@@ -2,13 +2,15 @@
 
 The recorder writes `trace.jsonl`, one JSON object per line, either
 
-  {"t": 12.35, "pose": "vehicle", "e": 1.0, "n": 2.0, "u": 3.0}
+  {"t": 12.35, "pose": "vehicle", "e": 1.0, "n": 2.0, "u": 3.0, "yaw": 1.5708}
   {"t": 30.10, "event": "release", "fake": true}
 
 `t` is sim time in seconds. Poses are Gazebo's true model positions in the
 world frame (east, north, up in metres from the world origin), never the EKF.
 The vehicle's `u` has `vehicle_ground_offset_m` taken off (the height of the
 model origin when it stands on the ground), so 0 means on the ground.
+`yaw` is on the vehicle's poses only: its true heading in radians from east,
+counter-clockwise. Older traces have none.
 
 Events the judges read:
 
@@ -46,6 +48,7 @@ class Pose:
     e: float
     n: float
     u: float
+    yaw: float | None = None  # true heading from east, counter-clockwise, in radians; the vehicle's, when the recorder wrote it
 
 
 @dataclass(frozen=True)
@@ -71,8 +74,9 @@ class Record:
                     up = float(line["u"])
                     if line["pose"] == VEHICLE:
                         up -= vehicle_ground_offset_m
+                    yaw = None if line.get("yaw") is None else float(line["yaw"])
                     poses.setdefault(str(line["pose"]), []).append(
-                        Pose(t, float(line["e"]), float(line["n"]), up)
+                        Pose(t, float(line["e"]), float(line["n"]), up, yaw)
                     )
                 elif "event" in line:
                     events.append({**line, "t": t, "event": str(line["event"])})

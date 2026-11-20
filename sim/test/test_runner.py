@@ -7,6 +7,7 @@ what the report says. No ROS needed; the ROS node in fly.py only feeds them.
 """
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -113,6 +114,22 @@ def test_trace_writer_writes_what_the_judge_reads(tmp_path):
     assert record.final("bucket").u == pytest.approx(0.1)
     assert record.events_of("release")[0]["fake"] is True
     assert record.events_of("clock")[0]["wall"] == 1000.0
+
+
+def test_trace_writer_keeps_the_vehicles_true_heading_when_it_is_given(tmp_path):
+    from runner.trace import yaw_of_quaternion
+
+    path = tmp_path / "trace.jsonl"
+    writer = TraceWriter(path)
+    half = math.radians(90.0) / 2.0
+    writer.pose(1.0, "vehicle", 1.0, 2.0, 3.0, yaw=yaw_of_quaternion(0.0, 0.0, math.sin(half), math.cos(half)))
+    writer.pose(1.0, "bucket", 5.0, 6.0, 0.1)
+    writer.close()
+    record = Record.load(path)
+    assert record.track("vehicle")[0].yaw == pytest.approx(math.pi / 2.0, abs=1e-4)  # nose along +y: north
+    assert record.track("bucket")[0].yaw is None
+    assert "yaw" not in json.loads(path.read_text().splitlines()[1])
+    assert yaw_of_quaternion(0.0, 0.0, 0.0, 1.0) == pytest.approx(0.0)  # nose along +x: east
 
 
 def test_trace_writer_survives_being_killed_mid_run(tmp_path):
