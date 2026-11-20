@@ -10,7 +10,7 @@
   ros__parameters:
     plugin_denylist: ["*"]
     plugin_allowlist:
-      # The flight's twelve, as in argus_mavros.yaml.
+      # The flight's thirteen, as in argus_mavros.yaml.
       - sys_status
       - sys_time
       - command
@@ -23,6 +23,7 @@
       - rangefinder
       - gps_status
       - gimbal_control
+      - vfr_hud
       # The sim's four more.
       - optical_flow        # OPTICAL_FLOW_RAD to and from the flight controller
       - vision_pose         # a pose from vision, to the flight controller's estimator

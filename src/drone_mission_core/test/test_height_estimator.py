@@ -332,3 +332,41 @@ def test_flag_off_the_known_ground_offset_still_reaches_the_barometer_height(exe
     height = node._mission_context.height_agl(ground_below_home_m=1.5)
     assert (height.source, height.value_m) == ("baro", pytest.approx(11.5))
     assert node._mission_context.height_agl(ground_below_home_m=float("nan")) is None  # never a height that is not a number
+
+
+# --- the raw reading and the throttle, for the delivery's contact rule (CEN-05) ---------
+
+
+def test_the_newest_raw_reading_is_kept_even_when_it_is_outside_the_sensors_range():
+    """On the ground the rangefinder reads under its own minimum: no height comes from that, but the contact rule
+    asks whether the reading is at or below the package's height, and "under the minimum" is an answer to that."""
+    flight = Flight().fly()
+    assert flight.estimator.newest_range(flight.now_ns) is not None
+    estimator = he.HeightEstimator(lambda _stamp: None)
+    assert estimator.newest_range(5 * S) is None
+    estimator.add_range(5 * S, 0.02, 0.0, 1000.0)  # under the sensor's 0.1 m
+    estimator.add_range(5 * S + 50 * MS, float("nan"), 0.0, 1000.0)  # not a number: not a reading
+    range_m, age_s = estimator.newest_range(5 * S + 100 * MS)
+    assert range_m == pytest.approx(0.02) and age_s == pytest.approx(0.1)
+
+
+def test_the_context_gives_the_raw_rangefinder_and_the_throttle_only_with_their_flags(executor_module, monkeypatch, wiring):
+    hud = "/mavros/vfr_hud"
+    plain = start(executor_module, monkeypatch)
+    assert plain._mission_context.rangefinder_range() is None and plain._mission_context.throttle() is None
+    assert plain._throttle is None and wiring.callbacks(hud) == []
+
+    with pytest.raises(ValueError, match="delivery_soft_set_down requires"):
+        start(executor_module, monkeypatch, feature_overrides="delivery_soft_set_down")
+
+    flags = "use_frame_time_pose,use_target_estimator,centre_on_estimator,use_height_estimator,delivery_soft_set_down"
+    node = start(executor_module, monkeypatch, feature_overrides=flags)
+    context = node._mission_context
+    assert len(wiring.callbacks(hud)) == 1 and context.throttle() is None and context.rangefinder_range() is None
+    fly(wiring, node, 0.4, up=0.2, range_m=0.02)  # on the ground: under the sensor's minimum
+    assert context.height_agl().source == "baro"
+    range_m, age_s = context.rangefinder_range()
+    assert range_m == pytest.approx(0.02) and 0.0 <= age_s < 0.1
+    wiring.callbacks(hud)[0](SimpleNamespace(header=SimpleNamespace(stamp=stamp(wiring.now_ns - 50 * MS)), throttle=0.31))
+    throttle, age_s = context.throttle()
+    assert throttle == pytest.approx(0.31) and age_s == pytest.approx(0.05)

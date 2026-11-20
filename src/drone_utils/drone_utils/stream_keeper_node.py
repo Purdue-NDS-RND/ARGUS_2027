@@ -30,6 +30,7 @@ TOPICS = {
     33: ("/mavros/global_position/global", "sensor_msgs/msg/NavSatFix"),
     245: ("/mavros/extended_state", "mavros_msgs/msg/ExtendedState"),
     1: ("/mavros/sys_status", "mavros_msgs/msg/SysStatus"),
+    74: ("/mavros/vfr_hud", "mavros_msgs/msg/VfrHud"),
 }
 
 

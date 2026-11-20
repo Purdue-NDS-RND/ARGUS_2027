@@ -97,6 +97,7 @@ class HeightEstimator:
         self._last_kept_ns: Optional[int] = None
         self._last_rejected: Optional[Tuple[int, str]] = None  # (stamp, why) of the newest reading not kept
         self._rejected_run = 0  # readings not kept since the last one that was
+        self._newest_raw: Optional[Tuple[int, float]] = None  # (stamp, range) of the newest reading that was a number, kept or not
 
     def add_range(self, stamp_ns: int, range_m: float, min_m: float, max_m: float) -> None:
         """One rangefinder reading with the limits its message gave. Only a reading inside the sensor's range is kept."""
@@ -110,6 +111,7 @@ class HeightEstimator:
             self._last_rejected = (int(stamp_ns), "the rangefinder's reading is not a number")
             self._rejected_run += 1
             return
+        self._newest_raw = (int(stamp_ns), range_m)
         if self._ground.add_range(int(stamp_ns), range_m, low, high):
             self._last_kept_ns = int(stamp_ns)
             self._rejected_run = 0
@@ -117,6 +119,17 @@ class HeightEstimator:
         else:
             self._last_rejected = (int(stamp_ns), f"the rangefinder reads {range_m:.2f} m, outside its range ({low:g} to {high:g} m)")
             self._rejected_run += 1
+
+    def newest_range(self, now_ns: int) -> Optional[Tuple[float, float]]:
+        """(range, its age in seconds) of the newest reading that was a number, inside the sensor's range or not. None before any.
+
+        Not a height: a reading under the sensor's minimum is given as it
+        came. For the delivery's contact rule (CEN-05), which asks only
+        whether the rangefinder reads the package's height or less.
+        """
+        if self._newest_raw is None:
+            return None
+        return self._newest_raw[1], (int(now_ns) - self._newest_raw[0]) * 1.0e-9
 
     def _judge_repeats(self, now_ns: int) -> None:
         """Keep how far the vehicle's own height has moved while the reading stayed the same, over the readings whose pose is known by now."""

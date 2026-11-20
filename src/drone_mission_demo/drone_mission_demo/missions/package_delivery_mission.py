@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from enum import Enum, auto
 
+from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.registry import register_mission
+from drone_mission_core.safety_limits import set_down_release_allowed
+from drone_mission_core.set_down import AFTER_RELEASE_WAIT_S, BARO_MARGIN_M, SET_DOWN_FLAG
 from rclpy.time import Time
 from .red_bullseye_mission_base import (
     HOLD_YAW_DEG,
@@ -30,11 +34,28 @@ class PackageDeliveryState(Enum):
     GROUND_DWELL = auto()
     GUIDED_RELAUNCH = auto()
     COMPLETE = auto()
+    FINAL_SET_DOWN = auto()  # 2027, delivery_soft_set_down only: in place of FINAL_FIXED_COLUMN_DESCENT (delivery_set_down.py)
 
 
 @register_mission("package_delivery")
 class PackageDeliveryMission(RedBullseyeMissionBase):
     """Fly to a GPS target, land on it in GUIDED, deliver, and relaunch."""
+
+    def __init__(self, spec) -> None:
+        super().__init__(spec)
+        # The soft set-down's one measurement (CEN-05), only with its flag
+        # on. Checked when the sequence is built, as the camera's calibration
+        # is, so that a sequence without it stops the executor on the ground
+        # and not the delivery in the air with the package on the hook.
+        if get_feature_flag(spec.features, SET_DOWN_FLAG):
+            from drone_mission_core.set_down import ContactDetector
+
+            try:
+                ContactDetector(spec.config.get("package_height_m"))
+            except ValueError as error:
+                raise ValueError(
+                    f"mission '{spec.name}': {SET_DOWN_FLAG} is on but the mission cannot set down: {error}"
+                ) from error
 
     def on_enter(self, context: MissionContext) -> None:
         config = self.spec.config
@@ -75,6 +96,15 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
         self._final_descent_hold_position: tuple[float, float] | None = None
         self._final_descent_target_altitude_m: float | None = None
         self._final_descent_last_update: Time | None = None
+        # The soft set-down (CEN-05), only with the delivery_soft_set_down flag on.
+        self._set_down = None
+        self._ground_below_home_m = 0.0
+        self._released_at: Time | None = None
+        if get_feature_flag(self.spec.features, SET_DOWN_FLAG):
+            from .delivery_set_down import SoftSetDown
+
+            self._ground_below_home_m = float(config.get("ground_below_home_m", 0.0))
+            self._set_down = SoftSetDown(self, config.get("package_height_m"))
 
         self._enter_common_mission(context)
 
@@ -97,6 +127,7 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
             PackageDeliveryState.GROUND_DWELL: self._handle_ground_dwell,
             PackageDeliveryState.GUIDED_RELAUNCH: self._handle_guided_relaunch,
             PackageDeliveryState.COMPLETE: self._handle_complete,
+            PackageDeliveryState.FINAL_SET_DOWN: self._handle_final_set_down,
         }.get(self._state, self._handle_invalid_state)
         return handler(context)
 
@@ -211,13 +242,31 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
 
         self._clear_target_loss_grace()
         if command.tracking_error_m <= self._centering_tolerance_m:
-            if command.reached_target_altitude:
+            # delivery_soft_set_down: also from under the handoff window, where
+            # the mission is after looking for the target again from low down.
+            under_the_handoff = (
+                self._set_down is not None
+                and context.local_pose.pose.position.z
+                <= self._landing_check_threshold_m + self._touchdown_handoff_tolerance_m
+            )
+            if command.reached_target_altitude or under_the_handoff:
                 if not context.landing_state_available():
                     context.logger.error(
                         f"[{self.name}] /mavros/extended_state is required before "
                         "final touchdown descent"
                     )
                     return MissionStatus.FAILURE
+                if self._set_down is not None:
+                    # FINAL_SET_DOWN goes on from here on the estimator,
+                    # where 2026 froze its GPS column.
+                    context.logger.info(
+                        f"[{self.name}] Entering final set-down at "
+                        f"{context.local_pose.pose.position.z:.2f} m "
+                        f"(threshold {self._landing_check_threshold_m:.2f} m)"
+                    )
+                    self._set_down.enter(context)
+                    self._transition_to(PackageDeliveryState.FINAL_SET_DOWN, context)
+                    return MissionStatus.RUNNING
                 context.logger.info(
                     f"[{self.name}] Entering final touchdown column at "
                     f"{context.local_pose.pose.position.z:.2f} m "
@@ -332,7 +381,81 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
         )
         return MissionStatus.RUNNING
 
+    def _handle_final_set_down(self, context: MissionContext) -> MissionStatus:
+        """delivery_soft_set_down only (CEN-05): delivery_set_down.py does the work, this turns its answer into a state."""
+        from . import delivery_set_down
+
+        if context.local_pose is None or context.global_gps is None:
+            return MissionStatus.WAITING
+        if self._set_down.holding and self._time_is_unhealthy(context):
+            # As in the 2026 column: no descent on an unhealthy time base.
+            self._set_down.pause()
+            return self._hold_for_time_guard(context, self._set_down.hold_point)
+        answer = self._set_down.update(context)
+        if answer == delivery_set_down.CONTACT:
+            self._transition_to(PackageDeliveryState.GROUND_DWELL, context)
+        elif answer == delivery_set_down.REACQUIRE:
+            self._transition_to(PackageDeliveryState.TARGET_NOT_FOUND, context)
+        elif answer == delivery_set_down.GIVE_UP:
+            self._failed = True
+            return MissionStatus.FAILURE
+        return MissionStatus.RUNNING
+
+    def _handle_soft_release(self, context: MissionContext) -> MissionStatus:
+        """delivery_soft_set_down only: release on contact, wait a second, climb. Not the 2026 dwell, and no wait for "landed"."""
+        if context.mavros_state is not None and not context.mavros_state.armed:
+            context.logger.error(
+                f"[{self.name}] Vehicle disarmed on the ground before relaunch. "
+                "Increase FCU DISARM_DELAY."
+            )
+            return MissionStatus.FAILURE
+        context.set_local_velocity_setpoint(0.0, 0.0, 0.0, yaw_deg=HOLD_YAW_DEG)
+        if not self._delivery_complete and not self._actuator_requested:
+            # The rules' ceiling for a set-down, at the moment of the release:
+            # at or under 6 ft by the height as it is now, or landed by the
+            # flight controller's word. A height that is not the
+            # rangefinder's counts as BARO_MARGIN_M higher than it says.
+            height = context.height_agl(self._ground_below_home_m)
+            landed = context.landing_state_available() and context.vehicle_is_landed()
+            against_ceiling_m = math.nan
+            if height is not None:
+                against_ceiling_m = height.value_m + (0.0 if height.source == "rangefinder" else BARO_MARGIN_M)
+            if not set_down_release_allowed(against_ceiling_m, landed):
+                context.logger.warn(
+                    f"[{self.name}] not releasing: the height is "
+                    f"{'unknown' if height is None else f'{height.value_m:.2f} m'}, "
+                    "the flight controller does not say landed"
+                )
+                self._set_down.contact_again()
+                self._transition_to(PackageDeliveryState.FINAL_SET_DOWN, context)
+                return MissionStatus.RUNNING
+        if self._ground_dwell_start is None:
+            self._ground_dwell_start = context.now()
+            if self._fake_drop:
+                context.logger.info(f"[{self.name}] Fake delivery complete")
+                self._delivery_complete = True
+        if not self._delivery_complete:
+            if self._actuator_requested:
+                return MissionStatus.RUNNING
+            if not context.command_service_ready():
+                return MissionStatus.WAITING
+            context.logger.info(f"[{self.name}] Releasing gripper payload")
+            self._actuator_requested = True
+            context.command_gripper(
+                release=True,
+                done_callback=self._on_gripper_response,
+            )
+            return MissionStatus.RUNNING
+        if self._released_at is None:
+            self._released_at = context.now()
+        if context.seconds_since(self._released_at) < AFTER_RELEASE_WAIT_S:
+            return MissionStatus.RUNNING
+        self._transition_to(PackageDeliveryState.GUIDED_RELAUNCH, context)
+        return MissionStatus.RUNNING
+
     def _handle_ground_dwell(self, context: MissionContext) -> MissionStatus:
+        if self._set_down is not None:
+            return self._handle_soft_release(context)
         if context.mavros_state is not None and not context.mavros_state.armed:
             context.logger.error(
                 f"[{self.name}] Vehicle disarmed on the ground before relaunch. "

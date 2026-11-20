@@ -33,6 +33,9 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     # and their floor and band are judged on the height estimator's height (CEN-03): the bare rangefinder
     # height has no rule for a sensor that repeats one reading.
     "drop_release_gates": ("use_target_estimator", "centre_on_estimator", "use_height_estimator"),
+    # The delivery's soft set-down (CEN-05) comes down on the estimator's track through the centring, and its
+    # contact rule reads the rangefinder the height estimator keeps.
+    "delivery_soft_set_down": ("use_target_estimator", "centre_on_estimator", "use_height_estimator"),
     # Centring on the estimator (CEN-01) steers on its track of the target.
     "centre_on_estimator": ("use_target_estimator",),
     # The retuned centring controller (CEN-02) is fed the estimator's error.

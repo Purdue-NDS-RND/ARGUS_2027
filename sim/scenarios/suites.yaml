@@ -38,6 +38,8 @@ nightly:
     - drop/hold_2m_ring_fit
     - drop/release
     - drop/release_wind
+    - delivery/set_down
+    - delivery/set_down_floor
     - drop/gated
     - drop/gated_track_loss
     - drop/gated_timeout

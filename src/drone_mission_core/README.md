@@ -265,6 +265,29 @@ still the `DROP_PAYLOAD` state and `fake_drop` still decides whether the actuato
 commanded. While the release command cannot be sent the mission stays on the gates,
 steering; a command that fails is sent again only after the gates have held again.
 
+`delivery_soft_set_down` (declared, off, in the four sequences that fly a delivery; needs
+`use_target_estimator`, `centre_on_estimator` and `use_height_estimator`) replaces the
+delivery's fixed GPS column with FINAL_SET_DOWN (`set_down.py`, and `delivery_set_down.py`
+in `drone_mission_demo`, CEN-05). From the handoff height the mission goes on down on the
+estimator's track, easing to 0.12 m/s. On the tick it is both low and centred on a track
+that may be descended on, it takes the hold: the GPS point it is over, no more steering,
+and its height setpoint lowered at 0.12 m/s. Low is `height_agl()` at 0.6 m or less (a
+height that is not the rangefinder's counts as 0.5 m lower than it says), or the flight
+controller's height within 0.05 m of `min_projection_altitude_m`, under which the mission
+takes no target. Contact is the rangefinder at or below the mission's `package_height_m`,
+a vertical speed within 0.05 m/s of zero, and the throttle 15% under what it was while
+descending, together for 0.3 s, each no older than 0.2 s; it is asked only if the hold was
+taken on the rangefinder's height. The flight controller's "landed" for
+`touchdown_dwell_s` is contact too, before or in the hold. Then the release (still the
+`GROUND_DWELL` state, `fake_drop` as before; refused above 1.82 m unless the flight
+controller says landed), 1 s, and the 2026 relaunch. Twenty seconds in the hold without
+contact, or ten with no height, fail the mission. `package_height_m` is what the
+rangefinder reads with the package resting on the ground; with the flag on and no usable
+value the sequence does not build, so the executor stops on the ground. The throttle is
+`context.throttle()`, from `/mavros/vfr_hud` (the `vfr_hud` plugin in
+`config/mavros/argus_mavros.yaml`, 20 Hz by the stream keeper); the raw rangefinder
+reading is `context.rangefinder_range()`. Both are None with their flags off.
+
 `use_height_estimator` (declared, off, in the eight sequences that fly a drop or
 delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height
 estimator (`height_estimator.py`, CEN-03), fed by its own subscription to

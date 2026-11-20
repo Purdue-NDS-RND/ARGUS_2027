@@ -24,6 +24,7 @@
       - rangefinder         # rangefinder/rangefinder
       - gps_status          # gpsstatus/gps1/raw
       - gimbal_control      # gimbal_control/manager/pitchyaw
+      - vfr_hud             # vfr_hud: the throttle, for the delivery's contact rule (CEN-05)
 
 # sys_time: MAVROS exchanges TIMESYNC with the flight controller and stamps
 # every message it publishes (pose, IMU, GPS) with the time the flight

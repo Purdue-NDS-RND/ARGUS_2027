@@ -28,6 +28,7 @@ from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
 from .safety_limits import enforced_violations
+from .set_down import attach_throttle
 from .time_guard import attach_time_health
 
 
@@ -130,6 +131,11 @@ class MissionExecutorNode(Node):
         # height estimator (CEN-03), fed by its own rangefinder subscription.
         self._height_estimator = attach_height_estimator(
             self, [mission.spec for mission in self._sequence], self._pose_buffer
+        )
+        # None unless a mission has the delivery_soft_set_down flag on: then
+        # the flight controller's throttle, for the set-down's contact rule (CEN-05).
+        self._throttle = attach_throttle(
+            self, [mission.spec for mission in self._sequence]
         )
         # None unless a mission has the use_target_estimator flag on: then the
         # target estimator (FND-06), fed by its own subscriptions and timer.

@@ -17,6 +17,7 @@ GOOD = {
     "/mavros/gpsstatus/gps1/raw": 100,
     "/mavros/battery": 40,
     "/mavros/sys_status": 40,
+    "/mavros/vfr_hud": 400,
     "/mavros/extended_state": 40,
     "/mavros/rangefinder/rangefinder": 400,
 }

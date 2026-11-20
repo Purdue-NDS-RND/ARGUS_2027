@@ -36,6 +36,7 @@ PLUGIN_OF = {
     "cmd": "command", "local_position": "local_position", "global_position": "global_position", "imu": "imu",
     "setpoint_raw": "setpoint_raw", "setpoint_position": "setpoint_position", "home_position": "home_position",
     "rangefinder": "rangefinder", "gpsstatus": "gps_status", "gimbal_control": "gimbal_control",
+    "vfr_hud": "vfr_hud",  # the throttle, for the delivery's contact rule (CEN-05)
 }  # fmt: skip
 # Named in the tree without being used through MAVROS: file names, and the
 # node the sim's time check knows not to ask for parameters.
@@ -59,7 +60,7 @@ def test_only_listed_plugins_load():
     allowed = common["plugin_allowlist"]
     assert len(allowed) == len(set(allowed)) and all(re.fullmatch(r"[a-z_]+", name) for name in allowed)
     assert set(allowed) == set(PLUGIN_OF.values())
-    assert len(allowed) == 12
+    assert len(allowed) == 13
 
 
 def test_the_allowed_plugins_are_exactly_the_ones_the_repo_uses():
@@ -122,10 +123,12 @@ def test_rates_are_the_ones_in_the_spec():
         "GLOBAL_POSITION_INT": 20.0,
         "EXTENDED_SYS_STATE": 2.0,
         "SYS_STATUS": 2.0,
+        "VFR_HUD": 20.0,  # the throttle: three tenths of a second of it decide a delivery's contact (CEN-05)
     }
     assert {message_id: name for message_id, (name, _) in MESSAGE_RATES_HZ.items()} == {
         32: "LOCAL_POSITION_NED", 30: "ATTITUDE", 173: "RANGEFINDER", 24: "GPS_RAW_INT",
         147: "BATTERY_STATUS", 33: "GLOBAL_POSITION_INT", 245: "EXTENDED_SYS_STATE", 1: "SYS_STATUS",
+        74: "VFR_HUD",
     }  # fmt: skip
 
 

@@ -42,6 +42,7 @@ TOPICS = {
     "/mavros/sys_status": ("mavros_msgs/msg/SysStatus", "SYS_STATUS", False),
     "/mavros/extended_state": ("mavros_msgs/msg/ExtendedState", "EXTENDED_SYS_STATE", False),
     "/mavros/rangefinder/rangefinder": ("sensor_msgs/msg/Range", "RANGEFINDER", True),
+    "/mavros/vfr_hud": ("mavros_msgs/msg/VfrHud", "VFR_HUD", False),
 }
 PASS_FRACTION = 0.9
 WINDOW_S = 5.0

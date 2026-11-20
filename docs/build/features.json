@@ -500,9 +500,9 @@
       "land": "L10",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_delivery_set_down.py 27 passed, test_set_down.py 18 passed; sim delivery/set_down on (real 0.5 kg package: touch at 0.12 m/s, release 0.8 s after touch, 2.6 s on the ground, 0.010 m from the centre; 2026 variant 0.25 m/s, 2.6 s, 7.5 s, 0.165 m) and delivery/set_down_floor on (hold at the projection floor, 0.033 m): OK; docs/results/2026-11-20-soft-set-down.md; flight-guardian no blocker (round 2), spec-auditor complete (round 2); aircraft: package_height_m, throttle on a real touchdown and the impulse rig are person steps",
       "blocked_reason": ""
     },
     {

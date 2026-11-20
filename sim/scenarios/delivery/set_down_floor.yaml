@@ -1,0 +1,56 @@
+# The soft set-down where the mission stops taking a target well above 0.6 m (CEN-05).
+# The delivery mission takes no target under `min_projection_altitude_m`,
+# judged on the flight controller's height; the set-down's hold starts 0.6 m
+# above the ground, judged on the rangefinder. This scenario raises the first
+# to 1.2 m, so that there is a band (1.2 m down to 0.6 m) with nothing to
+# steer on. What must be seen: the hold is taken at about 1.25 m on the
+# flight controller's height ("under the height the mission steers down
+# to"), while the mission is still centred on its track; the rest is the
+# set-down as in delivery/set_down, from higher up. Not seen: a lost target
+# and a recovery climb a metre off the ground.
+description: Soft set-down with the mission blind to the target from 1.2 m down; the hold is taken there, calm.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  delivery_soft_set_down: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+config:
+  package_delivery:
+    fake_drop: false
+    airframe: sim_iris_parcel
+    min_projection_altitude_m: 1.2
+targets:
+  package_delivery: delivery_target
+payload: parcel
+bucket: pail
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+  - name: pail
+    kind: bucket
+    mass_kg: 1.5
+    at: {east_m: -8.0, north_m: 0.0}
+wind: {level: calm}

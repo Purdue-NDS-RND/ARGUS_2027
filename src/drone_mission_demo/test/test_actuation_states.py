@@ -86,6 +86,7 @@ def test_exactly_these_states_of_the_shipped_missions_are_release_or_actuation_s
         "PackageDropState.DROP_PAYLOAD",  # the sprayer release
         "PackageDeliveryState.FINAL_FIXED_COLUMN_DESCENT",  # the column that leads into the release
         "PackageDeliveryState.GROUND_DWELL",  # the gripper release
+        "PackageDeliveryState.FINAL_SET_DOWN",  # 2027, delivery_soft_set_down: the release follows on the tick after contact (CEN-05)
         "TakeoffState.TAKING_OFF",  # the takeoff service arms
         "TakeoffState.WAITING_FOR_ALTITUDE",  # and sends the takeoff command a few seconds later
     }

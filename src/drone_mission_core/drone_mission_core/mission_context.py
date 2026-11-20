@@ -239,6 +239,28 @@ class MissionContext:
         ground = None if ground_height is None else ground_height.ground_up(now_ns)
         return height_agl(pose.pose.position.z, ground, pose_age_s, ground_below_home_m)
 
+    def rangefinder_range(self):
+        """The rangefinder's newest reading as (range in metres, age in seconds), or None.
+
+        The reading as it came, even outside the sensor's range: not a height
+        (that is `height_agl`). None with the use_height_estimator flag off,
+        or before any reading. For the delivery's contact rule (CEN-05).
+        """
+        estimator = getattr(self._node, "_height_estimator", None)
+        if estimator is None:
+            return None
+        return estimator.newest_range(self._now_ns())
+
+    def throttle(self):
+        """The flight controller's newest throttle as (0 to 1, age in seconds), or None.
+
+        None with the delivery_soft_set_down flag off, or before any was heard.
+        """
+        feed = getattr(self._node, "_throttle", None)
+        if feed is None:
+            return None
+        return feed.newest(self._now_ns())
+
     def latlon_to_local_enu(self, latitude: float, longitude: float):
         """(east, north) of a latitude and longitude in MAVROS's local frame, or None when it cannot be said now.
 

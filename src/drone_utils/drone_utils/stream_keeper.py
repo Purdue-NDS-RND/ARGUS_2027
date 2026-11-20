@@ -27,10 +27,11 @@ import re
 from typing import Dict, List, Mapping, Optional, Tuple
 
 # MAVLink message id: (name, rate in Hz). PLT-06: pose 30, attitude 50,
-# rangefinder 20, GPS 5, battery 2. The last three are not in that list:
+# rangefinder 20, GPS 5, battery 2. The next three are not in that list:
 # they are held at the rates the 2026 start-up gives them, so that the
 # keeper replacing the takeoff service's request takes nothing away, and so
-# that they too come back after a reboot.
+# that they too come back after a reboot. VFR_HUD is CEN-05's: at 20 Hz, as
+# the 2026 start-up's "every stream at 20 Hz" gave it.
 MESSAGE_RATES_HZ: Dict[int, Tuple[str, float]] = {
     32: ("LOCAL_POSITION_NED", 30.0),  # local_position/pose
     30: ("ATTITUDE", 50.0),  # imu/data
@@ -40,6 +41,7 @@ MESSAGE_RATES_HZ: Dict[int, Tuple[str, float]] = {
     33: ("GLOBAL_POSITION_INT", 20.0),  # global_position/global: the fix the missions hold position on
     245: ("EXTENDED_SYS_STATE", 2.0),  # extended_state: landed or in the air
     1: ("SYS_STATUS", 2.0),  # sys_status: the pre-arm health bit
+    74: ("VFR_HUD", 20.0),  # vfr_hud: the throttle, which the delivery's contact rule reads for 0.3 s (CEN-05)
 }
 SET_MESSAGE_INTERVAL = 511  # MAV_CMD_SET_MESSAGE_INTERVAL: param1 message id, param2 interval in microseconds
 RATE_WINDOW_S = 5.0  # a message's rate is measured over this long
@@ -59,8 +61,9 @@ REBOOT_BACKSTEP_NS = 1_000_000_000  # the flight controller's clock going back b
 # the delivery sends its release one tick after entering GROUND_DWELL, so the
 # keeper has to be quiet well before that. The 2027 gated drop's FINAL_ALIGN
 # (CEN-04) is the same: its release is commanded on the tick after the gates
-# have held.
-ACTUATION_MARKS = ("FINAL_FIXED", "FINAL_ALIGN", "DROP_PAYLOAD", "GROUND_DWELL", "TAKING_OFF", "WAITING_FOR_ALTITUDE", "RELEASE", "GRIPPER", "ENGAGE", "ACTUAT")
+# have held. So is the soft set-down's FINAL_SET_DOWN (CEN-05): its release
+# follows contact by one tick.
+ACTUATION_MARKS = ("FINAL_FIXED", "FINAL_ALIGN", "FINAL_SET_DOWN", "DROP_PAYLOAD", "GROUND_DWELL", "TAKING_OFF", "WAITING_FOR_ALTITUDE", "RELEASE", "GRIPPER", "ENGAGE", "ACTUAT")
 HOLD_STALE_S = 60.0  # with nothing at all heard from the executor for this long, a hold no longer stands (the executor is gone)
 _STATE_LINE = re.compile(r"\[(?P<mission>[^\]]+)\] State: \w+ -> (?P<state>\w+)")
 _MISSION_OVER = re.compile(r"Mission '[^']*' (completed|ended with status)|Starting mission '")
