@@ -1,6 +1,6 @@
 # LOC-1: Survey height floor and guard
 
-Flag: none (a new module; nothing calls it until LOC-3) · Status: PARTIAL · Commits: `git log --oneline --grep '^LOC-1:' platform/build-2027`
+Flag: none of its own (the module is called only by LOC-3's survey mission, behind `survey_search`) · Status: DONE · Commits: `git log --oneline --grep '^LOC-1:' platform/build-2027`
 
 ## What it solves
 
@@ -38,7 +38,11 @@ OK
 - flight-guardian, round 1: four concerns, no blocker: the same barometer recovery; the barometer's 0.5 m being an allowance and heights above the rangefinder's reach always on the barometer; the no-height ABORT asking for a climb with nothing to climb by; the clock unchecked. Round 2: two resolved (the recovery, the clock), two reduced (the configured height is now kept inside the rangefinder's reach; the ABORT with no height has no climb target), and the same watching gate raised as a new concern, since removed.
 - Open, recorded for LOC-3 under Decisions: whether a survey may run on the barometer alone; a pose that comes and goes never reaches the guard's 5 s.
 
+## Flown (added with LOC-3)
+
+LOC-3's survey mission flies the guard. `docs/results/2026-11-20-survey-height-guard.md`: with the rangefinder made to read 8.0 m the survey waited, climbed 3.2 m in 3 s and flew all its tracks; with it made to read 7.25 m the survey ended after its climb. The first of those flights found two faults in the guard, both fixed here and recorded under Decisions: a recovery begun on the rangefinder was ended 0.76 s later by the barometer, which cannot see the ground (now it waits up to 3 s for the rangefinder); and the open point below, a height that comes and goes, is settled (a gap under 0.5 s is flown through; a longer one waits for a height that stays 1 s; 5 s of it ends the survey). The guard as it now stands, with the round-2 fix that was not re-audited under LOC-1 (it watches from its first tick), was audited with LOC-3: its spec rows DONE. The guard now has 24 tests.
+
 ## Not done
 
-- **The Sim half of the row.** No mission flies a survey yet, so the guard has not been flown: LOC-3's `search_pattern` scenario is where it is (a survey made to sink under 8.22 m and under 7.77 m), and this row goes to DONE with that flight.
+- A dip in the world (ground the rangefinder sees rising): the sim's rangefinder is SITL's own, over flat ground. The two flights make the dip in the sensor.
 - Whether the organisers judge the height from our log is a question for them; until the sequence says so the survey flies at 35 ft.

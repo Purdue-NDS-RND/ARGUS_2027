@@ -131,22 +131,63 @@ def test_a_time_that_is_not_one_is_refused_and_a_clock_that_steps_back_starts_th
             guard.update(at(10.6), bad)
     guard.update(at(10.6), 100.0)
     guard.update(None, 100.0)
-    assert guard.update(None, 50.0).action == sh.RECOVER  # the clock went back: the five seconds start from here
+    assert guard.update(None, 50.0).action == sh.CONTINUE  # the clock went back: the wait starts from here
+    assert guard.update(None, 50.6).action == sh.RECOVER
     assert guard.update(None, 54.9).action == sh.RECOVER and guard.update(None, 55.1).action == sh.ABORT
 
 
 def test_with_no_height_the_survey_waits_and_after_five_seconds_it_is_over():
     guard = sh.SurveyHeightGuard(10.668)
     guard.update(at(10.6), 100.0)
-    answer = guard.update(None, 100.05)
+    assert sh.NO_HEIGHT_GRACE_S == 0.5 and sh.HEIGHT_STEADY_S == 1.0
+    assert guard.update(None, 100.05).action == sh.CONTINUE  # a gap under half a second does not stop the survey
+    assert guard.update(None, 100.5).action == sh.CONTINUE
+    answer = guard.update(None, 100.55)
     assert answer.action == sh.RECOVER and answer.climb_to_m is None and "no height" in answer.reason  # wait: nothing to climb by
     assert guard.update(None, 104.9).action == sh.RECOVER
     over = guard.update(None, 105.1)
     assert over.action == sh.ABORT and over.climb_to_m is None  # still nothing to climb by: the mission's failure policy, not a blind climb
-    # A height that comes back in time lets the survey go on.
+    # A height that comes back in time lets the survey go on, once it has stayed for a second.
     guard = watching()
     guard.update(None, 100.0)
-    assert guard.update(at(10.6), 102.0).action == sh.CONTINUE
+    guard.update(None, 101.0)
+    back = guard.update(at(10.6), 102.0)
+    assert back.action == sh.RECOVER and back.climb_to_m is None and "stay" in back.reason
+    assert guard.update(at(10.6), 102.9).action == sh.RECOVER and guard.update(at(10.6), 103.0).action == sh.CONTINUE
+    # A short gap that the survey flew through leaves nothing behind: the next gap has its own half second.
+    guard = watching()
+    guard.update(None, 100.0)
+    assert guard.update(at(10.6), 100.3).action == sh.CONTINUE
+    assert guard.update(None, 100.7).action == sh.CONTINUE and guard.update(None, 101.3).action == sh.RECOVER
+
+
+def test_a_height_that_comes_and_goes_is_no_height():
+    """LOC-1's open point (a pose that comes and goes never reached the guard's five seconds): once the survey
+    waits for a height, only a height that stays for a second ends the wait, and the five seconds are counted
+    from the first tick without one."""
+    guard = watching()
+    t = 100.0
+    actions = []
+    while t < 105.2:  # no height for 0.6 s, then a height for 0.4 s, over and over
+        height = None if (t - 100.0) % 1.0 < 0.6 else at(10.6)
+        actions.append(guard.update(height, round(t, 2)).action)
+        t += 0.1
+    assert actions[:5] == [sh.CONTINUE] * 5 and set(actions[6:50]) == {sh.RECOVER}  # one wait, not a stop and a start each second
+    assert actions[-1] == sh.ABORT and guard.aborted
+    over = guard.update(at(10.6), 106.0)
+    assert over.action == sh.ABORT and over.climb_to_m is None and "came and went" in over.reason
+    # A height that is low is still climbed by while the wait lasts, and one under 7.77 m still ends the survey with its climb.
+    guard = watching()
+    guard.update(None, 100.0)
+    guard.update(None, 100.6)
+    low = guard.update(at(8.0), 100.7)
+    assert low.action == sh.RECOVER and low.climb_to_m == pytest.approx(10.668)
+    end = guard.update(at(7.5), 100.8)
+    assert end.action == sh.ABORT and end.climb_to_m == pytest.approx(10.668)
+    # In a recovery there is no half second: a tick without a height is a tick with nothing to climb by.
+    guard = watching()
+    guard.update(at(8.0), 100.0)
+    assert guard.update(None, 100.05).action == sh.RECOVER
 
 
 def test_the_guard_never_asks_for_a_height_under_the_rules_floor():
@@ -154,3 +195,48 @@ def test_the_guard_never_asks_for_a_height_under_the_rules_floor():
         assert sh.SurveyHeightGuard(height).survey_height_m >= safety_limits.SURVEY_MIN_HEIGHT_M
     with pytest.raises(ValueError, match="survey height"):
         sh.SurveyHeightGuard(8.0)
+
+
+def test_a_recovery_begun_on_the_rangefinder_is_not_ended_by_the_barometer_which_cannot_see_the_ground():
+    """Found in the sim (LOC-3's survey_dip): braking for the recovery tilted the vehicle past the rangefinder's
+    15 degrees, the height was the barometer's for a moment, and the barometer, blind to the ground that had
+    come close, ended the recovery 0.8 s after it began."""
+    assert sh.RANGEFINDER_BACK_WAIT_S == 3.0
+    guard = sh.SurveyHeightGuard(10.668)
+    assert guard.update(at(10.668), 0.0).action == sh.CONTINUE
+    assert guard.update(at(8.05), 1.0).action == sh.RECOVER
+    waiting = guard.update(at(11.06, "baro"), 1.5)  # fine by the barometer: not believed yet
+    assert waiting.action == sh.RECOVER and waiting.climb_to_m is None and "rangefinder" in waiting.reason
+    assert guard.update(at(11.06, "baro"), 3.9).action == sh.RECOVER
+    again = guard.update(at(8.4), 4.0)  # the rangefinder is back, and still low
+    assert again.action == sh.RECOVER and again.climb_to_m == pytest.approx(10.668)
+    assert guard.update(at(11.06, "baro"), 4.5).action == sh.RECOVER  # (and the wait starts again from here)
+    assert guard.update(at(10.5), 5.0).action == sh.CONTINUE  # back on the rangefinder: the recovery ends
+    assert guard.recoveries == 1
+
+
+def test_a_rangefinder_that_stays_away_for_three_seconds_leaves_the_recovery_to_the_barometer():
+    guard = sh.SurveyHeightGuard(10.668)
+    guard.update(at(8.05), 0.0)
+    assert guard.update(at(11.4, "baro"), 1.0).action == sh.RECOVER
+    assert guard.update(at(11.4, "baro"), 3.9).action == sh.RECOVER
+    assert guard.update(at(11.4, "baro"), 4.0).action == sh.CONTINUE  # three seconds of barometer only: judged on it
+    # A barometer height that is not back keeps the recovery, with the barometer's climb.
+    guard = sh.SurveyHeightGuard(10.668)
+    guard.update(at(8.05), 0.0)
+    guard.update(at(9.5, "baro"), 1.0)
+    late = guard.update(at(9.5, "baro"), 4.0)
+    assert late.action == sh.RECOVER and late.climb_to_m == pytest.approx(10.668 + sh.BARO_MARGIN_M)
+    # During the wait the barometer can still end the survey, and a recovery begun on the barometer is judged on it at once.
+    guard = sh.SurveyHeightGuard(10.668)
+    guard.update(at(8.05), 0.0)
+    assert guard.update(at(8.0, "baro"), 1.0).action == sh.ABORT
+    guard = sh.SurveyHeightGuard(10.668)
+    assert guard.update(at(8.5, "baro"), 0.0).action == sh.RECOVER
+    assert guard.update(at(11.2, "baro"), 1.0).action == sh.CONTINUE
+    # A clock that steps back starts the three seconds again.
+    guard = sh.SurveyHeightGuard(10.668)
+    guard.update(at(8.05), 10.0)
+    guard.update(at(11.4, "baro"), 11.0)
+    assert guard.update(at(11.4, "baro"), 5.0).action == sh.RECOVER and guard.update(at(11.4, "baro"), 7.9).action == sh.RECOVER
+    assert guard.update(at(11.4, "baro"), 8.0).action == sh.CONTINUE

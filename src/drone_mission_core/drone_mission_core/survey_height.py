@@ -58,6 +58,15 @@ ABORT_BELOW_M = 7.77
 BACK_WITHIN_M = 0.3  # a recovery is over this close under the survey height
 BARO_MARGIN_M = 0.5  # a height that is not the rangefinder's counts for this much less
 NO_HEIGHT_ABORT_S = 5.0
+# A gap in the height shorter than this does not stop a survey that is not already waiting: half a second ago the
+# height was above the guard's lines. Once the survey waits for a height, only one that has stayed this long ends
+# the wait, and the five seconds above run from the first tick without one: a height that comes and goes is no height.
+NO_HEIGHT_GRACE_S = 0.5
+HEIGHT_STEADY_S = 1.0
+# A recovery that began on the rangefinder's height is not ended by another source's for this long: the barometer
+# cannot see ground that has come close, and the stop for the recovery can tilt the vehicle past the rangefinder's
+# limit for a moment. After it the rangefinder is taken to be gone, and the height there is, is judged.
+RANGEFINDER_BACK_WAIT_S = 3.0
 # A sequence's own survey height: at it, on the barometer, the guard must be content with a recovery's way back to
 # spare; and it must be inside the rangefinder's reach (the TFmini reads to 12 m).
 MIN_CONFIGURED_HEIGHT_M = RECOVER_BELOW_M + BACK_WITHIN_M + BARO_MARGIN_M  # 9.02 m
@@ -103,8 +112,12 @@ class SurveyHeightGuard:
         self.recoveries = 0
         self.aborted = False
         self._recovering = False
+        self._by_rangefinder = False  # this recovery began on, or has since seen, a low rangefinder height
+        self._other_since_s: Optional[float] = None  # since when the height has not been the rangefinder's, in such a recovery
         self._abort: Optional[GuardAnswer] = None
         self._no_height_since_s: Optional[float] = None
+        self._waiting_for_height = False  # a gap outlasted its grace: the survey waits until a height has stayed
+        self._height_since_s: Optional[float] = None  # since when, in that wait, there has been a height on every tick
 
     def _end(self, climb_to_m: Optional[float], reason: str) -> GuardAnswer:
         self.aborted = True
@@ -117,13 +130,31 @@ class SurveyHeightGuard:
             raise ValueError(f"the guard's time must be a number of seconds, got {now_s!r}")
         if self._abort is not None:
             return self._abort
+        now = float(now_s)
         if height is None or not _number(getattr(height, "value_m", None)):
-            if self._no_height_since_s is None or float(now_s) < self._no_height_since_s:
-                self._no_height_since_s = float(now_s)  # (a clock that stepped back starts the wait again)
-            if float(now_s) - self._no_height_since_s >= NO_HEIGHT_ABORT_S:
+            self._height_since_s = None
+            if self._no_height_since_s is None or now < self._no_height_since_s:
+                self._no_height_since_s = now  # (a clock that stepped back starts the wait again)
+            gone_s = now - self._no_height_since_s
+            if gone_s >= NO_HEIGHT_ABORT_S:
                 return self._end(None, f"no height above the ground for {NO_HEIGHT_ABORT_S:g} s: the survey cannot be kept above {SURVEY_MIN_HEIGHT_M:g} m blind")
+            if gone_s < NO_HEIGHT_GRACE_S and not self._waiting_for_height and not self._recovering:
+                return GuardAnswer(CONTINUE, None, "")
+            self._waiting_for_height = True
             return GuardAnswer(RECOVER, None, "no height above the ground: the survey waits")
-        self._no_height_since_s = None
+        if not self._waiting_for_height:
+            self._no_height_since_s = None
+        else:
+            if self._height_since_s is None or now < self._height_since_s:
+                self._height_since_s = now
+            if now - self._height_since_s >= HEIGHT_STEADY_S:
+                self._waiting_for_height = False
+                self._no_height_since_s = None
+                self._height_since_s = None
+            elif self._no_height_since_s is not None and now - self._no_height_since_s >= NO_HEIGHT_ABORT_S:
+                return self._end(
+                    None, f"the height above the ground came and went for {NO_HEIGHT_ABORT_S:g} s: the survey cannot be kept above {SURVEY_MIN_HEIGHT_M:g} m on it"
+                )
         source = str(getattr(height, "source", ""))
         margin = 0.0 if source == RANGEFINDER else BARO_MARGIN_M
         counted = float(height.value_m) - margin
@@ -135,13 +166,29 @@ class SurveyHeightGuard:
             said += f" (counted as {counted:.2f} m)"
         if counted < ABORT_BELOW_M:
             return self._end(climb_to, f"{said} is under {ABORT_BELOW_M:g} m: the survey is over, climbing back to {climb_to:.2f} m")
+        if source == RANGEFINDER:
+            self._other_since_s = None
         if counted < RECOVER_BELOW_M:
             if not self._recovering:
                 self._recovering = True
+                self._by_rangefinder = False
                 self.recoveries += 1
+            self._by_rangefinder = self._by_rangefinder or source == RANGEFINDER
             return GuardAnswer(RECOVER, climb_to, f"{said} is under {RECOVER_BELOW_M:g} m: climbing back to {climb_to:.2f} m")
         if self._recovering:
+            if self._by_rangefinder and source != RANGEFINDER:
+                if self._other_since_s is None or float(now_s) < self._other_since_s:
+                    self._other_since_s = float(now_s)
+                if float(now_s) - self._other_since_s < RANGEFINDER_BACK_WAIT_S:
+                    return GuardAnswer(
+                        RECOVER, None, f"{said}, but the rangefinder saw the ground close and is not giving the height: waiting up to {RANGEFINDER_BACK_WAIT_S:g} s for it"
+                    )
+                self._by_rangefinder = False  # the rangefinder has stayed away: the height there is, is judged
             if counted < self.survey_height_m - BACK_WITHIN_M:
                 return GuardAnswer(RECOVER, climb_to, f"{said}: climbing back to {climb_to:.2f} m")
             self._recovering = False
+            self._by_rangefinder = False
+            self._other_since_s = None
+        if self._waiting_for_height:
+            return GuardAnswer(RECOVER, None, f"{said}: the height is back, waiting {HEIGHT_STEADY_S:g} s for it to stay")
         return GuardAnswer(CONTINUE, None, "")
