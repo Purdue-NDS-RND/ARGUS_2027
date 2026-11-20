@@ -57,8 +57,10 @@ REBOOT_BACKSTEP_NS = 1_000_000_000  # the flight controller's clock going back b
 # the first and sends the takeoff command a few seconds into the second).
 # The final column that leads into each release counts too (FINAL_FIXED...):
 # the delivery sends its release one tick after entering GROUND_DWELL, so the
-# keeper has to be quiet well before that.
-ACTUATION_MARKS = ("FINAL_FIXED", "DROP_PAYLOAD", "GROUND_DWELL", "TAKING_OFF", "WAITING_FOR_ALTITUDE", "RELEASE", "GRIPPER", "ENGAGE", "ACTUAT")
+# keeper has to be quiet well before that. The 2027 gated drop's FINAL_ALIGN
+# (CEN-04) is the same: its release is commanded on the tick after the gates
+# have held.
+ACTUATION_MARKS = ("FINAL_FIXED", "FINAL_ALIGN", "DROP_PAYLOAD", "GROUND_DWELL", "TAKING_OFF", "WAITING_FOR_ALTITUDE", "RELEASE", "GRIPPER", "ENGAGE", "ACTUAT")
 HOLD_STALE_S = 60.0  # with nothing at all heard from the executor for this long, a hold no longer stands (the executor is gone)
 _STATE_LINE = re.compile(r"\[(?P<mission>[^\]]+)\] State: \w+ -> (?P<state>\w+)")
 _MISSION_OVER = re.compile(r"Mission '[^']*' (completed|ended with status)|Starting mission '")

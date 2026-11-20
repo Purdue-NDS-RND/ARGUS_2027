@@ -82,6 +82,7 @@ def test_exactly_these_states_of_the_shipped_missions_are_release_or_actuation_s
                 states |= {f"{value.__name__}.{member.name}" for member in value if is_actuation_state(member.name)}
     assert states == {
         "PackageDropState.FINAL_FIXED_DROP_COLUMN",  # the column that leads into the release
+        "PackageDropState.FINAL_ALIGN",  # 2027, drop_release_gates: the release follows on the tick the gates hold (CEN-04)
         "PackageDropState.DROP_PAYLOAD",  # the sprayer release
         "PackageDeliveryState.FINAL_FIXED_COLUMN_DESCENT",  # the column that leads into the release
         "PackageDeliveryState.GROUND_DWELL",  # the gripper release
