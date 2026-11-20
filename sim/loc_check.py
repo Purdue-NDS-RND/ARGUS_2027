@@ -21,8 +21,13 @@ to its boxes on /loc/detections, and holds the flight to these lines:
   - every class of object the scenario has on the field (from the run's
     oracle_objects.json) was reported at least once.
 
-Where the boxes fall on the ground is not judged here: that is the marker
-tracker's list against the truth (LOC-7 on, gate G4).
+With the marker tracker on as well (`marker_tracker` in the node's flags,
+LOC-7), its last message on /loc/tracks is held to the scenario's true
+markers: every numbered marker inside the four corner markers has exactly
+one listed track (confirmed, not marked outside) within TRACK_TOLERANCE_M;
+no listed track is without a marker; and a marker outside the corners has
+a confirmed track that is marked outside. The distance of each track from
+its marker is reported.
 
 The run folder gets loc_check.json; sim/runner/result.py reads it. The
 verdict is a plain function with no ROS in it.
@@ -31,6 +36,7 @@ verdict is a plain function with no ROS in it.
 from __future__ import annotations
 
 import json
+import math
 import sys
 import threading
 from pathlib import Path
@@ -43,6 +49,9 @@ MIN_PLACED_SHARE = 0.9
 SETTLE_STATUSES = 2  # the first statuses after a start have a rate over too few frames
 STATUS_TOPIC = "/loc/status"
 DETECTIONS_TOPIC = "/loc/detections"
+TRACKS_TOPIC = "/loc/tracks"
+TRACK_TOLERANCE_M = 1.0  # a listed track this close to a true marker is that marker's
+LISTED_STATES = (1, 2)  # MarkerTrack.msg: CONFIRMED, COASTING
 
 
 def wanted(manifest: dict) -> bool:
@@ -59,6 +68,80 @@ def expected_classes(run_dir) -> Set[str]:
     return {str(item["class_id"]) for item in data.get("objects") or []}
 
 
+def tracks_wanted(manifest: dict) -> bool:
+    """Whether a built scenario turns the marker tracker on, so that its tracks are held to the truth."""
+    return wanted(manifest) and ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("marker_tracker") is True
+
+
+def true_markers(run_dir) -> Tuple[List[dict], List[Tuple[float, float]]]:
+    """(the numbered markers, the corner markers) of the scenario, east and north of the take-off point: MAVROS's local frame."""
+    truth = json.loads((Path(run_dir) / "truth.json").read_text())
+    takeoff = truth.get("takeoff") or {"e": 0.0, "n": 0.0}
+    markers, corners = [], []
+    for item in truth.get("objects") or []:
+        if item.get("kind") != "marker":
+            continue
+        east, north = float(item["e"]) - float(takeoff["e"]), float(item["n"]) - float(takeoff["n"])
+        if item.get("digit") is None:
+            corners.append((east, north))
+        else:
+            markers.append({"name": str(item["name"]), "e": east, "n": north})
+    return markers, corners
+
+
+def _inside(point: Tuple[float, float], corners: Sequence[Tuple[float, float]]) -> bool:
+    """Whether a point is inside the corner markers (taken in order round their centre). With under three corners everything is."""
+    if len(corners) < 3:
+        return True
+    centre = (sum(c[0] for c in corners) / len(corners), sum(c[1] for c in corners) / len(corners))
+    ring = sorted(corners, key=lambda c: math.atan2(c[1] - centre[1], c[0] - centre[0]))
+    inside = False
+    for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+        if (ay > point[1]) != (by > point[1]) and point[0] < (bx - ax) * (point[1] - ay) / (by - ay) + ax:
+            inside = not inside
+    return inside
+
+
+def judge_tracks(tracks: Optional[List[dict]], markers: List[dict], corners: Sequence[Tuple[float, float]]) -> dict:
+    """The tracker's last word against the true markers. `tracks`: {id, state, e, n, outside, sightings} each; None if none was heard."""
+    problems: List[str] = []
+    if tracks is None:
+        return {"problems": [f"no message was heard on {TRACKS_TOPIC}: the tracker did not run"], "listed": 0, "markers_inside": 0, "outside_marked": 0, "errors_m": {}, "largest_error_m": None}
+    listed = [track for track in tracks if track["state"] in LISTED_STATES and not track["outside"]]
+    inside = [marker for marker in markers if _inside((marker["e"], marker["n"]), corners)]
+    beyond = [marker for marker in markers if marker not in inside]
+    errors: Dict[str, float] = {}
+    for marker in inside:
+        near = [math.hypot(track["e"] - marker["e"], track["n"] - marker["n"]) for track in listed]
+        near = sorted(distance for distance in near if distance <= TRACK_TOLERANCE_M)
+        if len(near) != 1:
+            problems.append(f"{marker['name']} has {'no' if not near else len(near)} listed track{'s' if len(near) > 1 else ''} within {TRACK_TOLERANCE_M:g} m")
+        if near:
+            errors[marker["name"]] = near[0]
+    for track in listed:
+        if not any(math.hypot(track["e"] - marker["e"], track["n"] - marker["n"]) <= TRACK_TOLERANCE_M for marker in inside):
+            mine = next((marker for marker in beyond if math.hypot(track["e"] - marker["e"], track["n"] - marker["n"]) <= TRACK_TOLERANCE_M), None)
+            if mine is None:
+                problems.append(f"a listed track at {track['e']:.1f}, {track['n']:.1f} has no marker within {TRACK_TOLERANCE_M:g} m")
+            else:
+                problems.append(f"{mine['name']} is outside the boundary markers and its track is on the list")
+    outside_marked = 0
+    for marker in beyond:
+        confirmed = [t for t in tracks if t["state"] in LISTED_STATES and math.hypot(t["e"] - marker["e"], t["n"] - marker["n"]) <= TRACK_TOLERANCE_M]
+        if any(track["outside"] for track in confirmed):
+            outside_marked += 1
+        elif not confirmed:
+            problems.append(f"{marker['name']} is outside the boundary markers and no confirmed track of it is marked outside")
+    return {
+        "problems": problems,
+        "listed": len(listed),
+        "markers_inside": len(inside),
+        "outside_marked": outside_marked,
+        "errors_m": {name: round(value, 4) for name, value in errors.items()},
+        "largest_error_m": max(errors.values()) if errors else None,
+    }
+
+
 def _percentile(values: Sequence[float], share: float) -> Optional[float]:
     ordered = sorted(values)
     if not ordered:
@@ -66,9 +149,24 @@ def _percentile(values: Sequence[float], share: float) -> Optional[float]:
     return ordered[min(len(ordered) - 1, max(0, int(round(share * len(ordered) + 0.5)) - 1))]
 
 
-def build_report(statuses: List[Tuple[float, dict]], boxes: List[Tuple[float, Iterable[str]]], expected: Set[str]) -> dict:
-    """The verdict: `statuses` are (sim time, the node's status), `boxes` (sim time, the classes in one message)."""
+def build_report(
+    statuses: List[Tuple[float, dict]],
+    boxes: List[Tuple[float, Iterable[str]]],
+    expected: Set[str],
+    tracks: Optional[List[dict]] = None,
+    markers: Optional[List[dict]] = None,
+    corners: Optional[Sequence[Tuple[float, float]]] = None,
+    tracks_wanted: Optional[bool] = None,
+) -> dict:
+    """The verdict: `statuses` are (sim time, the node's status), `boxes` (sim time, the classes in one message).
+
+    With the tracker on (`tracks_wanted`; taken as on when tracks are
+    given) the last /loc/tracks message is judged against the true
+    `markers` and `corners` (judge_tracks).
+    """
     problems: List[str] = []
+    judge_list = (tracks is not None) if tracks_wanted is None else bool(tracks_wanted)
+    track_verdict = judge_tracks(tracks, markers or [], corners or []) if judge_list else None
     running = [index for index, (_t, status) in enumerate(statuses) if status.get("enabled")]
     started = bool(running)
     stopped = started and not statuses[-1][1].get("enabled")
@@ -105,9 +203,12 @@ def build_report(statuses: List[Tuple[float, dict]], boxes: List[Tuple[float, It
         missing = sorted(expected - set(classes))
         if missing:
             problems.append(f"nothing was reported of class {', '.join(missing)}, which the scenario has on the field")
+    if track_verdict is not None and statuses and started:
+        problems += track_verdict["problems"]
     return {
         "passed": not problems,
         "problems": problems,
+        "tracks": track_verdict,
         "started": started,
         "stopped": stopped,
         "statuses": len(statuses),
@@ -146,6 +247,14 @@ def summary_lines(report: dict) -> List[str]:
         lines.append(f"frames {age['p95']:.0f} ms old at their turn, at the 95th percentile")
     if report.get("classes"):
         lines.append("boxes: " + ", ".join(f"{count} {name}" for name, count in report["classes"].items()) + f"; {report.get('placed', 0)} of {report.get('detections', 0)} put on the ground")
+    tracked = report.get("tracks")
+    if tracked:
+        matched = len(tracked.get("errors_m") or {})
+        furthest = "" if tracked.get("largest_error_m") is None else f", the furthest {tracked['largest_error_m']:.2f} m from its marker"
+        lines.append(
+            f"tracks: {matched} of {tracked.get('markers_inside', 0)} markers inside the boundary have their one listed track{furthest}; "
+            f"{tracked.get('listed', 0)} listed, {tracked.get('outside_marked', 0)} marked outside"
+        )
     return lines
 
 
@@ -161,8 +270,11 @@ def listen(run_dir: Path) -> dict:
 
     manifest = json.loads((run_dir / "scenario.json").read_text())
     expected = expected_classes(run_dir)
+    with_tracks = tracks_wanted(manifest)
+    markers, corners = true_markers(run_dir) if with_tracks else ([], [])
     statuses: List[Tuple[float, dict]] = []
     boxes: List[Tuple[float, List[str]]] = []
+    last_tracks: List[Optional[List[dict]]] = [None]
     lock = threading.Lock()
     rclpy.init()
     node = rclpy.create_node("argus_loc_check", parameter_overrides=[Parameter("use_sim_time", value=manifest.get("sim_time") is True)])
@@ -183,12 +295,24 @@ def listen(run_dir: Path) -> dict:
         with lock:
             boxes.append((now_s(), names))
 
+    def on_tracks(message) -> None:
+        tracks = [
+            {"id": int(t.track_id), "state": int(t.state), "e": float(t.position_enu.x), "n": float(t.position_enu.y), "outside": bool(t.outside), "sightings": int(t.sightings)}
+            for t in message.tracks
+        ]
+        with lock:
+            last_tracks[0] = tracks
+
+    if with_tracks:
+        from argus_interfaces.msg import MarkerTrackArray
+
+        node.create_subscription(MarkerTrackArray, TRACKS_TOPIC, on_tracks, 10)
     node.create_subscription(String, STATUS_TOPIC, on_status, 10)
     node.create_subscription(Detection2DArray, DETECTIONS_TOPIC, on_boxes, 50)
 
     def write() -> dict:
         with lock:
-            report = build_report(list(statuses), list(boxes), expected)
+            report = build_report(list(statuses), list(boxes), expected, tracks=last_tracks[0], markers=markers, corners=corners, tracks_wanted=with_tracks)
         (run_dir / "loc_check.json").write_text(json.dumps(report, indent=2) + "\n")
         return report
 

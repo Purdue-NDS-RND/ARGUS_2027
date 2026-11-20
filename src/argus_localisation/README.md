@@ -9,6 +9,7 @@ Everything here is behind node flags that default to false. As shipped, the node
 | `loc_node` | The pipeline: frames in, `/loc/detections` and `/loc/status` out, `/loc/set_enabled` served. |
 | `sim_oracle_detector` | The sim's stand-in detector (`detector: oracle`). Refuses to run outside the sim. |
 | `loc_tiling` | The detector sees overlapping windows of the full frame instead of the shrunk frame. |
+| `marker_tracker` | The marker tracker runs on every frame's ground points and `/loc/tracks` is published. |
 
 ## Per frame
 
@@ -20,6 +21,10 @@ Everything here is behind node flags that default to false. As shipped, the node
 6. The tracker (LOC-7) is handed the ground points, the digit reader the crops, when there is one.
 
 The pipeline is off until `/loc/set_enabled` (std_srvs/SetBool) starts it; the survey mission (`search_pattern`) starts it at its first track and stops it at its end. Only the newest frame is ever processed: a frame that waited behind a newer one is dropped and counted, never queued. The target is 15 frames a second and the minimum 8; `/loc/status` says when the rate is under it.
+
+## The marker tracker
+
+`marker_tracker.py` (LOC-7) keeps one track for each `marker` and each `boundary_marker`. A sighting's noise is the target estimator's (R = J Sigma J^T from projection v2's point); sightings are assigned to tracks with the Hungarian method on Mahalanobis distance, gated at 9.21 and at 1 m. A track is TENTATIVE until its third sighting, then CONFIRMED; a confirmed track that is no longer in view is COASTING and is kept for good. A sighting within 1 m of a track that the gate refuses is not a second track: after five in a row the track moves to it. Once the four boundary markers are confirmed, a marker track outside their hull (by more than 0.5 m) is marked outside and kept off the list. Each track keeps its sightings for the final position (LOC-9).
 
 ## Frames
 
@@ -36,6 +41,7 @@ A real camera mode is read by argus_camera's `FrameSource` inside the node, on a
 | --- | --- |
 | `/loc/detections` | `vision_msgs/Detection2DArray` on the detection contract: the frame's capture time, full-frame pixels, class `marker`, `boundary_marker`, ... |
 | `/loc/status` | `std_msgs/String` of JSON, once a second: `enabled`, `frames`, `rate_hz`, `dropped`, `detections`, `placed`, `refused`, `faults`, `frame_age_ms`, `below_minimum_rate`, `tracks`, `confirmed_ids`, `timings_ms`. |
+| `/loc/tracks` | `argus_interfaces/MarkerTrackArray` after every frame, with `features.marker_tracker`: the `marker` tracks, in the local ENU frame (`map`). `digit` is -1 until the digit reader exists. |
 | `/loc/set_enabled` | `std_srvs/SetBool`: true starts the pipeline, false stops it. |
 
 ## Running it

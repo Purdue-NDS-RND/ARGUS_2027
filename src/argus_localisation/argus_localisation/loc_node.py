@@ -35,6 +35,11 @@ With it on:
     (`ground_below_home_m`, the survey mission's own setting).
   - `features.loc_tiling` gives the detector overlapping windows of the
     full frame instead of the shrunk frame.
+  - `features.marker_tracker` runs the marker tracker (marker_tracker.py,
+    LOC-7) on every frame's ground points and publishes its marker tracks
+    on `/loc/tracks` (argus_interfaces/MarkerTrackArray) after each frame;
+    the status then counts its tracks and lists the confirmed ones. With
+    the flag off there is no tracker and no such topic.
 
 If the node cannot start with its flag on (a camera that is not calibrated,
 an oracle outside the sim) it logs why and stays out of the way: nothing is
@@ -79,6 +84,7 @@ class LocNode(Node):
             self.declare_parameter("features.loc_node", False)
             self.declare_parameter("features.sim_oracle_detector", False)
             self.declare_parameter("features.loc_tiling", False)
+            self.declare_parameter("features.marker_tracker", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -181,8 +187,25 @@ class LocNode(Node):
         detector = self._detector(camera, mount)
         projector = GroundProjector(camera, mount, self._poses.pose_at, ground)
         frame_id = str(getattr(mount, "optical_frame", "") or "down_camera_optical")
+        self._tracker = None
+        if self._flag("features.marker_tracker"):
+            import argus_interfaces.msg as track_messages
+
+            from . import marker_tracker
+            from . import track_messages as tracks_out
+
+            from drone_mission_core.estimator_feed import PositionResetDetector
+
+            self._tracker, self._track_messages, self._tracks_out = marker_tracker.MarkerTracker(), track_messages, tracks_out
+            self._resets = PositionResetDetector()  # a step in the reported position that the reported velocity does not explain
         chain = pipeline.LocPipeline(
-            detector, projector, frame_id, (int(camera.width), int(camera.height)), tiling=self._flag("features.loc_tiling"), pose_at=self._poses.pose_at
+            detector,
+            projector,
+            frame_id,
+            (int(camera.width), int(camera.height)),
+            tracker=self._tracker,
+            tiling=self._flag("features.loc_tiling"),
+            pose_at=self._poses.pose_at,
         )
         mode = camera_modes.load_modes(default_config_dir() / "modes.yaml")[mode_name]
         from_topic = mode.driver == "ros_topic"
@@ -205,6 +228,9 @@ class LocNode(Node):
             self.create_subscription(TFMessage, oracle.TRUTH_TOPIC, self._on_truth, qos_profile_sensor_data)
         self._detections = self.create_publisher(vision_messages.Detection2DArray, DETECTIONS_TOPIC, 10)
         self._status = self.create_publisher(String, STATUS_TOPIC, 10)
+        self._tracks = None
+        if self._tracker is not None:
+            self._tracks = self.create_publisher(self._track_messages.MarkerTrackArray, self._tracks_out.TRACKS_TOPIC, 10)
         if from_topic:
             # The sim's camera: the newest image only, never one that waited behind another.
             newest = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -227,7 +253,17 @@ class LocNode(Node):
 
     def _on_pose(self, message: Any) -> None:
         position, orientation = message.pose.position, message.pose.orientation
-        self._poses.add_pose(_stamp_ns(message.header.stamp), (position.x, position.y, position.z), (orientation.x, orientation.y, orientation.z, orientation.w))
+        stamp_ns = _stamp_ns(message.header.stamp)
+        self._poses.add_pose(stamp_ns, (position.x, position.y, position.z), (orientation.x, orientation.y, orientation.z, orientation.w))
+        if self._tracker is None:
+            return
+        # An EKF reset moves everything the vehicle will see from here on: the tracks made before it go with it.
+        previous_ns = self._resets.last_stamp_ns
+        velocity = None if previous_ns is None else (self._poses.velocity_at(previous_ns) or self._poses.velocity_at(stamp_ns))
+        step = self._resets.add(stamp_ns, (position.x, position.y), velocity)
+        if step is not None:
+            self._tracker.shift_all(*step)
+            self.get_logger().warn(f"localisation: the flight controller's position stepped {step[0]:+.2f} m east, {step[1]:+.2f} m north; the marker tracks stepped with it")
 
     def _on_velocity(self, message: Any) -> None:
         linear = message.twist.linear
@@ -282,6 +318,15 @@ class LocNode(Node):
             self.get_logger().error(f"localisation: a frame's boxes could not go out on the contract ({error})", throttle_duration_sec=10.0)
             return
         self._detections.publish(message)
+        if self._tracks is None:
+            return
+        try:
+            tracks = self._tracks_out.encode_tracks(self._tracker.tracks(), result.stamp_ns, self._track_messages)
+        except Exception as error:  # noqa: BLE001  (the tracks are extra to the boxes: a fault here is counted, and the node goes on)
+            self.runtime.note_fault(f"{type(error).__name__}: {error}")
+            self.get_logger().error(f"localisation: the marker tracks could not go out ({error})", throttle_duration_sec=10.0)
+            return
+        self._tracks.publish(tracks)
 
     def _publish_status(self) -> None:
         status = self.runtime.status()

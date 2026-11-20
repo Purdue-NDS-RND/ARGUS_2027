@@ -643,9 +643,9 @@
       "land": "L13",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test -> 69 passed (20 for the tracker); sim/test/test_loc_check.py -> 23 passed; strict check -> OK; sim waypoint_navigation/survey_pipeline seed 1 (off, on) -> OK: 3 listed tracks for 3 markers, the furthest 0.04 m from its marker, the marker outside the corners marked outside; docs/results/2026-11-20-marker-tracker.md",
       "blocked_reason": ""
     },
     {

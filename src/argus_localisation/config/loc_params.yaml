@@ -19,3 +19,4 @@ loc_node:
       loc_node: false              # Run the localisation pipeline: frames to /loc/detections and /loc/status (loc_node.py).
       sim_oracle_detector: false   # The sim's oracle detector: true object poses through the camera model. Sim only (oracle.py).
       loc_tiling: false            # Give the detector overlapping windows of the full frame instead of the shrunk frame (tiling.py).
+      marker_tracker: false        # Track the markers on the ground and publish /loc/tracks (marker_tracker.py, LOC-7).

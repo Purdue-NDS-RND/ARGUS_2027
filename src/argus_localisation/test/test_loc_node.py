@@ -72,6 +72,23 @@ class String:
         self.data = ""
 
 
+def _header():
+    return types.SimpleNamespace(stamp=types.SimpleNamespace(sec=0, nanosec=0), frame_id="")
+
+
+class MarkerTrack:
+    TENTATIVE, CONFIRMED, COASTING, LOST = 0, 1, 2, 3
+
+    def __init__(self):
+        self.header, self.position_enu = _header(), types.SimpleNamespace(x=0.0, y=0.0, z=0.0)
+        self.track_id, self.state, self.covariance_en, self.digit_log_prob, self.digit, self.sightings, self.outside = 0, 0, [], [], -1, 0, False
+
+
+class MarkerTrackArray:
+    def __init__(self):
+        self.header, self.tracks = _header(), []
+
+
 @pytest.fixture
 def objects_file(tmp_path):
     path = tmp_path / "oracle_objects.json"
@@ -90,6 +107,9 @@ def node_with(monkeypatch, **parameters):
     monkeypatch.setitem(sys.modules, "std_srvs.srv", types.SimpleNamespace(SetBool=object))
     monkeypatch.setitem(sys.modules, "tf2_msgs", types.SimpleNamespace(msg=types.SimpleNamespace(TFMessage=object)))
     monkeypatch.setitem(sys.modules, "tf2_msgs.msg", types.SimpleNamespace(TFMessage=object))
+    interfaces = types.SimpleNamespace(MarkerTrack=MarkerTrack, MarkerTrackArray=MarkerTrackArray)
+    monkeypatch.setitem(sys.modules, "argus_interfaces", types.SimpleNamespace(msg=interfaces))
+    monkeypatch.setitem(sys.modules, "argus_interfaces.msg", interfaces)
     monkeypatch.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
     monkeypatch.setattr(RecordingNode, "overrides", dict(parameters))
     monkeypatch.setattr(RecordingNode, "now_ns", T0)
@@ -332,7 +352,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -415,3 +435,62 @@ def test_a_setting_of_the_wrong_kind_does_not_take_the_node_down(ros, tmp_path):
     ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)  # the next test imports it on its own node class
     assert node.runtime is None and node.services == {} and node.publishers == {}
     assert "ground_below_home_m" in node.logger.error.call_args[0][0]
+
+
+def test_the_tracker_is_behind_its_flag_and_its_tracks_go_out_as_marker_tracks(ros, objects_file):
+    with_vision_msgs(ros)
+    plain = node_with(ros, **{**SIM, **FLAGS, **EXACT, "oracle_objects_file": objects_file})
+    assert plain.runtime.pipeline.tracker is None and "/loc/tracks" not in plain.publishers
+    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, "features.marker_tracker": True, "oracle_objects_file": objects_file, "start_enabled": True})
+    assert node.logger.error.call_args is None and "/loc/tracks" in node.publishers
+    for frame in range(4):  # the vehicle holds over the origin; the marker is 2 m ahead and 1 m to the left
+        ns = T0 + frame * 100_000_000
+        for index in range(-3, 1):
+            node.subscriptions[POSE_TOPIC](pose(ns + index * 33_000_000))
+            node.subscriptions[TRUTH_TOPIC](truth(ns + index * 33_000_000))
+        RecordingNode.now_ns = ns + 10_000_000
+        node.subscriptions[IMAGE_TOPIC](image(ns))
+        tick(node)
+    sent = node.publishers["/loc/tracks"].sent
+    assert len(sent) == 4 and [len(message.tracks) for message in sent] == [1, 1, 1, 1]
+    assert [message.tracks[0].state for message in sent] == [MarkerTrack.TENTATIVE, MarkerTrack.TENTATIVE, MarkerTrack.CONFIRMED, MarkerTrack.CONFIRMED]
+    last = sent[-1].tracks[0]
+    assert (last.position_enu.x, last.position_enu.y) == pytest.approx((2.0, 1.0), abs=0.05) and last.sightings == 4 and last.outside is False
+    assert last.digit == -1 and len(last.digit_log_prob) == 10 and len(last.covariance_en) == 4 and last.header.frame_id == "map"
+    assert sent[-1].header.stamp.sec == (T0 + 300_000_000) // S and last.track_id == sent[0].tracks[0].track_id
+    status = node.runtime.status()
+    assert status["tracks"] == 1 and status["confirmed_ids"] == [last.track_id]
+
+
+def test_a_step_in_the_flight_controllers_position_steps_the_tracks_and_a_failed_publish_is_a_fault(ros, objects_file):
+    with_vision_msgs(ros)
+    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, "features.marker_tracker": True, "oracle_objects_file": objects_file, "start_enabled": True})
+    velocity_topic = "/mavros/local_position/velocity_local"
+
+    def fly(ns, east=0.0):
+        for index in range(-3, 1):
+            at = ns + index * 33_000_000
+            node.subscriptions[velocity_topic](types.SimpleNamespace(header=types.SimpleNamespace(stamp=stamp(at)), twist=types.SimpleNamespace(linear=types.SimpleNamespace(x=0.0, y=0.0, z=0.0))))
+            node.subscriptions[POSE_TOPIC](pose(at, east=east))
+            node.subscriptions[TRUTH_TOPIC](truth(at))
+        RecordingNode.now_ns = ns + 10_000_000
+        node.subscriptions[IMAGE_TOPIC](image(ns))
+        tick(node)
+
+    for frame in range(4):
+        fly(T0 + frame * 100_000_000)
+    before = node.publishers["/loc/tracks"].sent[-1].tracks[0]
+    assert before.position_enu.x == pytest.approx(2.0, abs=0.05)
+    fly(T0 + 400_000_000, east=1.5)  # standing still, the reported position jumps 1.5 m east: an EKF reset
+    after = node.publishers["/loc/tracks"].sent[-1].tracks
+    assert len(after) == 1 and after[0].track_id == before.track_id and after[0].position_enu.x == pytest.approx(3.5, abs=0.1)
+    assert any("stepped" in call[0][0] for call in node.logger.warn.call_args_list)
+    # A track message that cannot be made is that frame's fault; the node goes on and the next frame's goes out.
+    sent = len(node.publishers["/loc/tracks"].sent)
+    original = node._tracks_out.encode_tracks
+    node._tracks_out.encode_tracks = lambda *args: (_ for _ in ()).throw(AssertionError("uint32 out of range"))
+    fly(T0 + 500_000_000, east=1.5)
+    assert node.runtime.status()["faults"] == 1 and len(node.publishers["/loc/tracks"].sent) == sent
+    node._tracks_out.encode_tracks = original
+    fly(T0 + 600_000_000, east=1.5)
+    assert len(node.publishers["/loc/tracks"].sent) == sent + 1

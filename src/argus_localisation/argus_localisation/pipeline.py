@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from drone_mission_core import detection_contract as contract
+from drone_mission_core import target_estimator
 
 from . import shrink
 from . import tiling as tiling_module
@@ -71,6 +72,7 @@ class GroundDetection:
     north_m: float
     detection: contract.Detection  # the box it came from, full-frame pixels
     point: Any  # projection v2's GroundPoint, with its error terms
+    cut: bool = False  # the box reaches the edge of the picture: the part of the object in view, not the object
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,7 @@ class FrameResult:
     crops: List[Crop] = field(default_factory=list)
     refused: int = 0  # boxes that could not be put on the ground
     refusal: str = ""  # why the last of them could not
+    fault: str = ""  # a fault in the tracker or the digit reader: the frame's boxes still stand
     timings_ms: Dict[str, float] = field(default_factory=dict)
 
 
@@ -159,11 +162,16 @@ class LocPipeline:
                 result.refused += 1
                 result.refusal = str(self.projector.last_refusal or "the box could not be put on the ground")
                 continue
-            result.ground.append(GroundDetection(detection.class_id, detection.score, float(point.east_m), float(point.north_m), detection, point))
+            cut = target_estimator.box_is_cut(detection.cx, detection.cy, detection.width, detection.height, self.full_size[0], self.full_size[1])
+            result.ground.append(GroundDetection(detection.class_id, detection.score, float(point.east_m), float(point.north_m), detection, point, cut))
         timings["project"] = (time.perf_counter() - started) * 1000.0
-        if self.tracker is not None:
-            self.tracker.update(stamp_ns, result.ground)
-        if self.digit_reader is not None and result.crops:
-            self.digit_reader(result.crops)
+        # What follows the boxes must not cost the frame its boxes: a fault there is said, and the result stands.
+        try:
+            if self.tracker is not None:
+                self.tracker.update(stamp_ns, result.ground)
+            if self.digit_reader is not None and result.crops:
+                self.digit_reader(result.crops)
+        except Exception as error:  # noqa: BLE001
+            result.fault = f"{type(error).__name__}: {error}"
         return result
 

@@ -5,6 +5,10 @@
 # mission requires the pipeline (`localisation_required`): it starts it through /loc/set_enabled at the first
 # track and stops it at the end. sim/loc_check.py beside the flight holds the pipeline to 8 frames a second,
 # to frames no older than 250 ms at their turn, and to having reported both kinds of marker.
+# The marker tracker (LOC-7) runs on the pipeline's ground points. A fourth numbered marker, marker_9, lies
+# 3.5 m beyond the east corners: it is seen from the end of the second track and must be tracked, marked
+# outside and kept off the list. The check holds the tracker's last message to the truth: one listed track
+# within 1 m of each of the three markers inside the corners, and none anywhere else.
 # Variant "off" is every flag false: the node is not started and the survey mission is skipped.
 description: Survey with the localisation node and the oracle detector; the mission starts and stops the pipeline, which reports the markers.
 mission: waypoint_navigation
@@ -44,6 +48,7 @@ node_flags:
   loc_node:
     loc_node: true
     sim_oracle_detector: true
+    marker_tracker: true
 config:
   search_pattern:
     localisation_required: true
@@ -51,6 +56,7 @@ objects:
   - {name: marker_3, kind: marker, digit: 3, size_m: 0.6, at: {east_m: 35.0, north_m: 20.0}}
   - {name: marker_7, kind: marker, digit: 7, size_m: 0.6, at: {east_m: 62.0, north_m: 31.0}}
   - {name: marker_1, kind: marker, digit: 1, size_m: 0.6, at: {east_m: 48.0, north_m: 44.0}}
+  - {name: marker_9, kind: marker, digit: 9, size_m: 0.6, at: {east_m: 83.5, north_m: 30.0}}
   - {name: corner_sw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 10.0}}
   - {name: corner_se, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 10.0}}
   - {name: corner_ne, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 50.0}}

@@ -118,6 +118,8 @@ class LocRuntime:
         self._counts["refused"] += result.refused
         if result.refusal:
             self._last_refusal = result.refusal
+        if getattr(result, "fault", ""):
+            self.note_fault(result.fault)
         self._last_stamp_ns = result.stamp_ns
         self._timings_ms = dict(result.timings_ms)
         return result

@@ -513,3 +513,19 @@ def test_an_engine_that_cannot_run_a_frame_is_refused_when_it_is_loaded(tmp_path
     monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=lambda path, task: warm))
     engine.load_engine(file, ["marker"])
     assert warm.calls == [((720, 1280, 3), 0.25, False)]  # one blank frame of the detector's size, at the load
+
+
+def test_a_tracker_that_faults_does_not_cost_the_frame_its_detections_and_cut_boxes_are_marked():
+    def broken(stamp_ns, ground):
+        raise RuntimeError("tracker fell over")
+
+    chain = pipeline_with(OneMarker(), tracker=SimpleNamespace(update=broken))
+    result = chain.process(frame_4k())
+    assert len(result.detections.detections) == 1 and len(result.ground) == 1 and "tracker fell over" in result.fault
+    run = runtime.LocRuntime(chain, lambda: 10 * S, start_enabled=True)
+    run.offer(frame_4k())
+    assert run.step() is not None and run.status()["faults"] == 1 and "tracker fell over" in run.status()["last_fault"]
+    # A box that reaches the edge of the picture is the part of the marker in view: it is published, and marked.
+    whole = pipeline_with(OneMarker(at=(640.0, 360.0))).process(frame_4k())
+    edge = pipeline_with(OneMarker(at=(8.0, 360.0))).process(frame_4k())
+    assert whole.ground[0].cut is False and edge.ground[0].cut is True
