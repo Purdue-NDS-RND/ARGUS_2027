@@ -23,6 +23,7 @@ from std_srvs.srv import SetBool
 from .estimator_feed import attach_target_estimator
 from .features import apply_feature_overrides
 from .frame_time import attach_ground_height, attach_pose_buffer
+from .height_estimator import attach_height_estimator
 from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
@@ -125,6 +126,11 @@ class MissionExecutorNode(Node):
         # None without the pose buffer: with it, where the ground is by the
         # rangefinder, for projection v2 (FND-05).
         self._ground_height = attach_ground_height(self, self._pose_buffer)
+        # None unless a mission has the use_height_estimator flag on: then the
+        # height estimator (CEN-03), fed by its own rangefinder subscription.
+        self._height_estimator = attach_height_estimator(
+            self, [mission.spec for mission in self._sequence], self._pose_buffer
+        )
         # None unless a mission has the use_target_estimator flag on: then the
         # target estimator (FND-06), fed by its own subscriptions and timer.
         self._target_estimator = attach_target_estimator(

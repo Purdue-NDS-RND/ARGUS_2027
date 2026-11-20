@@ -72,6 +72,7 @@ class HeightAgl:
     value_m: float
     source: str  # "rangefinder" (above the ground it measured) or "baro" (above home: not the ground, where the ground is not at home's height)
     pose_age_s: float = 0.0  # how old the pose the height was read from is
+    reason: str = ""  # with the height estimator (CEN-03): why the source is "baro", when a rangefinder was listened to
 
 
 def from_estimate(estimate: Any) -> PrimaryTarget:
@@ -115,8 +116,11 @@ def release_permission(target: Optional[PrimaryTarget]) -> Permission:
     return _permission(target, RELEASE_MAX_AGE_S, "release")
 
 
-def height_agl(vehicle_up_m: float, ground: Optional[Tuple[float, str]], pose_age_s: float = 0.0) -> Optional[HeightAgl]:
+def height_agl(vehicle_up_m: float, ground: Optional[Tuple[float, str]], pose_age_s: float = 0.0, ground_below_home_m: float = 0.0) -> Optional[HeightAgl]:
     """Height above the ground and where it came from.
+
+    `ground_below_home_m` is how far the ground here is known to be below
+    home (negative: above it); it is added to the barometer's height only.
 
     `vehicle_up_m` is the vehicle's height in the local frame (above home).
     `ground` is what projection v2's GroundHeight says: (the ground's height
@@ -124,11 +128,11 @@ def height_agl(vehicle_up_m: float, ground: Optional[Tuple[float, str]], pose_ag
     With a healthy rangefinder the height is above the ground it measured;
     otherwise it is the height above home, which is the barometer's.
     """
-    if not math.isfinite(float(vehicle_up_m)):
+    if not math.isfinite(float(vehicle_up_m)) or not math.isfinite(float(ground_below_home_m)):
         return None
     if ground is not None and ground[1] == RANGEFINDER and math.isfinite(float(ground[0])):
         return HeightAgl(float(vehicle_up_m) - float(ground[0]), RANGEFINDER, float(pose_age_s))
-    return HeightAgl(float(vehicle_up_m), BARO, float(pose_age_s))
+    return HeightAgl(float(vehicle_up_m) + float(ground_below_home_m), BARO, float(pose_age_s))
 
 
 def latlon_to_local_enu(

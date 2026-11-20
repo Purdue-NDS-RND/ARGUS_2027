@@ -190,9 +190,25 @@ A mission reads the estimator through its context (`MissionContext`, rules in
 | `may_descend(cls, near=None, track_id=None)` (both by keyword) | True only on a CONFIRMED track no older than 0.5 s. Otherwise false, with `.reason`. Pass the `track_id` of the track being flown to, or the answer is about whichever track of the class is primary now |
 | `may_release(cls, near=None, track_id=None)` | True only on a CONFIRMED track no older than 0.3 s. Otherwise false, with `.reason`. `track_id` as above |
 | `pose_at(stamp_ns)` | The vehicle's pose at a past instant, from the pose history (`use_frame_time_pose`) |
-| `height_agl()` | `value_m` and `source`: `rangefinder` when its ground is healthy, else `baro`, which is the height above home and not above the ground where the ground is not at home's height. None when the newest pose is over 0.5 s old; `pose_age_s` says how old it was. Needs no flag |
+| `height_agl(ground_below_home_m=0.0)` | `value_m` and `source`: `rangefinder` when its ground is healthy, else `baro`, which is the height above home plus `ground_below_home_m` (how far the ground here is known to be below home; 0 when nothing is known, and then it is not the height above the ground wherever the ground is not at home's height). None when the newest pose is over 0.5 s old; `pose_age_s` says how old it was. Needs no flag; with `use_height_estimator` on the answer is the height estimator's (below) |
 | `actuation_time_ns()` | Now + 0.08 s, the time the estimator's outputs are given for |
 | `latlon_to_local_enu(lat, lon)` | (east, north) in MAVROS's local frame, from the GPS fix and the local position of the same moment. None without a fix under 2 s old and a pose of its moment (ask again next tick). Needs no flag |
+
+`use_height_estimator` (declared, off, in the eight sequences that fly a drop or
+delivery; needs `use_frame_time_pose`) makes `height_agl()` the answer of the height
+estimator (`height_estimator.py`, CEN-03), fed by its own subscription to
+`/mavros/rangefinder/rangefinder`. The height is the rangefinder's only when its readings
+are inside the sensor's range (0.1 to 12 m, the TFmini's: MAVROS's topic gives limits of 0
+and 1000 m, so they are held in code), no older than 0.5 s, taken with the vehicle tilted
+15 degrees or less (each corrected by the cosine of the tilt at its own moment), within
+0.5 m of each other and within 5 m of where the ground is expected; and the vehicle is
+tilted 15 degrees or less now, the sensor's last three readings were not all out of range,
+and its reading has not stayed the same through 0.2 m of the vehicle's own climb or descent
+(a stuck sensor). A reading within 0.05 m of either end of the range counts as out of
+range, so the readings used are from 0.15 to 11.95 m. Otherwise it is the
+height above home plus `ground_below_home_m`, `source` is `baro` and `reason` says why. A
+weak return is ArduPilot's to judge: its driver reports one as out of range. With the flag
+off, the rangefinder path is projection v2's (25 degrees, the message's own limits).
 
 The descend and release rules are answered there so that no mission has to carry them. A CONFIRMED track starts COASTING 0.3 s after its last hit, so in practice both rules say no from 0.3 s on; the 0.5 s limit for descending is the spec's and is never the one that bites.
 

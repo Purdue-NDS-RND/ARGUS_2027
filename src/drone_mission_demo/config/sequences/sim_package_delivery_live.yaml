@@ -10,6 +10,7 @@ mission_sequence:
     use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
     time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
+    use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
   missions:
     - type: takeoff                                # Mission type registered in the mission framework.
       name: takeoff                                # Human-readable mission instance name for logs.

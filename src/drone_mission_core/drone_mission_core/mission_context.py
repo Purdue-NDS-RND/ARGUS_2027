@@ -180,7 +180,7 @@ class MissionContext:
         stamp = getattr(getattr(message, "header", None), "stamp", None)
         return None if stamp is None else int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
 
-    def height_agl(self):
+    def height_agl(self, ground_below_home_m: float = 0.0):
         """Height above the ground as a `target_access.HeightAgl` (value and "rangefinder" or "baro"), or None.
 
         The rangefinder's when projection v2's ground height has a healthy
@@ -189,14 +189,29 @@ class MissionContext:
         home's height: read `source`. None with no pose yet, or when the
         newest pose is more than 0.5 s from now (the vehicle has moved since);
         `pose_age_s` says how old the pose was, for a caller near a limit.
+
+        `ground_below_home_m` is how far the ground here is known to be below
+        home (negative: above it); it is added to the height above home.
+
+        With use_height_estimator on (CEN-03) the answer is the height
+        estimator's: the rangefinder only inside the sensor's range and under
+        15 degrees of tilt, the height above home plus the known ground
+        offset otherwise, with `reason` saying why.
         """
         pose = self._node._local_pose
         now_ns = self._now_ns()
         if pose is None or not within(self._stamp_ns(pose), now_ns, POSE_MAX_AGE_S):
             return None
+        pose_age_s = (now_ns - self._stamp_ns(pose)) * 1.0e-9
+        estimator = getattr(self._node, "_height_estimator", None)
+        if estimator is not None:
+            orientation = pose.pose.orientation
+            return estimator.height(
+                pose.pose.position.z, now_ns, ground_below_home_m, pose_age_s, (orientation.x, orientation.y, orientation.z, orientation.w)
+            )
         ground_height = getattr(self._node, "_ground_height", None)
         ground = None if ground_height is None else ground_height.ground_up(now_ns)
-        return height_agl(pose.pose.position.z, ground, (now_ns - self._stamp_ns(pose)) * 1.0e-9)
+        return height_agl(pose.pose.position.z, ground, pose_age_s, ground_below_home_m)
 
     def latlon_to_local_enu(self, latitude: float, longitude: float):
         """(east, north) of a latitude and longitude in MAVROS's local frame, or None when it cannot be said now.

@@ -28,6 +28,8 @@ sys.path.insert(0, str(SIM_DIR))
 from judge.record import Record  # noqa: E402
 from estimator_check import read_estimator_check, summary_lines as estimator_summary_lines  # noqa: E402
 from estimator_check import wanted as estimator_check_wanted  # noqa: E402
+from height_check import read_height_check, summary_lines as height_summary_lines  # noqa: E402
+from height_check import wanted as height_check_wanted  # noqa: E402
 from payload_bridge import read_bridge  # noqa: E402
 from inject import read_gps_events, summary_line as gps_line  # noqa: E402
 from inject import wanted as gps_events_wanted  # noqa: E402
@@ -113,6 +115,7 @@ def run_result(run_dir: Path) -> dict:
         "rate_check": None,
         "projection_check": None,
         "estimator_check": None,
+        "height_check": None,
         "wind": None,
         "payload_bridge": None,
         "sensor_check": None,
@@ -166,6 +169,10 @@ def run_result(run_dir: Path) -> dict:
     if estimator_wanted:
         result["estimator_check"] = read_estimator_check(run_dir)
     estimator_check = result["estimator_check"]
+    height_wanted = height_check_wanted(manifest)
+    if height_wanted:
+        result["height_check"] = read_height_check(run_dir)
+    height_check = result["height_check"]
 
     bridged = bridge_wanted(manifest)
     if bridged:
@@ -238,6 +245,11 @@ def run_result(run_dir: Path) -> dict:
     elif estimator_wanted and not estimator_check["passed"]:
         problems = estimator_check.get("problems") or ["no reason given"]
         result.update(status="FAIL", reason="the target estimator missed a pass line: " + "; ".join(problems))
+    elif height_wanted and height_check is None:
+        result.update(status="INVALID", reason="the run had use_height_estimator on but left no height check (height_check.json), so nothing shows what the height estimator said")
+    elif height_wanted and not height_check["passed"]:
+        problems = height_check.get("problems") or ["no reason given"]
+        result.update(status="FAIL", reason="the height estimator missed its pass line: " + "; ".join(problems))
     elif result["sim_time"]:
         result["status"] = "OK"
     elif rtf is None:
@@ -292,6 +304,14 @@ def _estimator_check_rows(result: dict) -> list[str]:
     if check is None:
         return []
     return [f"| Estimator's bullseye track against the truth | {line} |" for line in estimator_summary_lines(check)]
+
+
+def _height_check_rows(result: dict) -> list[str]:
+    """Report rows for a run with use_height_estimator on: the estimator's height and its source against the true height."""
+    check = result.get("height_check")
+    if check is None:
+        return []
+    return [f"| Height estimator against the true height | {line} |" for line in height_summary_lines(check)]
 
 
 def _wind_rows(result: dict) -> list[str]:
@@ -359,6 +379,7 @@ def render_report(result: dict) -> str:
         *_time_check_rows(result),
         *_projection_check_rows(result),
         *_estimator_check_rows(result),
+        *_height_check_rows(result),
         *_wind_rows(result),
         *_payload_rows(result),
         *_sensor_rows(result),

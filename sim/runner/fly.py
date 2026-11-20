@@ -45,6 +45,7 @@ TOOLS = {
     "rate_check": SIM_DIR / "rate_check.py",
     "projection_check": SIM_DIR / "projection_check.py",  # beside flights with use_frame_time_pose on (FND-05)
     "estimator_check": SIM_DIR / "estimator_check.py",  # beside flights with use_target_estimator on (FND-06)
+    "height_check": SIM_DIR / "height_check.py",  # beside flights with use_height_estimator on (CEN-03)
     "record": SIM_DIR / "replay" / "record_run.py",  # beside flights started with --record (SIM-09)
     "payload_bridge": SIM_DIR / "payload_bridge.py",  # beside flights with a carried payload or a bucket (SIM-06)
     "sensor_check": SIM_DIR / "sensor_check.py",  # beside flights whose scenario asks for it (SIM-05)

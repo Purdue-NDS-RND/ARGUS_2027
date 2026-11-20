@@ -295,38 +295,79 @@ class GroundHeight:
     height. The ground is the median of what the five nearest say, so one odd
     reading does not move it, and a beam that is blocked (a ground far above
     home) or returns nothing is not believed at all.
+
+    A caller that knows the ground is not at home's height (the height
+    estimator, CEN-03) says where it expects it, and "within five metres" is
+    then of that. When the answer is "home", `last_refusal` says why the
+    rangefinder was not believed.
     """
 
     def __init__(self, pose_at: Callable[[int], Any], max_age_s: float = RANGE_MAX_AGE_S, max_tilt_deg: float = RANGE_MAX_TILT_DEG) -> None:
         self._pose_at = pose_at
+        self._max_age_s = float(max_age_s)
         self._max_age_ns = int(max_age_s * 1.0e9)
+        self._max_tilt_deg = float(max_tilt_deg)
         self._min_cos = math.cos(math.radians(max_tilt_deg))
         self._readings: Deque[Tuple[int, float]] = deque(maxlen=RANGE_HISTORY)  # (stamp, range) of usable readings
+        self.last_refusal: Optional[str] = None
 
-    def add_range(self, stamp_ns: int, range_m: float, min_m: float, max_m: float) -> None:
-        """One rangefinder reading. One at the sensor's limits is the sensor saying "out of range" and is not kept."""
+    def add_range(self, stamp_ns: int, range_m: float, min_m: float, max_m: float) -> bool:
+        """One rangefinder reading. One at the sensor's limits is the sensor saying "out of range" and is not kept. True when it was kept."""
         range_m = float(range_m)
         if math.isfinite(range_m) and float(min_m) + RANGE_EDGE_MARGIN_M < range_m < float(max_m) - RANGE_EDGE_MARGIN_M:
             self._readings.append((int(stamp_ns), range_m))
+            return True
+        return False
 
-    def ground_up(self, stamp_ns: int) -> Tuple[float, str]:
-        """(the ground's height in the local frame, "rangefinder" or "home") for a frame taken at `stamp_ns`."""
+    def ground_up(self, stamp_ns: int, expected_ground_up_m: float = 0.0) -> Tuple[float, str]:
+        """(the ground's height in the local frame, "rangefinder" or "home") for a frame taken at `stamp_ns`.
+
+        `expected_ground_up_m` is where the ground is expected to be in the
+        local frame (0, home's height, unless the caller knows better): a
+        ground further than five metres from it is not believed.
+        """
+        self.last_refusal = None
         votes = []
+        fresh = tilted = poseless = 0
         for read_ns, range_m in sorted(self._readings, key=lambda reading: abs(reading[0] - int(stamp_ns))):
             if abs(read_ns - int(stamp_ns)) > self._max_age_ns or len(votes) == RANGE_VOTES:
                 break  # sorted by distance in time: the rest are further still
+            fresh += 1
             pose = self._pose_at(read_ns)
             if pose is None:
+                poseless += 1
                 continue
             cos_tilt = float(rotation_from_quaternion(pose.orientation)[2, 2])
             if cos_tilt >= self._min_cos:
                 votes.append(float(pose.position[2]) - range_m * cos_tilt)
-        if len(votes) < RANGE_MIN_VOTES or max(votes) - min(votes) > RANGE_MAX_SPREAD_M:
+            else:
+                tilted += 1
+        if len(votes) < RANGE_MIN_VOTES:
+            self.last_refusal = self._why_too_few(int(stamp_ns), len(votes), fresh, tilted, poseless)
+            return 0.0, "home"
+        if max(votes) - min(votes) > RANGE_MAX_SPREAD_M:
+            self.last_refusal = f"the rangefinder's readings disagree about the ground by {max(votes) - min(votes):.2f} m (limit {RANGE_MAX_SPREAD_M:g} m)"
             return 0.0, "home"
         ground = sorted(votes)[len(votes) // 2]
-        if abs(ground) > RANGE_MAX_GROUND_OFFSET_M:
+        if abs(ground - float(expected_ground_up_m)) > RANGE_MAX_GROUND_OFFSET_M:
+            self.last_refusal = (
+                f"the rangefinder puts the ground {abs(ground - float(expected_ground_up_m)):.1f} m from where it is expected "
+                f"(limit {RANGE_MAX_GROUND_OFFSET_M:g} m): something is in the beam, or nothing came back"
+            )
             return 0.0, "home"
         return ground, "rangefinder"
+
+    def _why_too_few(self, stamp_ns: int, votes: int, fresh: int, tilted: int, poseless: int) -> str:
+        if not self._readings:
+            return "no rangefinder reading yet"
+        if fresh == 0:
+            newest_s = min(abs(read_ns - stamp_ns) for read_ns, _ in self._readings) * 1.0e-9
+            return f"the nearest rangefinder reading is {newest_s:.1f} s old (limit {self._max_age_s:g} s)"
+        if tilted and tilted >= poseless:
+            return f"the rangefinder read while the vehicle's tilt was over {self._max_tilt_deg:g} degrees"
+        if poseless:
+            return "no pose is known for the moments the rangefinder read"
+        return f"only {votes} usable rangefinder reading(s) (at least {RANGE_MIN_VOTES} needed)"
 
 
 class GroundProjector:

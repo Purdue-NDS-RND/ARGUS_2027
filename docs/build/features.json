@@ -409,9 +409,9 @@
       "land": "L09",
       "proven_in": "Sim, Field",
       "note": "Sim part (SITL rangefinder type 100) and the height estimator. The real sensor is a person step",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_height_estimator.py -> 23 passed, test_height_check.py + test_height_log.py -> 19 passed; sim/run_scenarios.sh delivery/height_estimator --variants on -> OK, height check PASS (rangefinder heights p95 0.04 m from the truth, 100% in band, 0 above 12.5 m); docs/results/2026-11-20-height-estimator.md. The sim's rangefinder is SITL type 1, not 100 (SIM-05 decision). Left for the lead: buy and fit the TFmini, RNGFND1_TYPE 20 and ORIENT 25, the taped hover (tools/height_log.py --tape 2.4) and the bench check of weak and lost returns (PROGRESS.md, Needs a person)",
       "blocked_reason": ""
     },
     {
