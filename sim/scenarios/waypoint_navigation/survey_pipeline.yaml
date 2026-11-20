@@ -1,0 +1,62 @@
+# The localisation pipeline in the survey (LOC-5): the survey of survey.yaml over a field with three numbered
+# markers and the four larger corner markers, with the localisation node running beside the executor. The node's
+# detector is the sim's oracle (no trained detector exists while training data is on hold): it reports the true
+# markers through the camera model, with 2 px of noise, 5% misses and a false alarm every fifty frames. The
+# mission requires the pipeline (`localisation_required`): it starts it through /loc/set_enabled at the first
+# track and stops it at the end. sim/loc_check.py beside the flight holds the pipeline to 8 frames a second,
+# to frames no older than 250 ms at their turn, and to having reported both kinds of marker.
+# Variant "off" is every flag false: the node is not started and the survey mission is skipped.
+description: Survey with the localisation node and the oracle detector; the mission starts and stops the pipeline, which reports the markers.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: sim_survey_mission.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+waypoints:
+  mission: search_pattern
+  points:
+    - {name: track1_start, east_m: 20.0, north_m: 17.92, height_m: 10.668}
+    - {name: track1_end, east_m: 80.0, north_m: 17.92, height_m: 10.668}
+    - {name: track2_start, east_m: 80.0, north_m: 30.0, height_m: 10.668}
+    - {name: track2_end, east_m: 20.0, north_m: 30.0, height_m: 10.668}
+    - {name: track3_start, east_m: 20.0, north_m: 42.08, height_m: 10.668}
+    - {name: track3_end, east_m: 80.0, north_m: 42.08, height_m: 10.668}
+judge:
+  tolerance_m: 2.5
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+config:
+  search_pattern:
+    localisation_required: true
+objects:
+  - {name: marker_3, kind: marker, digit: 3, size_m: 0.6, at: {east_m: 35.0, north_m: 20.0}}
+  - {name: marker_7, kind: marker, digit: 7, size_m: 0.6, at: {east_m: 62.0, north_m: 31.0}}
+  - {name: marker_1, kind: marker, digit: 1, size_m: 0.6, at: {east_m: 48.0, north_m: 44.0}}
+  - {name: corner_sw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 10.0}}
+  - {name: corner_se, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 10.0}}
+  - {name: corner_ne, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 50.0}}
+  - {name: corner_nw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 50.0}}
+expect_log:
+  - "localisation pipeline started"
+  - "survey finished: 3 of 3 tracks flown"
+  - "localisation pipeline stopped after"
+wind: {level: calm}

@@ -161,7 +161,7 @@ class LandingWatcher:
 
 
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "height_check", "record", "payload_bridge", "sensor_check", "truth_poses"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "height_check", "record", "payload_bridge", "sensor_check", "truth_poses", "loc_check"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
@@ -186,6 +186,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("sensor_check")  # the camera's rate and the rangefinder are checked against the truth
     if manifest.get("truth_poses") is True:
         needed.add("truth_poses")  # true poses go out on /sim/truth/poses
+    if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True:
+        needed.add("loc_check")  # the localisation pipeline's rate, its start and stop, and what it reports
     return needed
 
 
@@ -207,6 +209,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "payload_bridge": "it has a carried payload or a bucket to pick up, and the payload bridge (sim/payload_bridge.py) is missing",
         "sensor_check": "it asks for the sensor check, and the tool (sim/sensor_check.py) is missing",
         "truth_poses": "it asks for true poses on a topic, and the tool that publishes them (sim/truth_poses.py) is missing",
+        "loc_check": "it turns the localisation node on, and the check of its pipeline (sim/loc_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

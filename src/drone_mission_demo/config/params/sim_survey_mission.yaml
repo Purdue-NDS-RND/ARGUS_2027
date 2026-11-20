@@ -1,0 +1,43 @@
+# The sim's survey flight (LOC-3, LOC-5): the 2026 take-off service and executor settings of mission_params.yaml,
+# and the localisation node as the sim runs it. Every flag is false: as shipped, the node does nothing.
+simple_takeoff_service:
+  ros__parameters:
+    default_takeoff_altitude_m: 20.0
+    guided_mode_name: "GUIDED"
+    mode_retry_s: 2.0
+    arm_retry_s: 5.0
+    max_arm_attempts: 5
+    post_arm_settle_s: 5.0
+    takeoff_retry_s: 5.0
+    loop_rate_hz: 2.0
+    stream_rate_hz: 20
+    required_topics:
+      - "/mavros/local_position/pose"
+      - "/mavros/imu/data"
+      - "/mavros/extended_state"
+
+mission_executor:
+  ros__parameters:
+    loop_rate_hz: 20.0
+    abort_rtl_mode: "RTL"
+
+loc_node:  # The localisation node (LOC-5). Only started by a launch given loc_node:=true.
+  ros__parameters:
+    camera_mode: "sim_survey"        # the sensor mode the frames come from (argus_camera modes.yaml)
+    airframe: "sim_iris_downcam"     # the airframe whose camera mount is used (argus_camera robot.yaml)
+    image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
+    detector: "oracle"               # the sim's stand-in for the trained detector, behind features.sim_oracle_detector
+    engine_path: ""                  # the sim runs no engine
+    engine_classes: ["marker"]       # (the engine detector's class list; not used by the oracle)
+    start_enabled: false             # the survey mission starts and stops the pipeline through /loc/set_enabled
+    sim_only: true                   # this file is the sim's: the oracle refuses to run without this and sim time
+    ground_below_home_m: 0.0   # how far the ground under the survey is below home, in metres (negative: above it); where boxes are put when the rangefinder is not believed
+    oracle_objects_file: ""          # written into the run folder by the sim's scenario build
+    oracle_seed: 0                   # the scenario's seed, set by the build
+    oracle_pixel_sigma_px: 2.0       # the oracle's pixel noise, in full-frame pixels
+    oracle_miss_rate: 0.05           # the share of sightings the oracle leaves out
+    oracle_false_alarms_per_frame: 0.02  # boxes of nothing added to a frame, on average
+    features:
+      loc_node: false              # Run the localisation pipeline: frames to /loc/detections and /loc/status (loc_node.py).
+      sim_oracle_detector: false   # The sim's oracle detector: true object poses through the camera model. Sim only (oracle.py).
+      loc_tiling: false            # Give the detector overlapping windows of the full frame instead of the shrunk frame (tiling.py).

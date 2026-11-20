@@ -625,9 +625,9 @@
       "land": "L13",
       "proven_in": "Sim, Bench",
       "note": "Owns shrink_for_detector() and the sim-only oracle detector (data hold). Does not wait for PLT-04; the Jetson keeps the 2026 engine path",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test -> 46 passed; sim/test/test_loc_check.py -> 14 passed; strict check -> OK; sim waypoint_navigation/survey_pipeline seed 1 (off, on) -> OK: 571 frames at 10.0 a second, 0 dropped, 177 of 177 boxes placed, started and stopped by the mission; docs/results/2026-11-20-loc-pipeline.md. Left: Bench (a real engine on the Jetson, 4K frames from the camera's FrameSource, 15 Hz target) is a person's; the 2027 engine waits for PLT-04; the lead to confirm that detector: engine runs an existing engine the 2026 way",
       "blocked_reason": ""
     },
     {

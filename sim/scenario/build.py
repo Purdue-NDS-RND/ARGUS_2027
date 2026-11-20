@@ -61,7 +61,29 @@ RUNS_DIR = SIM_DIR / ".state" / "runs"
 FALLBACK_LAUNCH = "multi_mission_demo.launch.py"
 # Nodes the demo launches start only on a launch argument of their own name, which a scenario gives by turning
 # the node's flag of the same name on: `node_flags: {ring_fit: {ring_fit: true}}`.
-FLAG_STARTED_NODES = ("ring_fit",)
+FLAG_STARTED_NODES = ("ring_fit", "loc_node")
+
+# What the sim's oracle detector (LOC-5) reports each kind of object as, on the detection contract. A marker with
+# no digit is one of the four larger boundary markers. A payload is not an object of the contract.
+ORACLE_CLASSES = {"bullseye": "bullseye", "x_mat": "green_x", "bucket": "bucket"}
+ORACLE_SIZE_M = {"bullseye": 5.0, "x_mat": 5.0, "bucket": 0.19}
+ORACLE_TOP_M = {"bucket": 0.20}
+
+
+def oracle_objects(objects: list[dict], vehicle_model: str) -> dict:
+    """The true objects as the oracle detector takes them: the run's oracle_objects.json."""
+    listed = []
+    for item in objects:
+        kind = item["kind"]
+        if kind == "marker":
+            class_id = "marker" if item.get("digit") is not None else "boundary_marker"
+        elif kind in ORACLE_CLASSES:
+            class_id = ORACLE_CLASSES[kind]
+        else:
+            continue
+        size = float(item.get("size_m" if kind != "bucket" else "diameter_m", ORACLE_SIZE_M.get(kind, 0.6)))
+        listed.append({"name": item["name"], "class_id": class_id, "size_m": size, "top_m": ORACLE_TOP_M.get(kind, SURFACE_HEIGHT_M.get(kind, 0.0))})
+    return {"vehicle": vehicle_model, "objects": listed}
 
 # Height of the surface an object stands on when it is placed on top of another.
 SURFACE_HEIGHT_M = {"x_mat": 0.03, "bullseye": 0.04, "marker": 0.02}
@@ -466,6 +488,15 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         objects = [carry(item, stood) if item["name"] == carried[0] else item for item in objects]
     hung = tuple(name for name in (carried[0] if carried else None, scenario.bucket) if name)
     world = build_world(base_world, site, objects, scenario.sun, windy, profile["model"], hung)
+
+    # The localisation node's oracle detector reports the run's true objects: it is told which and how large.
+    oracle = None
+    if flags_on and params is not None and (scenario.node_flags.get("loc_node") or {}).get("sim_oracle_detector") is True:
+        if not scenario.truth_poses:
+            raise BuildError(f"{scenario.path}: the oracle detector reports the true poses on a topic: the scenario needs truth_poses: true")
+        oracle = oracle_objects(objects, profile["model"])
+        params["loc_node"]["ros__parameters"]["oracle_objects_file"] = str(run_dir / "oracle_objects.json")
+        params["loc_node"]["ros__parameters"]["oracle_seed"] = int(seed)
     bridge = None
     if hung:
         if scenario.driver is not None:
@@ -555,6 +586,8 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))
         (run_dir / "params.yaml").write_text(header + yaml.safe_dump(params, sort_keys=False))
+    if oracle is not None:
+        (run_dir / "oracle_objects.json").write_text(json.dumps(oracle, indent=2) + "\n")
     if route is not None:
         (run_dir / "waypoints.yaml").write_text(header + yaml.safe_dump({"waypoints": route}, sort_keys=False))
     (run_dir / "truth.json").write_text(json.dumps(truth, indent=2) + "\n")

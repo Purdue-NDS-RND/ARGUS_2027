@@ -55,6 +55,7 @@ nightly:
     - waypoint_navigation/survey_dip
     - waypoint_navigation/survey_abort
     - waypoint_navigation/survey_budget
+    - waypoint_navigation/survey_pipeline
     - geofence/breach
   seeds: [1, 2, 3]
   variants: ["off", "on"]

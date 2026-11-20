@@ -1,0 +1,21 @@
+# The localisation node's settings (LOC-5). Every flag is false: as shipped, the node does nothing.
+loc_node:
+  ros__parameters:
+    camera_mode: ""            # the sensor mode the frames come from (argus_camera modes.yaml); must be calibrated
+    airframe: ""               # the airframe whose camera mount is used (argus_camera robot.yaml)
+    image_topic: "camera/image"  # where a sim mode's frames come from; a real camera is read inside the node
+    detector: "engine"         # "engine": the TensorRT engine at engine_path, run through Ultralytics on the Jetson; "oracle": the sim's stand-in
+    engine_path: ""            # the engine file; empty: the node does not start on the engine detector
+    engine_classes: ["marker"]   # what each of the engine's class numbers is on the detection contract (last year's engine has one class, the marker)
+    start_enabled: false       # false: the pipeline waits for /loc/set_enabled (the survey mission starts and stops it)
+    sim_only: false            # true only in the sim: the oracle detector refuses to run without it and sim time
+    ground_below_home_m: 0.0   # how far the ground under the survey is below home, in metres (negative: above it); where boxes are put when the rangefinder is not believed
+    oracle_objects_file: ""    # the run's list of true objects, written by the sim's scenario build
+    oracle_seed: 0             # the oracle's noise repeats with its seed
+    oracle_pixel_sigma_px: 2.0   # the oracle's pixel noise, in full-frame pixels
+    oracle_miss_rate: 0.05       # the share of sightings the oracle leaves out
+    oracle_false_alarms_per_frame: 0.02  # how many boxes of nothing the oracle adds to a frame, on average
+    features:
+      loc_node: false              # Run the localisation pipeline: frames to /loc/detections and /loc/status (loc_node.py).
+      sim_oracle_detector: false   # The sim's oracle detector: true object poses through the camera model. Sim only (oracle.py).
+      loc_tiling: false            # Give the detector overlapping windows of the full frame instead of the shrunk frame (tiling.py).

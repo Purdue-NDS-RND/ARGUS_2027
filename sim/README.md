@@ -432,7 +432,7 @@ The rangefinder is SITL's, from the default parameters (`RNGFND1_TYPE 1`): it re
 
 ### Large frames (`dds_profile`)
 
-A 1280 x 720 frame is 2.8 MB and a 4K one 25 MB; on Fast DDS's built-in transports a best-effort subscriber loses about half of them. A scenario that carries such frames says `dds_profile: large_frames`, and its container then runs Fast DDS with `sim/config/fastdds_large_frames.xml` (a 256 MB shared-memory segment). `hover/survey_camera` and `hover/still4k_camera` do; scenarios on the 640 x 360 delivery camera do not need it and do not get it.
+A 1280 x 720 frame is 2.8 MB and a 4K one 25 MB; on Fast DDS's built-in transports a best-effort subscriber loses about half of them. A scenario that carries such frames says `dds_profile: large_frames`, and its camera bridge, the process that publishes the frames, then runs Fast DDS with `sim/config/fastdds_large_frames.xml` (a 256 MB shared-memory segment). Only the bridge: a subscriber reads a frame from its publisher's segment, and a segment that size for every process does not fit the container's 1 GB of shared memory. `hover/survey_camera` and `hover/still4k_camera` do; scenarios on the 640 x 360 delivery camera do not need it and do not get it.
 
 ## Surveys
 
@@ -443,6 +443,8 @@ A 1280 x 720 frame is 2.8 MB and a 4K one 25 MB; on Fast DDS's built-in transpor
 ```bash
 sim/run_scenarios.sh waypoint_navigation/survey --seeds 1 --variants on
 ```
+
+The localisation node flies beside the survey in `waypoint_navigation/survey_pipeline`: the scenario turns the node's flags on (`node_flags: {loc_node: {loc_node: true, sim_oracle_detector: true}}`), which also starts the node (`loc_node:=true` to `search_pattern_demo.launch.py`), and asks for `truth_poses: true`. The build writes `oracle_objects.json` into the run folder, the true objects with their classes and sizes, and names it in the node's params: the sim's oracle detector reports those through the camera model. `sim/loc_check.py` runs beside the flight and writes `loc_check.json`: the pipeline started and stopped, at least 8 frames a second, frames no older than 250 ms at their turn, no faulted frame, 90% of boxes put on the ground, every class on the field reported. The report has a "Localisation pipeline" row.
 
 ## GPS faults
 

@@ -192,9 +192,12 @@ else
     run_test "" sim/test/test_payload_bridge.py
     run_test "" sim/test/test_sensors.py
     run_test "" sim/test/test_inject.py
+    run_test "" sim/test/test_loc_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
     run_test src/argus_camera src/argus_camera/test/test_capture_clock.py
+    run_test "" src/argus_localisation/test/test_loc_pipeline.py
+    run_test "" src/argus_localisation/test/test_loc_node.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

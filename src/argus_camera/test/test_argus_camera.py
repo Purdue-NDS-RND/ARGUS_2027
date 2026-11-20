@@ -691,6 +691,7 @@ def test_nothing_outside_the_package_starts_the_node():
         "src/drone_mission_core/drone_mission_core/frame_projection.py",
         "src/drone_mission_core/drone_mission_core/projection_v2.py",
         "src/drone_target_cv/drone_target_cv/ring_fit_node.py",  # the ring fit's camera, through frame_projection (CEN-13)
+        "src/argus_localisation/argus_localisation/loc_node.py",  # the localisation node reads frames with the package's FrameSource, inside itself (LOC-5)
         "src/vision_pipeline/vision_pipeline/logger_projection.py",
         "src/vision_pipeline/vision_pipeline/mission_logger.py",
     }, readers

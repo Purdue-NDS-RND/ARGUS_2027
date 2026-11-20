@@ -143,8 +143,8 @@ def launch_sim_time_problems(source: str, name: str = "<launch>") -> list:
     return problems
 
 
-def test_twelve_launch_files_start_the_executor():
-    assert len(LAUNCH_FILES) == 12
+def test_thirteen_launch_files_start_the_executor():
+    assert len(LAUNCH_FILES) == 13  # the survey's own launch, with the localisation node, is the thirteenth (LOC-5)
 
 
 @pytest.mark.parametrize("path", LAUNCH_FILES, ids=lambda p: p.name)
