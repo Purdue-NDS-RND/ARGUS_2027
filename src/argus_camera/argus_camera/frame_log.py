@@ -6,7 +6,9 @@ quality 90 is the default, which is what the survey logs (LOC-11); PNG keeps
 every pixel for the cases that need it.
 
 With `workers` above zero the encoding and the disk write happen on worker
-threads and `write` only queues the frame. When the queue is full the frame
+threads and `write` only queues the frame. `worker_niceness` above zero
+lowers those threads' priority, so that the encoding takes only the CPU
+nothing else wants. When the queue is full the frame
 is dropped and counted: the logger gives way before whatever is feeding it.
 It can also thin by time, and it stops at a size limit instead of filling
 the disk. What to log and when is the caller's policy; this is the writer.
@@ -15,6 +17,7 @@ the disk. What to log and when is the caller's policy; this is the writer.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 from pathlib import Path
@@ -41,6 +44,7 @@ class FrameLog:
         max_bytes: Optional[int] = None,
         workers: int = 0,
         queue_frames: int = 4,
+        worker_niceness: int = 0,
     ) -> None:
         if image_format not in FORMATS:
             raise FrameLogError(f"image_format must be one of {', '.join(FORMATS)}, got {image_format!r}")
@@ -48,6 +52,8 @@ class FrameLog:
         self._extension = FORMATS[image_format]
         self._encode_args = [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)] if image_format == "jpg" else []
         self._min_interval_ns = int(min_interval_s * 1.0e9)
+        self._worker_niceness = int(worker_niceness)  # above 0: the workers give way to every other thread on the machine
+        self.niceness_refused = False
         self._max_bytes = max_bytes
         self._last_ns: Optional[int] = None
         self._bytes = 0
@@ -110,6 +116,11 @@ class FrameLog:
                 self._index.flush()
 
     def _work(self) -> None:
+        if self._worker_niceness > 0:
+            try:  # Linux gives each thread its own niceness; elsewhere, or without the right, the worker runs as it is
+                os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), self._worker_niceness)
+            except (AttributeError, OSError):
+                self.niceness_refused = True  # said, so that whoever asked can tell the workers run at normal priority
         while True:
             frame = self._queue.get()
             try:

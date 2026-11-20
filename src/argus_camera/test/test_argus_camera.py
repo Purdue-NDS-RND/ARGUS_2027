@@ -635,7 +635,7 @@ def test_the_library_has_no_ros_in_it(name):
             imported |= {alias.name.split(".")[0] for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.level == 0:
             imported.add((node.module or "").split(".")[0])
-    allowed = {"__future__", "abc", "argparse", "dataclasses", "json", "math", "pathlib", "queue", "sys", "threading", "time", "typing", "numpy", "cv2", "yaml"}
+    allowed = {"__future__", "abc", "argparse", "dataclasses", "json", "math", "os", "pathlib", "queue", "sys", "threading", "time", "typing", "numpy", "cv2", "yaml"}
     if name == "frame_source":
         allowed.add("gi")  # GStreamer's bindings, imported inside load_gst and only if present
     assert imported <= allowed
@@ -692,6 +692,7 @@ def test_nothing_outside_the_package_starts_the_node():
         "src/drone_mission_core/drone_mission_core/projection_v2.py",
         "src/drone_target_cv/drone_target_cv/ring_fit_node.py",  # the ring fit's camera, through frame_projection (CEN-13)
         "src/argus_localisation/argus_localisation/loc_node.py",  # the localisation node reads frames with the package's FrameSource, inside itself (LOC-5)
+        "src/argus_localisation/argus_localisation/frame_logging.py",  # the survey's logging policy writes with the package's one FrameLog (LOC-11)
         "src/vision_pipeline/vision_pipeline/logger_projection.py",
         "src/vision_pipeline/vision_pipeline/mission_logger.py",
     }, readers

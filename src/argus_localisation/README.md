@@ -10,6 +10,8 @@ Everything here is behind node flags that default to false. As shipped, the node
 | `sim_oracle_detector` | The sim's stand-in detector (`detector: oracle`). Refuses to run outside the sim. |
 | `loc_tiling` | The detector sees overlapping windows of the full frame instead of the shrunk frame. |
 | `marker_tracker` | The marker tracker runs on every frame's ground points and `/loc/tracks` is published. |
+| `loc_median_position` | A track's published position is the weighted median of its sightings (needs `marker_tracker`). |
+| `survey_frame_log` | Every frame of the survey is logged as JPEG under `frame_log_dir`, giving way to the detector. |
 
 ## Per frame
 
@@ -25,6 +27,10 @@ The pipeline is off until `/loc/set_enabled` (std_srvs/SetBool) starts it; the s
 ## The marker tracker
 
 `marker_tracker.py` (LOC-7) keeps one track for each `marker` and each `boundary_marker`. A sighting's noise is the target estimator's (R = J Sigma J^T from projection v2's point); sightings are assigned to tracks with the Hungarian method on Mahalanobis distance, gated at 9.21 and at 1 m. A track is TENTATIVE until its third sighting, then CONFIRMED; a confirmed track that is no longer in view is COASTING and is kept for good. A sighting within 1 m of a track that the gate refuses is not a second track: after five in a row the track moves to it. Once the four boundary markers are confirmed, a marker track outside their hull (by more than 0.5 m) is marked outside and kept off the list. Each track keeps its sightings for the final position (LOC-9).
+
+## Logging the survey's frames
+
+With `features.survey_frame_log` the node logs every frame the camera gives while the pipeline is on, as JPEG at quality 90, into a new folder for each survey under `frame_log_dir` (`frame_logging.py`, LOC-11; the writer is argus_camera's `FrameLog`, encoding on `frame_log_workers` threads). The encoding threads run at a lowered priority. The logger gives way to the detector: when the pipeline runs under nine tenths of the rate it should have (its target, or its camera's rate when that is lower), under its minimum rate, or the log's own queue overflows, it keeps every second frame, then every fourth, down to one in sixteen, and steps back up after ten seconds with nothing wrong. `frame_log_dir` must exist; the logging stops with under `frame_log_min_free_gb` free on the disk or when one survey's log reaches `frame_log_max_gb`, and stopping the pipeline does not wait for the frames still queued. `/loc/status` carries its counts under `frame_log`. `tools/frame_log_bench.py` measures what the logging costs on a machine.
 
 ## Frames
 

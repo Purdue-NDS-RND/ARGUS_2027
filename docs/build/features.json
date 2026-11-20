@@ -677,9 +677,9 @@
       "land": "L13",
       "proven_in": "Bench",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/argus_localisation/test tools/test/test_frame_log_bench.py -> 96 passed (11 for the policy); strict check -> OK; tools/frame_log_bench.py on the build machine: 170 of 170 4K frames at 17 a second logged, 71 MB a second, 0.7 cores (docs/results/2026-11-20-frame-log-bench.md). Left: Bench on the Orin Nano with the NVMe (megabytes a second, cores, the JPEG library, the logger beside the detector and the executor) is a person's",
       "blocked_reason": ""
     },
     {

@@ -164,6 +164,7 @@ else
     run_test "" tools/test/test_ring_fit_try.py
     run_test "" tools/test/test_estimator_step_cost.py
     run_test "" tools/test/test_synth_targets.py
+    run_test "" tools/test/test_frame_log_bench.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
     run_test "" sim/test/test_sim_camera.py
     run_test "" sim/test/test_orientation_check.py
@@ -200,6 +201,7 @@ else
     run_test "" src/argus_localisation/test/test_loc_node.py
     run_test "" src/argus_localisation/test/test_marker_tracker.py
     run_test "" src/argus_localisation/test/test_final_position.py
+    run_test "" src/argus_localisation/test/test_frame_logging.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"

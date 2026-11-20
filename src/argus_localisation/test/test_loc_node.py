@@ -174,6 +174,7 @@ def test_with_the_flag_off_the_node_makes_nothing(ros):
         ({"detector": "engine", "engine_path": "/nowhere/yolo.engine"}, "is not a file"),
         ({"features.loc_tiling": True}, "tiling has nothing to give the oracle"),
         ({"features.loc_median_position": True}, "features.loc_median_position needs features.marker_tracker"),
+        ({"features.survey_frame_log": True}, "frame_log_dir must be set"),
         ({"detector": "yolo"}, "detector must be one of"),
         ({"use_sim_time": False}, "runs only in the sim"),
         ({"sim_only": False}, "runs only in the sim"),
@@ -353,7 +354,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -521,3 +522,125 @@ def test_the_median_position_is_behind_its_flag_and_is_what_goes_out_with_it_on(
     assert node._tracker.median_positions is True and (sent.position_enu.x, sent.position_enu.y) == pytest.approx(median)
     assert (sent.position_enu.x, sent.position_enu.y) != (state.east_m, state.north_m)  # the median of noisy sightings is not their weighted mean
     assert (sent.position_enu.x, sent.position_enu.y) == pytest.approx((2.0, 1.0), abs=0.15)
+
+
+LOGGING = {"features.survey_frame_log": True, "frame_log_workers": 1, "frame_log_min_free_gb": 0.0}
+
+
+def status_of(node):
+    for period, callback in node.timers:
+        if period >= 0.5:
+            callback()
+    return json.loads(node.publishers["/loc/status"].sent[-1].data)
+
+
+def test_the_surveys_frames_are_logged_between_the_pipelines_start_and_its_stop_with_the_flag_on(ros, objects_file, tmp_path):
+    with_vision_msgs(ros)
+    plain = node_with(ros, **{**SIM, **FLAGS, **EXACT, "oracle_objects_file": objects_file})
+    assert plain._frame_log is None and "frame_log" not in plain.runtime.status()
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, **LOGGING, "frame_log_dir": str(frames), "oracle_objects_file": objects_file})
+    assert node.logger.error.call_args is None and list(frames.iterdir()) == []  # nothing is written before the survey
+    flying(node)
+    node.subscriptions[IMAGE_TOPIC](image(T0))
+    assert set_enabled(node, True).message == "localisation pipeline started"
+    (folder,) = list(frames.iterdir())
+    for index in range(3):
+        node.subscriptions[IMAGE_TOPIC](image(T0 + index * 33_000_000))  # three frames before the node's turn: the detector takes the newest
+    tick(node)
+    status = status_of(node)
+    assert status["frames"] == 1 and status["dropped"] == 2  # the detector's count
+    assert status["frame_log"]["logging"] is True and status["frame_log"]["folder"] == str(folder) and status["frame_log"]["keep_every"] == 1
+    set_enabled(node, False)
+    node.subscriptions[IMAGE_TOPIC](image(T0 + 10 * 33_000_000))
+    node._frame_log.stop(wait_s=5.0)  # (the stop does not wait for the disk; the test does)
+    assert len(list(folder.glob("frame_*.jpg"))) == 3 and len((folder / "index.jsonl").read_text().splitlines()) == 3  # the log has all three
+    assert node._frame_log.status()["written"] == 3 and node._frame_log.status()["logging"] is False
+    # A detector that falls under nine tenths of its rate (the sim's camera gives 10 a second): the logger gives way.
+    set_enabled(node, True)
+    for second in range(1, 7):  # one frame a second for six seconds
+        RecordingNode.now_ns = T0 + second * S
+        flying(node, RecordingNode.now_ns)
+        node.subscriptions[IMAGE_TOPIC](image(RecordingNode.now_ns - 10_000_000))
+        tick(node)
+        status = status_of(node)
+    assert status["rate_hz"] < 2.0 and status["frame_log"]["keep_every"] > 1 and "the detector is" in status["frame_log"]["reason"]
+    node.destroy_node()
+    assert node._frame_log.status()["logging"] is False
+
+
+def test_the_shipped_settings_of_the_frame_log_are_the_specs_and_a_wrong_one_is_refused(ros, objects_file, tmp_path):
+    import yaml
+
+    for file in (SRC / "argus_localisation" / "config" / "loc_params.yaml", SRC / "drone_mission_demo" / "config" / "params" / "sim_survey_mission.yaml"):
+        settings = yaml.safe_load(file.read_text())["loc_node"]["ros__parameters"]
+        assert (settings["frame_log_jpeg_quality"], settings["frame_log_workers"], settings["frame_log_dir"]) == (90, 3, "")
+        assert settings["frame_log_max_gb"] == 400.0 and settings["frame_log_min_free_gb"] == 20.0 and settings["features"]["survey_frame_log"] is False
+    with_vision_msgs(ros)
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    node = node_with(ros, **{**SIM, **FLAGS, **EXACT, "features.survey_frame_log": True, "frame_log_min_free_gb": 0.0, "frame_log_dir": str(frames), "oracle_objects_file": objects_file})
+    assert node.logger.error.call_args is None and node._frame_log._settings["jpeg_quality"] == 90 and node._frame_log._settings["workers"] == 3  # the node's own defaults
+    assert node._frame_log._expected_rate_hz == 10.0  # the sim's camera gives 10 a second, under the detector's target of 15
+    for change, said in (({"frame_log_workers": 0}, "frame_log_workers must be 1 or more"), ({"frame_log_dir": ""}, "frame_log_dir must be set"), ({"frame_log_jpeg_quality": 0}, "JPEG quality")):
+        refused = node_with(ros, **{**SIM, **FLAGS, **EXACT, **LOGGING, "frame_log_dir": str(frames), "oracle_objects_file": objects_file, **change})
+        assert refused.runtime is None and said in refused.logger.error.call_args[0][0]
+
+
+def test_a_frame_log_setting_of_the_wrong_kind_does_not_stop_the_node_while_the_logs_flag_is_off(ros, objects_file):
+    with_vision_msgs(ros)
+
+    class Strict(RecordingNode):
+        def declare_parameter(self, name, default=None):
+            if name == "frame_log_max_gb" and isinstance(self.overrides.get(name), int):
+                raise TypeError("frame_log_max_gb: expected a double, got an integer")
+            return super().declare_parameter(name, default)
+
+    import importlib
+
+    def start(**flags):
+        ros.setitem(sys.modules, "rclpy.node", types.SimpleNamespace(Node=Strict))
+        ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+        ros.setattr(Strict, "overrides", {**SIM, **FLAGS, **EXACT, "oracle_objects_file": objects_file, "frame_log_max_gb": 400, **flags})
+        node = importlib.import_module("argus_localisation.loc_node").LocNode()
+        ros.delitem(sys.modules, "argus_localisation.loc_node", raising=False)
+        return node
+
+    node_with(ros, **SIM)  # (puts the message stand-ins in place; this node, with its flag off, is not the one under test)
+    off = start()
+    assert off.runtime is not None, [call[0][0] for call in off.logger.error.call_args_list]
+    assert set(off.services) == {"/loc/set_enabled"}  # the pipeline runs; only the log could not have
+    assert "frame log's parameters could not be declared" in off.logger.error.call_args[0][0]
+    on = start(**{"features.survey_frame_log": True, "frame_log_dir": "/somewhere"})
+    assert on.runtime is None and "features.survey_frame_log is on and the frame log's parameters could not be declared" in on.logger.error.call_args[0][0]
+
+
+def test_a_real_cameras_frames_go_to_the_log_from_the_cameras_own_thread(ros, tmp_path):
+    """The path the 4K frames take: read inside the node, offered to the detector and to the log."""
+    import time
+
+    with_vision_msgs(ros)
+    from argus_camera import frame_source
+    from drone_mission_core import frame_projection
+
+    sim_camera = frame_projection.load_camera("sim_survey", "sim_iris_downcam")
+    ros.setattr(frame_projection, "load_camera", lambda mode, airframe: sim_camera)
+    ros.setattr(frame_source, "open_source", lambda mode, clock: Source(clock))
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    node, _model = engine_node(ros, tmp_path, camera_mode="imx519_720p60", airframe="argus_2027", **{**LOGGING, "frame_log_dir": str(frames)})
+    try:
+        assert node.logger.error.call_args is None, node.logger.error.call_args
+        assert node._frame_log._expected_rate_hz == 15.0  # a 60 Hz camera: the detector's own target is the lower
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and node._frame_log.status()["written"] < 5:
+            time.sleep(0.01)
+        assert node._frame_log.status()["written"] >= 5, node._frame_log.status()
+        set_enabled(node, False)
+        node._frame_log.stop(wait_s=5.0)
+        written = node._frame_log.status()["written"]
+        time.sleep(0.1)  # the camera goes on giving frames; the survey is over and none is logged
+        assert node._frame_log.status()["written"] == written and len(list(next(frames.iterdir()).glob("frame_*.jpg"))) == written
+    finally:
+        node.destroy_node()

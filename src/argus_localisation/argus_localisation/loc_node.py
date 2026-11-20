@@ -40,6 +40,14 @@ With it on:
     on `/loc/tracks` (argus_interfaces/MarkerTrackArray) after each frame;
     the status then counts its tracks and lists the confirmed ones. With
     the flag off there is no tracker and no such topic.
+  - `features.survey_frame_log` logs every frame the camera gives while
+    the pipeline is on, as JPEG at quality 90, to a new folder for each
+    survey under `frame_log_dir` (frame_logging.py, LOC-11; the writer is
+    argus_camera's FrameLog). The logger gives way to the detector: when
+    the pipeline runs under nine tenths of the rate it should have, or
+    under its minimum rate, the logger keeps every second frame, then
+    every fourth, and comes back when the pipeline is well. `/loc/status`
+    carries its counts under `frame_log`.
   - `features.loc_median_position` (with the tracker on) makes a track's
     published position the weighted median of its sightings
     (final_position.py, LOC-9) instead of the filter's position.
@@ -79,6 +87,7 @@ class LocNode(Node):
     def __init__(self) -> None:
         super().__init__("loc_node")
         self.runtime: Any = None
+        self._frame_log: Any = None
         self._source: Any = None
         self._reader: Optional[threading.Thread] = None
         self._stopping = threading.Event()
@@ -89,6 +98,7 @@ class LocNode(Node):
             self.declare_parameter("features.loc_tiling", False)
             self.declare_parameter("features.marker_tracker", False)
             self.declare_parameter("features.loc_median_position", False)
+            self.declare_parameter("features.survey_frame_log", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -106,6 +116,18 @@ class LocNode(Node):
         except Exception as error:  # noqa: BLE001  (a setting of the wrong kind in the params file: say so and stay up, doing nothing)
             self.get_logger().error(f"the localisation node's parameters could not be declared ({error}): the node does nothing")
             return
+        # The frame log's settings are declared by themselves: one of the wrong kind in the params file must not
+        # stop the node when the log's flag is off. With the flag on it stops the start below, and says why.
+        self._frame_log_settings_problem = ""
+        try:
+            self.declare_parameter("frame_log_dir", "")
+            self.declare_parameter("frame_log_workers", 3)
+            self.declare_parameter("frame_log_jpeg_quality", 90)
+            self.declare_parameter("frame_log_max_gb", 400.0)
+            self.declare_parameter("frame_log_min_free_gb", 20.0)
+        except Exception as error:  # noqa: BLE001
+            self._frame_log_settings_problem = str(error)
+            self.get_logger().error(f"the frame log's parameters could not be declared ({error}): the survey's frames cannot be logged")
         if not self._flag("features.loc_node"):
             self.get_logger().info("Localisation node off (features.loc_node): nothing subscribed, nothing published, no camera opened")
             return
@@ -188,6 +210,25 @@ class LocNode(Node):
         self._ground = GroundHeight(self._poses.pose_at)
         ground = pipeline.SiteGround(self._ground, self.get_parameter("ground_below_home_m").value)
         self._truth = None
+        mode = camera_modes.load_modes(default_config_dir() / "modes.yaml")[mode_name]
+        frame_log = None
+        if self._flag("features.survey_frame_log"):
+            from . import frame_logging
+
+            if self._frame_log_settings_problem:
+                raise ValueError(f"features.survey_frame_log is on and the frame log's parameters could not be declared ({self._frame_log_settings_problem})")
+            workers = int(self._number("frame_log_workers"))
+            if workers < 1:
+                raise ValueError("frame_log_workers must be 1 or more: the encoding runs on worker threads, not on the camera's or the detector's")
+            frame_log = frame_logging.SurveyFrameLog(
+                self._text("frame_log_dir"),
+                jpeg_quality=int(self._number("frame_log_jpeg_quality")),
+                workers=workers,
+                max_bytes=int(self._number("frame_log_max_gb") * 1.0e9),
+                # The detector cannot be faster than its camera: its rate is held to the lower of its target and the mode's.
+                expected_rate_hz=min(runtime.TARGET_RATE_HZ, float(mode.fps)),
+                min_free_bytes=self._number("frame_log_min_free_gb") * 1.0e9,
+            )
         detector = self._detector(camera, mount)
         projector = GroundProjector(camera, mount, self._poses.pose_at, ground)
         frame_id = str(getattr(mount, "optical_frame", "") or "down_camera_optical")
@@ -214,7 +255,6 @@ class LocNode(Node):
             tiling=self._flag("features.loc_tiling"),
             pose_at=self._poses.pose_at,
         )
-        mode = camera_modes.load_modes(default_config_dir() / "modes.yaml")[mode_name]
         from_topic = mode.driver == "ros_topic"
         if not from_topic:
             from argus_camera.frame_source import open_source
@@ -223,6 +263,9 @@ class LocNode(Node):
             source.open()  # raises when the camera does not open
             self._source = source
         self.runtime = runtime.LocRuntime(chain, lambda: int(self.get_clock().now().nanoseconds), start_enabled=self._flag("start_enabled"))
+        self._frame_log = frame_log
+        if self.runtime.enabled:
+            self._start_frame_log()
 
         self.create_subscription(PoseStamped, POSE_TOPIC, self._on_pose, qos_profile_sensor_data)
         self.create_subscription(TwistStamped, VELOCITY_TOPIC, self._on_velocity, qos_profile_sensor_data)
@@ -255,6 +298,15 @@ class LocNode(Node):
             f"Localisation node on (features.loc_node): {mode_name} on {airframe}, frames from {frames_from}, detector '{detector.name}', "
             f"{'started' if self.runtime.enabled else f'waiting for {ENABLE_SERVICE}'}"
         )
+
+    def _start_frame_log(self) -> None:
+        if self._frame_log is None:
+            return
+        folder = self._frame_log.start(int(self.get_clock().now().nanoseconds))
+        if folder is None:
+            self.get_logger().error(f"localisation: the survey's frames are not being logged ({self._frame_log.status()['error']})")
+        else:
+            self.get_logger().info(f"localisation: logging the survey's frames to {folder}")
 
     # --- inputs ----------------------------------------------------------------------
 
@@ -293,7 +345,10 @@ class LocNode(Node):
             return  # an image is not even unpacked while the pipeline is off
         self._seq += 1
         try:
-            self.runtime.offer(self._frames.frame_from_message(message, self._seq, self._mode_name))
+            frame = self._frames.frame_from_message(message, self._seq, self._mode_name)
+            self.runtime.offer(frame)
+            if self._frame_log is not None:
+                self._frame_log.offer(frame)  # every frame of the survey, whether or not the detector gets to it
         except ValueError as error:
             self.get_logger().error(f"localisation: {error}", throttle_duration_sec=10.0)
 
@@ -311,6 +366,8 @@ class LocNode(Node):
                 self._stopping.wait(NO_FRAME_PAUSE_S)  # a camera with nothing to give must not spin a core
                 continue
             self.runtime.offer(frame)
+            if self._frame_log is not None and self.runtime.enabled:
+                self._frame_log.offer(frame)
 
     # --- the pipeline ----------------------------------------------------------------
 
@@ -337,6 +394,10 @@ class LocNode(Node):
 
     def _publish_status(self) -> None:
         status = self.runtime.status()
+        if self._frame_log is not None:
+            # The logger gives way to the detector: it is shown the pipeline's status once a second.
+            self._frame_log.review(status, int(self.get_clock().now().nanoseconds))
+            status["frame_log"] = self._frame_log.status()
         message = self._String()
         message.data = json.dumps({"camera_mode": self._mode_name, **status})
         self._status.publish(message)
@@ -348,12 +409,19 @@ class LocNode(Node):
             response.success, response.message = False, "the localisation pipeline is not running"
             return response
         response.success = True
+        was_on = self.runtime.enabled
         response.message = self.runtime.set_enabled(bool(request.data))
+        if self.runtime.enabled and not was_on:
+            self._start_frame_log()
+        elif was_on and not self.runtime.enabled and self._frame_log is not None:
+            self._frame_log.stop()
         self.get_logger().info(f"{ENABLE_SERVICE}: {response.message}")
         return response
 
     def destroy_node(self) -> None:
         self._stopping.set()
+        if self._frame_log is not None:
+            self._frame_log.stop(wait_s=2.0)  # the frames still queued get two seconds; a stalled disk does not hold the shutdown
         if self._reader is not None:
             self._reader.join(timeout=2.0)
         if self._source is not None:
