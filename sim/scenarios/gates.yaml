@@ -85,7 +85,11 @@ G2:
 G3:
   proves: Delivery
   pass: Median ≤ 0.5 m; release ≤ 1.83 m; impulse under the limit
-  needs: delivery scenarios with a real package and a contact impulse (CEN-05, CEN-10; SIM-06)
+  # The soft set-down of a real 0.5 kg package (CEN-05), three seeds for the median. The rules give no impulse
+  # limit yet (FEATURES.md, open question 9), so the judge has none (`impulse_limit_ns`) and the impulse rule
+  # below cannot be met until a scenario or the judge is given one: the gate says so, it does not pass without it.
+  scenarios: [delivery/set_down]
+  seeds: [1, 2, 3]
   variants: ["on"]
   rules:
     - name: median delivery distance within 0.5 m

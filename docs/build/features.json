@@ -1625,8 +1625,8 @@
         "CEN-05",
         "CEN-10"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "FAIL",
+      "result": "docs/results/2026-11-20-gate-G3.md"
     },
     "G4": {
       "title": "Localisation (oracle detector until a trained model exists)",
