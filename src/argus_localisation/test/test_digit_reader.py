@@ -123,10 +123,17 @@ def test_all_four_quarter_turns_go_to_the_classifier_and_the_two_the_x_allows_de
     # Neither way is sure: no answer, and the better way's probabilities are kept.
     unsure = dr.DigitReader(Scripted((3, 0.6), (1, 0.2), (3, 0.4), (1, 0.2))).read(crop)
     assert unsure.digit is None and unsure.confidence == pytest.approx(0.6) and "under 0.9" in unsure.reason
+    # A 6 that is not sure, read better one way up than the other: no answer, and the reading does not lean to
+    # the 6 over the 9. (The gate's flights: such leanings added up over a track's sightings to a wrong 9.)
+    leaning = dr.DigitReader(Scripted((6, 0.7), (1, 0.2), (9, 0.3), (1, 0.2))).read(crop)
+    assert leaning.digit is None and leaning.log_probabilities[6] == pytest.approx(leaning.log_probabilities[9])
+    assert math.exp(leaning.log_probabilities[6]) == pytest.approx((0.7 + 0.3 / 9.0) / 2.0) and sum(math.exp(v) for v in leaning.log_probabilities) == pytest.approx(1.0)
     # With the marker's own cue the cued turn is the reading, whatever another turn says.
     plate, _truth = marker(8, plate=True)
     cued = Scripted((5, 0.95), (7, 0.99), (2, 0.99), (7, 0.99))
     assert dr.DigitReader(cued, layout=dr.LAYOUT_2026).read(plate).digit == 5 and cued.asked == 4
+    told = dr.DigitReader(Scripted((6, 0.7), (1, 0.2), (9, 0.3), (1, 0.2)), layout=dr.LAYOUT_2026).read(plate)
+    assert told.log_probabilities[6] > told.log_probabilities[9] + 1.0  # a marker that says which way up keeps its 6 a 6
 
 
 def test_the_marker_is_read_tilted_blurred_noisy_dim_and_bright():

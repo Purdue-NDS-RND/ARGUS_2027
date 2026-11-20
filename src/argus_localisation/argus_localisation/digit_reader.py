@@ -483,6 +483,12 @@ class DigitReader:
             if sure[chosen] and best[chosen] in SIX_NINE:
                 return self._abstain("a 6 or a 9: the marker does not say which way up it is", confidence=0.5, log_probabilities=six_or_nine(), **known)
         scores = by_turn[chosen]
+        if not settled:
+            # A 6 this way up is a 9 the other: with nothing to say which way up, the reading gives the two the
+            # same chance, whatever it answers. Otherwise the noise between the two ways up would add up, over
+            # a track's sightings, to a vote for one of them.
+            scores = scores.copy()
+            scores[list(SIX_NINE)] = math.log(0.5 * float(np.exp(scores[SIX_NINE[0]]) + np.exp(scores[SIX_NINE[1]])) + 1.0e-300)
         known["quarter_turns"] = (turns + chosen) % 4
         if confidence[chosen] < self.min_confidence:
             reason = why or f"the best digit has probability {confidence[chosen]:.2f}, under {self.min_confidence:g}"
