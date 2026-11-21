@@ -802,9 +802,9 @@
       "land": "L16",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_cone_descent.py -> 13 passed; strict check OK. Left: the Sim proof, flown with the recovery mission (REC-2; REC-8 run R1); with REC-1 as built no detection exists below about 3 m, so a descent by this cone ends in LOST about 2 m above the handle until the flow camera's hand-off exists or the lead relaxes the age rules; the capture half-width and the hook's place on the body (mechanical team, REC-9)",
       "blocked_reason": ""
     },
     {
