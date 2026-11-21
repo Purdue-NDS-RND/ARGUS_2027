@@ -455,6 +455,12 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
         # It flies beside the payload bridge, which has the tools port: sim/container/start.sh gives it this one.
         command += ["--run-dir", str(run_dir), "--height", str(float(settings.get("height_m", 5.0))), "--lift", str(float(settings.get("lift_m", 3.0)))]
         command += ["--return-point", str({**default_settings(scenario.mission), **(scenario.judge or {})}.get("return_point", "takeoff"))]  # the judge's
+        if "carry_speed_mps" in settings:
+            command += ["--carry-speed", str(float(settings["carry_speed_mps"]))]
+        if settings.get("shaped") is True:
+            command += ["--shaped"]
+        if settings.get("attach_check") is True:
+            command += ["--attach-check"]
         command += ["--url", f"udpin:127.0.0.1:{DRIVER_PORT}", "--out", str(run_dir / f"{tool}.json")]
         return {"tool": tool, "command": command, "port": DRIVER_PORT}
     else:

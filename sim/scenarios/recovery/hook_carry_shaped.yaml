@@ -1,0 +1,23 @@
+# REC-4's swing shaping in the sim: the check flight of recovery/hook_check with the carry at 3 m/s, three times
+# as fast, each leg started and stopped over one period of the pendulum the bucket makes on the hook (0.72 m from
+# the hinge to the bucket's middle: 1.7 s). In hook_check's second flight the bucket, carried at the autopilot's
+# own speed with no shaping, brought the vehicle down. The flight also runs REC-4's attach check on its own hover
+# throttle, before the grab and after the lift, and ends there if the check says the hook came up empty.
+description: The hook check with the carry at 3 m/s under swing shaping, and the attach check on the hover throttle.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 420
+sensor_profile: recovery
+driver:
+  tool: recovery_check
+  height_m: 5.0
+  lift_m: 3.0
+  carry_speed_mps: 3.0
+  shaped: true
+  attach_check: true
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+wind: {level: calm}

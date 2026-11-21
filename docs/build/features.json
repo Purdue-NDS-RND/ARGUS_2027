@@ -819,9 +819,9 @@
       "land": "L16",
       "proven_in": "Unit, Sim",
       "note": "Mechanism numbers are parameters until the mechanical team supplies them",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_recovery_grip.py -> 15 passed; sim recovery/hook_carry_shaped OK (rtf 0.91, 19.99 points): 14.4 m carried at 2.94 m/s under shaping with 0.012 m of swing after the stop, attach check passed on a throttle ratio of 1.45; docs/results/2026-11-21-recovery-carry.md; strict check OK. Left: the engage, the loss watch and the release guard in a flight, 'not attached -> CENTRE', declaring and reading swing_shaping, the lift by lift_height_m and the recovery heights in check_mission, all with the recovery mission (REC-2; REC-8 run R1); the hook-camera 'bucket stays fixed' input has nothing behind it; the mechanism's numbers, the throttle ratio on the aircraft, the rangefinder's mount beside the hook and the landed state's rate are a person's",
       "blocked_reason": ""
     },
     {

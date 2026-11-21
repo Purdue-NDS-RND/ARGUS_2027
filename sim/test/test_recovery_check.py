@@ -2,6 +2,8 @@
 
 import json
 import sys
+
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -154,3 +156,75 @@ def test_the_bucket_goes_to_the_judges_return_point(tmp_path):
     other.write_text((SIM / "scenarios" / "recovery" / "hook_check.yaml").read_text() + "judge:\n  return_point: compass_rose\n")
     command = json.loads((build_run(other, tmp_path / "rose", variant="on") / "scenario.json").read_text())["driver"]["command"]
     assert command[command.index("--return-point") + 1] == "compass_rose"
+
+
+# --- REC-4 in the check flight: the attach check and the shaped carry ---
+
+
+class Loaded(Vehicle):
+    """The stand-in vehicle with a throttle: 0.40 in the empty hover, more once the gripper has closed (the bucket on)."""
+
+    def __init__(self, loaded_throttle=0.50, **settings):
+        super().__init__(**settings)
+        self.loaded_throttle = loaded_throttle
+
+    def throttle(self):
+        holding = bool(self.grips) and self.grips[-1][1] is True
+        return self.loaded_throttle if holding else 0.40
+
+
+def test_the_check_flight_runs_the_attach_check_on_its_own_hover_throttle():
+    from drone_mission_core import recovery_grip
+
+    attach = recovery_grip.AttachCheck(vehicle_kg=1.755, load_kg=1.0)
+    report = tool.run_check(Loaded(), attach=attach, **PLAN)
+    assert report["passed"] and report["attach"]["attached"] is True
+    assert report["attach"]["throttle_ratio"] == 1.25 and report["attach"]["expected_ratio"] == round((2.755 / 1.755) ** 0.5, 4)
+    assert (report["attach"]["baseline_throttle"], report["attach"]["loaded_throttle"]) == (0.40, 0.50)
+    # A hook that came up empty: the throttle did not rise, the check says so, and the flight ends there (no carry, a landing).
+    empty = Loaded(loaded_throttle=0.405)
+    missed = tool.run_check(empty, attach=recovery_grip.AttachCheck(1.755, 1.0), **PLAN)
+    assert not missed["passed"] and "not on the hook" in missed["problem"] and missed["attach"]["attached"] is False and missed["landed"]
+    assert [step["step"] for step in missed["steps"]][-1] == "lifted" and len(empty.grips) == 1  # no release was commanded: nothing to release
+    # A check that was asked for and could not be made is not a pass: a vehicle with no throttle to give,
+    unheard = tool.run_check(Vehicle(), attach=recovery_grip.AttachCheck(1.755, 1.0), **PLAN)
+    assert not unheard["passed"] and "could not be made" in unheard["problem"] and unheard["landed"]
+    # and one whose throttle stopped coming: an old reading is not a sample of either hover.
+    stopped = Loaded()
+    stopped.throttle_age_s = lambda: 3.0
+    unjudged = tool.run_check(stopped, attach=recovery_grip.AttachCheck(1.755, 1.0), **PLAN)
+    assert not unjudged["passed"] and "could not be made" in unjudged["problem"] and unjudged["attach"]["baseline_throttle"] is None
+    # Without the check asked for, the flight is REC-8's: no hovers for it, nothing judged.
+    assert tool.run_check(Vehicle(), **PLAN)["passed"] and "attach" not in tool.run_check(Loaded(), **PLAN)
+
+
+def test_the_shaped_carry_starts_and_stops_over_a_pendulum_period_at_up_to_the_carry_speed():
+    from drone_mission_core import recovery_grip
+
+    period = recovery_grip.pendulum_period_s(0.72)
+    report = tool.run_check(Vehicle(), carry_speed_mps=3.0, pendulum_m=0.72, **PLAN)
+    assert report["passed"] and report["shaped"] is True and report["carry_speed_mps"] == 3.0
+    times = {step["step"]: step["t"] for step in report["steps"]}
+    carry = times["over the return point"] - times["lifted"]
+    leg = recovery_grip.ShapedLeg(14.42, 3.0, 0.72)
+    assert leg.duration_s <= carry <= leg.duration_s + 8.0 and leg.duration_s == pytest.approx(2.0 * period + (14.42 - 3.0 * period) / 3.0, abs=0.05)
+    # Unshaped, the flight is as it was: the point walked at 1 m/s.
+    # A carry speed that is no speed is said before takeoff, not found in the air with the bucket on the hook.
+    for bad in (0.0, -1.0, float("nan"), None):
+        grounded = Vehicle()
+        refused = tool.run_check(grounded, carry_speed_mps=bad, pendulum_m=0.72, **PLAN)
+        assert not refused["passed"] and "carry's speed" in refused["problem"] and refused["steps"] == [] and grounded.grips == []
+    plain = tool.run_check(Vehicle(), **PLAN)
+    assert plain["shaped"] is False and plain["carry_speed_mps"] == tool.CARRY_SPEED_MPS == 1.0
+
+
+def test_the_plan_gives_the_masses_and_the_pendulums_length(tmp_path):
+    from scenario.build import build_run
+
+    run = build_run(SIM / "scenarios" / "recovery" / "hook_carry_shaped.yaml", tmp_path / "run", variant="on")
+    plan = tool.plan_from(run)
+    assert (plan["vehicle_kg"], plan["load_kg"]) == (1.755, 1.0) and plan["pendulum_m"] == pytest.approx(0.72)
+    command = json.loads((run / "scenario.json").read_text())["driver"]["command"]
+    assert command[command.index("--carry-speed") + 1] == "3.0" and "--shaped" in command and "--attach-check" in command
+    plain = json.loads((build_run(SIM / "scenarios" / "recovery" / "hook_check.yaml", tmp_path / "plain", variant="on") / "scenario.json").read_text())["driver"]["command"]
+    assert "--shaped" not in plain and "--carry-speed" not in plain and "--attach-check" not in plain  # REC-8's flight is as it was flown

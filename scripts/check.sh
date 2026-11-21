@@ -114,6 +114,7 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_set_down.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_reacquire.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_survey_height.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_cone_descent.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_grip.py
 run_test "" tools/test/test_cen_loop_sim.py
 
 # The 2027 build ledger must stay valid (see docs/build/SESSION.md).
@@ -198,6 +199,7 @@ else
     run_test "" sim/test/test_wind.py
     run_test "" sim/test/test_payload_bridge.py
     run_test "" sim/test/test_sensors.py
+    run_test "" sim/test/test_carry_swing.py
     run_test "" sim/test/test_recovery_check.py
     run_test "" sim/test/test_recovery_cv_check.py
     run_test "" sim/test/test_inject.py
