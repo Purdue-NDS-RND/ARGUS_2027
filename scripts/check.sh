@@ -106,6 +106,7 @@ run_test "" scripts/test/test_check_coverage.py
 run_test "" scripts/test/test_guardian_read_guard.py
 run_test "" sim/test/test_target_placement.py
 run_test "" tools/test/test_build_ledger.py
+run_test "" tools/test/test_fc_param_check.py
 run_test "" sim/test/test_nightly.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_centring_controller.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_release_gates.py

@@ -766,9 +766,9 @@
       "land": "L15",
       "proven_in": "Field",
       "note": "Code part only: parameter profile and checker. The mechanism is a person step",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest tools/test/test_fc_param_check.py -> 25 passed; python3 tools/fc_param_check.py docs/fc/recovery.parm -> PASS (22 parameters, 8 rules); strict check OK. Left: the mechanical team's inputs (mechanism, output and PWMs, suspension length, envelope, switch, hover throttle with a load); on the bench, the checker run on the aircraft's dump with --profile (also the check of the parameter numbers on a real ArduCopter 4.6); the baseline it sits on is PLT-08's",
       "blocked_reason": ""
     },
     {

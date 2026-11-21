@@ -1,0 +1,55 @@
+# ARGUS 2027: the flight controller's recovery profile (REC-9).
+#
+# Parameters the recovery mission needs on top of the aircraft's baseline (PLT-08 writes that file), for
+# ArduCopter 4.6 on the Pixhawk 6C. One "NAME,VALUE" a line. Checked by tools/fc_param_check.py:
+#
+#   python3 tools/fc_param_check.py docs/fc/recovery.parm                 # the profile itself
+#   python3 tools/fc_param_check.py <dump from the aircraft> --profile docs/fc/recovery.parm
+#
+# Values marked "sim's own" are the ones the sim flies with (sim/params/recovery.parm, sim/payload_bridge.py).
+# They are a working set, not the mechanism's: the mechanical team's answers replace them (see
+# docs/build/PROGRESS.md, "Needs a person", REC-9).
+
+# --- The gripper: a servo latch on a spare output. In 2026 outputs 5 to 8 were unassigned.
+GRIP_ENABLE,1
+GRIP_TYPE,1
+# Output 7 and these PWMs are the sim's own.
+SERVO7_FUNCTION,28
+GRIP_GRAB,1900
+GRIP_RELEASE,1100
+GRIP_NEUTRAL,1500
+
+# --- A failsafe must never let the bucket go: FS_OPTIONS bit 5 (release gripper) clear. 16 is bit 4 alone.
+FS_OPTIONS,16
+
+# --- The rangefinder, looking down: the release guard and the cone descent need a height above the ground.
+# Type 20 is a Benewake TFmini on a serial port (it reads to 12 m). Which port it is wired to, and that
+# port's SERIALn_PROTOCOL 9, are the aircraft's to set.
+RNGFND1_TYPE,20
+RNGFND1_ORIENT,25
+RNGFND1_MIN_CM,30
+RNGFND1_MAX_CM,1200
+
+# --- The EKF's sources. It never changes source set by itself; the mission does, by command (REC-5, REC-6).
+EK3_SRC_OPTIONS,0
+# Source set 2, for flying on when GPS is not trusted: no horizontal position, velocity from optical flow
+# (sent by the companion as OPTICAL_FLOW, so FLOW_TYPE 5), height from the barometer, yaw from the compass.
+EK3_SRC2_POSXY,0
+EK3_SRC2_VELXY,5
+EK3_SRC2_POSZ,1
+EK3_SRC2_VELZ,0
+EK3_SRC2_YAW,1
+FLOW_TYPE,5
+
+# --- One GPS. In 2026 GPS2_TYPE was 2 with no second receiver fitted.
+GPS2_TYPE,0
+
+# --- The fence: on, with the site's polygon and a ceiling (bits 0 and 2), and an action that is not
+# "report only". The polygon itself is uploaded from the site file (sim/fence_upload.py).
+FENCE_ENABLE,1
+FENCE_TYPE,5
+FENCE_ACTION,1
+
+# --- No radio switch is mapped to the gripper (RCn_OPTION 19) or to the EKF's source set (90): only the
+# mission releases, and only the mission switches. This file sets none; the checker looks at every
+# RCn_OPTION in whatever file it is given, so run it on the aircraft's own dump as well.
