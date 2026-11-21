@@ -211,6 +211,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("truth_poses")  # true poses go out on /sim/truth/poses
     if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True:
         needed.add("loc_check")  # the localisation pipeline's rate, its start and stop, and what it reports
+    if ((manifest.get("node_flags") or {}).get("recovery_cv") or {}).get("recovery_cv") is True:
+        needed.add("recovery_cv_check")  # the green X and bucket detector's pixels against the truth
     return needed
 
 
@@ -233,6 +235,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "sensor_check": "it asks for the sensor check, and the tool (sim/sensor_check.py) is missing",
         "truth_poses": "it asks for true poses on a topic, and the tool that publishes them (sim/truth_poses.py) is missing",
         "loc_check": "it turns the localisation node on, and the check of its pipeline (sim/loc_check.py) is missing",
+        "recovery_cv_check": "it turns the recovery detector on, and the check of it against the truth (sim/recovery_cv_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

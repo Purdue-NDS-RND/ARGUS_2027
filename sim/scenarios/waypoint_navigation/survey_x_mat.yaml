@@ -1,0 +1,56 @@
+# The green X and bucket detector in the sim (REC-1), before there is a recovery mission to use it (REC-2).
+# The survey of waypoint_navigation/survey (three tracks at 10.67 m with the survey vehicle's 1280 x 720 camera)
+# is flown over a field that has the recovery mat on it, with a 1 kg bucket on the X, at the start of the second
+# track, where the vehicle arrives from the first, turns and sets off again.
+# The detector's node runs beside the executor (`recovery_cv`), looking at every frame the camera gives.
+# sim/recovery_cv_check.py beside the flight puts the true centre of the X and of the bucket's rim through the
+# camera model at each frame's stamp and compares: the X must be reported in 95% of the frames that have the
+# whole mat in the picture, with its centre within the spec's line and what the truth itself can be out by (2 px,
+# and the distance flown in one of the truth's 33 ms periods).
+# The mission does nothing with the detections: it is the survey, and it is judged as one.
+# Variant "off" is every flag false: the node is not started and the survey mission is skipped.
+description: A survey flown over the recovery mat and its bucket with the green X detector on, checked against the truth.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: sim_survey_mission.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+waypoints:
+  mission: search_pattern
+  points:
+    - {name: track1_start, east_m: 20.0, north_m: 17.92, height_m: 10.668}
+    - {name: track1_end, east_m: 80.0, north_m: 17.92, height_m: 10.668}
+    - {name: track2_start, east_m: 80.0, north_m: 30.0, height_m: 10.668}
+    - {name: track2_end, east_m: 20.0, north_m: 30.0, height_m: 10.668}
+    - {name: track3_start, east_m: 20.0, north_m: 42.08, height_m: 10.668}
+    - {name: track3_end, east_m: 80.0, north_m: 42.08, height_m: 10.668}
+judge:
+  tolerance_m: 2.5
+node_flags:
+  recovery_cv:
+    recovery_cv: true
+objects:
+  - {name: x_mat, kind: x_mat, heading_deg: 25.0, at: {east_m: 78.5, north_m: 30.2}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, on_top_of: x_mat}
+expect_log:
+  - "survey finished: 3 of 3 tracks flown"
+  - "Recovery detector: the X first found"
+  - "Recovery detector: the bucket first found"
+wind: {level: calm}

@@ -133,6 +133,8 @@ else
     run_test src/drone_target_cv src/drone_target_cv/test/test_contract_node.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit_node.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_green_x.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_recovery_cv_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
@@ -167,6 +169,7 @@ else
     run_test "" tools/test/test_synth_targets.py
     run_test "" tools/test/test_frame_log_bench.py
     run_test "" tools/test/test_digit_reader_eval.py
+    run_test "" tools/test/test_green_x_try.py
     run_test scripts scripts/test/test_pr_checks_tuning.py
     run_test "" sim/test/test_sim_camera.py
     run_test "" sim/test/test_orientation_check.py
@@ -195,6 +198,7 @@ else
     run_test "" sim/test/test_payload_bridge.py
     run_test "" sim/test/test_sensors.py
     run_test "" sim/test/test_recovery_check.py
+    run_test "" sim/test/test_recovery_cv_check.py
     run_test "" sim/test/test_inject.py
     run_test "" sim/test/test_loc_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py

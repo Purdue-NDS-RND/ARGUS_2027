@@ -784,9 +784,9 @@
       "land": "L16",
       "proven_in": "Unit, Sim",
       "note": "Overlaps teammate issue #6: check main and open PRs first",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_green_x.py test_recovery_cv_node.py test_green_x_try.py test_recovery_cv_check.py -> 15, 4, 3 and 5 passed; strict check OK; tools/green_x_try.py --n 300 --negatives 200 --seed 1 -> recall 99.7%, 0 false alarms; sim/run_scenarios.sh waypoint_navigation/survey_x_mat --seeds 1 --variants on -> OK, the X in 24 of 24 whole-mat frames (docs/results/2026-11-20-green-x-detector.md). Left: the flow camera's take-over below about 3 m and the hook-to-handle offset (not built; REC-3 needs it or a rule: lead); the centre proven in a hover (REC-2's flight); real pictures and the Jetson's frame time (field, bench)",
       "blocked_reason": ""
     },
     {

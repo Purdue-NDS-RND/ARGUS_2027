@@ -58,6 +58,17 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("loc_node")),
     )
 
+    # The green X and bucket detector (REC-1). Started only when asked (recovery_cv:=true); its
+    # features.recovery_cv flag must be on in the params file as well, or it does nothing.
+    recovery_cv_node = Node(
+        package="drone_target_cv",
+        executable="recovery_cv",
+        name="recovery_cv",
+        output="screen",
+        parameters=[params],
+        condition=IfCondition(LaunchConfiguration("recovery_cv")),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -91,8 +102,14 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="false",
                 description="Start the localisation node (its features.loc_node flag must be on as well)",
             ),
+            DeclareLaunchArgument(
+                "recovery_cv",
+                default_value="false",
+                description="Start the green X and bucket detector (its features.recovery_cv flag must be on as well)",
+            ),
             takeoff_service_node,
             executor_node,
             loc_node,
+            recovery_cv_node,
         ]
     )

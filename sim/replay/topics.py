@@ -38,7 +38,7 @@ CLOCK = "/clock"
 SIM_CLOCK_TAP = "/replay/sim_clock"  # Gazebo's clock, for a sim run whose nodes are on wall time
 FRAME_TAP_PREFIX = "/replay/frame_seen"  # + the image topic: its header, when a frame arrived
 
-DETECTORS = ("target_cv", "yolo", "green_x", "ring_fit", "sim_oracle")  # every name a detector publishes under on the contract
+DETECTORS = ("target_cv", "yolo", "recovery_cv", "ring_fit", "sim_oracle")  # every name a detector publishes under on the contract
 
 
 def contract_topic(detector: str) -> str:

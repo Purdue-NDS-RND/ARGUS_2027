@@ -37,6 +37,8 @@ from sensor_check import read_sensor_check, summary_lines as sensor_lines  # noq
 from sensor_check import wanted as sensor_check_wanted  # noqa: E402
 from loc_check import read_loc_check, summary_lines as loc_lines  # noqa: E402
 from loc_check import wanted as loc_check_wanted  # noqa: E402
+from recovery_cv_check import read_check as read_recovery_cv_check, summary_lines as recovery_cv_lines  # noqa: E402
+from recovery_cv_check import wanted as recovery_cv_check_wanted  # noqa: E402
 from payload_bridge import wanted as bridge_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
 from wind import read_wind, tilt_problem  # noqa: E402
@@ -124,6 +126,7 @@ def run_result(run_dir: Path) -> dict:
         "gps_events": None,
         "expect_log": None,
         "loc_check": None,
+        "recovery_cv_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -269,6 +272,13 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the run had the localisation node on but left no check of its pipeline (loc_check.json)")
         elif result["status"] == "OK" and not result["loc_check"]["passed"]:
             result.update(status="FAIL", reason="the localisation pipeline missed a pass line: " + "; ".join(result["loc_check"].get("problems") or ["no reason given"]))
+    if recovery_cv_check_wanted(manifest):
+        # Beside a flight with the recovery detector on: a run that is otherwise OK counts only with its check passed.
+        result["recovery_cv_check"] = read_recovery_cv_check(run_dir)
+        if result["status"] == "OK" and result["recovery_cv_check"] is None:
+            result.update(status="INVALID", reason="the run had the recovery detector on but left no check of it (recovery_cv_check.json)")
+        elif result["status"] == "OK" and not result["recovery_cv_check"]["passed"]:
+            result.update(status="FAIL", reason="the recovery detector missed a pass line: " + "; ".join(result["recovery_cv_check"].get("problems") or ["no reason given"]))
     wanted = [str(line) for line in manifest.get("expect_log") or []]
     if wanted:
         # A flight can pass its judge without doing what the scenario is there to show (a height guard that never
@@ -365,6 +375,11 @@ def _loc_rows(result: dict) -> list[str]:
     return [] if not report else [f"| Localisation pipeline | {'; '.join(loc_lines(report))} |"]
 
 
+def _recovery_cv_rows(result: dict) -> list[str]:
+    report = result.get("recovery_cv_check")
+    return [] if not report else [f"| Recovery detector | {'; '.join(recovery_cv_lines(report))} |"]
+
+
 def _expect_log_rows(result: dict) -> list[str]:
     expected = result.get("expect_log")
     if not expected:
@@ -427,6 +442,7 @@ def render_report(result: dict) -> str:
         *_sensor_rows(result),
         *_gps_rows(result),
         *_loc_rows(result),
+        *_recovery_cv_rows(result),
         *_expect_log_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",

@@ -57,3 +57,11 @@ loc_node:  # The localisation node (LOC-5). Only started by a launch given loc_n
       template_digit_classifier: false  # The digit reader's stand-in classifier for the sim's marker model; not a trained model. Needs digit_reader, sim time and sim_only.
       digit_vote: false            # A track's digit is the weighted vote of its readings, one digit to one track (digit_vote.py, LOC-8). Needs marker_tracker and digit_reader.
       judges_list: false           # Write the judges' list (ID,Latitude,Longitude), a KML and a map in judges_list_dir as the tracks change (judges_list.py, LOC-10). Needs marker_tracker.
+
+recovery_cv:  # The green X and bucket detector (REC-1). Only started by a launch given recovery_cv:=true.
+  ros__parameters:
+    camera_mode: "sim_survey"        # the sensor mode the frames come from (argus_camera modes.yaml)
+    airframe: "sim_iris_downcam"     # the airframe whose camera mount is used (argus_camera robot.yaml)
+    image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
+    features:
+      recovery_cv: false             # Look for the recovery mat's green X and the bucket in each frame and report them on the detection contract (green_x.py, REC-1).
