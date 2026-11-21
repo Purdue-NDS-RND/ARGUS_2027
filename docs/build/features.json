@@ -836,9 +836,9 @@
       "land": "L17",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_recovery_return.py -> 15 passed; sim recovery/return_set_down OK (global setpoints to the takeoff, 19.988 points, bucket 0.010 m from the point) and recovery/return_local OK (local setpoints to a published point, 19.969 points, 0.025 m), each set down by the rule, released at 0.65 m of rangefinder height and confirmed; docs/results/2026-11-21-recovery-return.md; strict check OK. Left: a mission that flies by the rules and a launch that passes config/params/recovery_mission.yaml (REC-2); a marker target and homing fixes (REC-7b); a published point with GPS trusted and a flight with GPS really faulted (REC-8's runs, REC-6); the lead to confirm LAND as the abort for the whole recovery sequence; the touch height and the set-down's throttle share on the real suspension are a person's",
       "blocked_reason": ""
     },
     {

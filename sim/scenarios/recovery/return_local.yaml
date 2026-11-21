@@ -1,0 +1,26 @@
+# REC-7's other frame in the sim: the check flight of recovery/return_set_down with GPS taken as untrusted on the
+# way back, and the return point given as a published latitude and longitude (the takeoff point's own, from the
+# site). The rule puts the published point into the EKF's local frame through the takeoff's pair (where the
+# vehicle stood before takeoff, in both frames) and the way back is flown by local setpoints only, walked along
+# the shaped leg. The set-down is by the rule, as in return_set_down.
+description: The hook check with the way back by local setpoints to a published latitude and longitude, and the set-down by the rule.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 420
+sensor_profile: recovery
+driver:
+  tool: recovery_check
+  height_m: 5.0
+  lift_m: 3.0
+  carry_speed_mps: 3.0
+  shaped: true
+  attach_check: true
+  return_frame: local
+  return_target: latlon
+  set_down_rule: true
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+wind: {level: calm}

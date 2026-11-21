@@ -91,7 +91,12 @@ ENGAGE_RATE_MPS = 0.1  # the hook's speed in the engage: the cone's own slowest
 ENGAGE_WITHIN_M = 0.01  # the hook is "there" this close to where the engage wants it
 ACK_OK = 0  # MAV_RESULT_ACCEPTED
 MAX_PLUNGE_DEPTH_M = 0.5  # no plan takes the hook further past the handle than this: a slip of units, not a mechanism
-_ATTEMPTS = itertools.count(1)  # every attempt of every Engage has a number of its own
+_ATTEMPTS = itertools.count(1)  # every gripper command's attempt has a number of its own
+
+
+def new_attempt() -> int:
+    """A number no other gripper command of this process has: what its acknowledgement must carry."""
+    return next(_ATTEMPTS)
 
 
 CLOCK_SLACK_S = 0.05  # a reading stamped this far ahead of the clock is still now; further ahead, its age is not known
@@ -150,7 +155,7 @@ class Engage:
 
     def reset(self) -> None:
         """A new attempt, with a number of its own: an acknowledgement of an earlier attempt's close is not heard."""
-        self.attempt = next(_ATTEMPTS)  # (not counted per Engage: a mission that makes a new one each try still gets a new number)
+        self.attempt = new_attempt()  # (not counted per Engage: a mission that makes a new one each try still gets a new number)
         self.engaged = False
         self._began_s: Optional[float] = None
         self._closed_at_s: Optional[float] = None

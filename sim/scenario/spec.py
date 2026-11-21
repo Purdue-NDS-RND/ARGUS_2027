@@ -33,7 +33,7 @@ DRIVERS = {
     "fence_check": {"speed_mps", "height_m"},
     "hover": {"height_m", "hold_s"},
     # REC-8's check of the recovery sim itself: grab the bucket, lift it, bring it back.
-    "recovery_check": {"height_m", "lift_m", "carry_speed_mps", "shaped", "attach_check"},  # REC-4: the carry's swing shaping, the throttle's attach check
+    "recovery_check": {"height_m", "lift_m", "carry_speed_mps", "shaped", "attach_check", "return_frame", "return_target", "set_down_rule"},  # REC-4: shaping, attach check. REC-7: the way back's frame, the set-down by rule
 }
 DRIVER_PORT = 14554  # a driver that flies beside the payload bridge has a MAVLink port of its own: the bridge has the tools port
 

@@ -1,0 +1,27 @@
+# The parameters for a recovery flight (REC-7). The recovery mission's launch (REC-2) passes this file.
+#
+# It is config/params/mission_params.yaml with one value changed: abort_rtl_mode is LAND, not RTL. When a mission
+# fails, the executor asks the flight controller for this mode and keeps asking until it is taken. An RTL is
+# refused without a position, which is the very fault recovery has to survive (GPS not trusted), and a refused
+# request is asked again for ever. A landing needs no position, and the rules allow landing with the bucket.
+# The take-off service's block is 2026's, value for value (a test holds the two files together).
+simple_takeoff_service:
+  ros__parameters:
+    default_takeoff_altitude_m: 20.0
+    guided_mode_name: "GUIDED"
+    mode_retry_s: 2.0
+    arm_retry_s: 5.0
+    max_arm_attempts: 5
+    post_arm_settle_s: 5.0
+    takeoff_retry_s: 5.0
+    loop_rate_hz: 2.0
+    stream_rate_hz: 20
+    required_topics:
+      - "/mavros/local_position/pose"
+      - "/mavros/imu/data"
+      - "/mavros/extended_state"
+
+mission_executor:
+  ros__parameters:
+    loop_rate_hz: 20.0
+    abort_rtl_mode: "LAND"

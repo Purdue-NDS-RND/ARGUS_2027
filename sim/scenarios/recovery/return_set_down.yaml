@@ -1,0 +1,26 @@
+# REC-7 in the sim: the check flight of recovery/hook_carry_shaped with the way back and the set-down flown by
+# REC-7's rules. The way back is a global setpoint (GPS trusted) walked along the shaped leg to the takeoff's own
+# latitude and longitude, taken before takeoff. Over the return point the bucket is lowered, then let down at
+# 0.12 m/s until the throttle says it stands; the release guard is asked (a fresh rangefinder height at or under
+# 1.5 m, the set-down felt), the gripper is told to open and its acknowledgement waited for, and a climb of half
+# a metre shows by the throttle that the bucket stayed behind.
+description: The hook check with the way back as a walked global setpoint and the set-down by the throttle, the release guard and a confirming climb.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 420
+sensor_profile: recovery
+driver:
+  tool: recovery_check
+  height_m: 5.0
+  lift_m: 3.0
+  carry_speed_mps: 3.0
+  shaped: true
+  attach_check: true
+  return_frame: global
+  set_down_rule: true
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+wind: {level: calm}

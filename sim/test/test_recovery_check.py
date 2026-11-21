@@ -1,6 +1,7 @@
 """The recovery check's flight (REC-8), with a vehicle that is not MAVLink."""
 
 import json
+import math
 import sys
 
 import pytest
@@ -228,3 +229,140 @@ def test_the_plan_gives_the_masses_and_the_pendulums_length(tmp_path):
     assert command[command.index("--carry-speed") + 1] == "3.0" and "--shaped" in command and "--attach-check" in command
     plain = json.loads((build_run(SIM / "scenarios" / "recovery" / "hook_check.yaml", tmp_path / "plain", variant="on") / "scenario.json").read_text())["driver"]["command"]
     assert "--shaped" not in plain and "--carry-speed" not in plain and "--attach-check" not in plain  # REC-8's flight is as it was flown
+
+
+# --- REC-7 in the check flight: the way back by the rule, and the set-down by the rule ---
+
+
+class Carrier(Loaded):
+    """The stand-in with what REC-7's rules read: a rangefinder, a landed state, a global position, a gripper that
+    answers, and a bucket that takes its own weight when the vehicle is down at the touch height."""
+
+    LAT, LON = 40.4237, -86.9212
+
+    def __init__(self, touch=0.675, ack=0, never_felt=False, range_dead=False, **settings):
+        super().__init__(**settings)
+        self.touch, self.ack, self.never_felt, self.range_dead = touch, ack, never_felt, range_dead
+        self.globals, self.locals, self.acked = [], [], None
+        self.pair = recovery_return_anchor(self.LAT, self.LON)
+
+    def throttle(self):
+        holding = bool(self.grips) and self.grips[-1][1] is True
+        standing = holding and not self.never_felt and self.u <= self.touch + 1e-9 and self.e ** 2 + self.n ** 2 < 4.0  # down, at the return point
+        return self.loaded_throttle if holding and not standing else 0.40
+
+    def gripper(self, grab):
+        self.acked = 0 if grab else self.ack  # `ack` is the answer to a release; a grab is always taken
+        if grab or self.ack == 0:
+            super().gripper(grab)
+
+    def gripper_ack(self):
+        return self.acked
+
+    def throttle_age_s(self):
+        return 0.05
+
+    def range_m(self):
+        return (None, None) if self.range_dead else (self.u, 0.05)
+
+    def landed(self):
+        return (self.u <= 0.0, 0.2)
+
+    def global_position(self):
+        return self.pair.to_global(self.e, self.n)
+
+    HOME_BELOW_LOCAL_ZERO_M = -0.18  # this vehicle's home is 0.18 m over its local frame's zero, as the sim's is
+
+    def height_above_home_m(self):
+        return self.u + self.HOME_BELOW_LOCAL_ZERO_M
+
+    def goto_global(self, lat, lon, up):
+        self.globals.append((lat, lon))
+        east, north = self.pair.to_local(lat, lon)
+        super().goto(east, north, up - self.HOME_BELOW_LOCAL_ZERO_M)  # a height above home, flown in the local frame
+
+    def goto(self, e, n, u):
+        self.locals.append((e, n))
+        super().goto(e, n, u)
+
+
+def recovery_return_anchor(lat, lon):
+    from drone_mission_core import recovery_return
+
+    return recovery_return.Anchor(0.0, 0.0, lat, lon)
+
+
+def rule_flight(vehicle, **settings):
+    from drone_mission_core import recovery_grip
+
+    return tool.run_check(vehicle, attach=recovery_grip.AttachCheck(1.755, 1.0), **settings, **PLAN)
+
+
+def test_the_way_back_is_a_walked_global_setpoint_with_gps_trusted_and_a_local_one_without():
+    trusted = Carrier()
+    report = rule_flight(trusted, return_frame="global", carry_speed_mps=3.0, pendulum_m=0.72)
+    assert report["passed"] and report["return"]["frame"] == "global" and report["return"]["length_m"] == 14.42
+    assert report["return"]["setpoints"]["global"] > 50 and report["return"]["setpoints"]["local"] == 0
+    assert report["home_up_m"] == 0.18  # home is 0.18 m over the local zero: the global setpoints' height is given in home's terms, or the carry is 0.18 m off its height and never "arrives"
+    # Walked: the global setpoints start at the bucket and end at the takeoff, a little further each step.
+    first, last = trusted.pair.to_local(*trusted.globals[0]), trusted.pair.to_local(*trusted.globals[-1])
+    assert math.hypot(first[0] - 12.0, first[1] - 8.0) < 0.05 and math.hypot(*last) < 1e-6
+    untrusted = Carrier()
+    report = rule_flight(untrusted, return_frame="local")
+    assert report["passed"] and report["return"]["frame"] == "local" and untrusted.globals == []  # untrusted: never a global setpoint
+    assert report["return"]["setpoints"] == {"global": 0, "local": report["return"]["setpoints"]["local"]} and report["return"]["lat"] is None
+    # A published point, GPS untrusted: put into the local frame through the takeoff's pair, and flown there by local setpoints.
+    from drone_mission_core import recovery_return
+
+    published = Carrier()
+    point = recovery_return.parse_return_target({"latlon": list(published.pair.to_global(0.0, 0.0))})
+    report = rule_flight(published, return_frame="local", return_target=point)
+    assert report["passed"] and report["return"]["target"] == "latlon" and report["return"]["frame"] == "local" and published.globals == []
+    assert abs(report["return"]["e"]) < 1e-6 and abs(report["return"]["n"]) < 1e-6 and report["return"]["reason"] == ""
+    assert rule_flight(Carrier(), return_frame="global")["return"]["target"] == "takeoff"
+    # A global return with no global position to start from is said before takeoff.
+    blind = Carrier()
+    blind.global_position = lambda: (None, None)
+    refused = rule_flight(blind, return_frame="global")
+    assert not refused["passed"] and "before takeoff" in refused["problem"] and refused["steps"] == []
+    assert "return_frame" in tool.run_check(Vehicle(), return_frame="sideways", **PLAN)["problem"]
+
+
+def test_the_set_down_by_the_rule_feels_the_bucket_stand_lets_go_low_and_sees_that_it_went():
+    vehicle = Carrier()
+    report = rule_flight(vehicle, set_down_rule=True)
+    down = report["set_down"]
+    assert report["passed"] and down["released"] and down["confirmed"] and down["release_attempts"] == 1 and not down["land_first"]
+    assert [phase["phase"] for phase in down["phases"]] == ["lower", "set_down", "release", "confirm"]
+    assert down["released_at"]["range_m"] <= 0.675 + 0.01 and vehicle.grips[-1][1] is False and vehicle.grips[-1][4] <= 0.69  # let go with the bucket standing
+    steps = [step["step"] for step in report["steps"]]
+    assert "set down by the rule" in steps and "release commanded" not in steps and "bucket just off the ground" not in steps
+    assert steps[-2:] == ["clear above", "clear aside"]
+    # A gripper that refuses: asked three times, then the flight ends in the rule's fault and lands with the bucket.
+    stuck = Carrier(ack=4)
+    refused = rule_flight(stuck, set_down_rule=True)
+    assert not refused["passed"] and "fault" in refused["problem"] and refused["set_down"]["release_attempts"] == 3 and refused["landed"]
+    assert all(grab for _t, grab, *_rest in stuck.grips)  # nothing was let go
+    # The set-down never felt: the rule lands first, and lets go once the flight controller says landed.
+    numb = Carrier(never_felt=True)
+    landed = rule_flight(numb, set_down_rule=True)
+    assert landed["set_down"]["land_first"] and landed["set_down"]["released"] and not landed["set_down"]["confirmed"]
+    assert landed["passed"] and numb.grips[-1][1] is False and numb.grips[-1][4] == 0.0 and "clear above" not in [step["step"] for step in landed["steps"]]
+    # No rangefinder: the same, land first.
+    assert rule_flight(Carrier(range_dead=True), set_down_rule=True)["set_down"]["land_first"]
+    # The rule needs the attach check's two throttles.
+    assert "attach check" in tool.run_check(Carrier(), set_down_rule=True, **PLAN)["problem"]
+
+
+def test_the_return_scenario_asks_for_the_rules_and_the_others_do_not(tmp_path):
+    from scenario.build import build_run
+
+    run = build_run(SIM / "scenarios" / "recovery" / "return_set_down.yaml", tmp_path / "run", variant="on")
+    command = json.loads((run / "scenario.json").read_text())["driver"]["command"]
+    assert command[command.index("--return-frame") + 1] == "global" and "--set-down-rule" in command and "--attach-check" in command
+    assert command[command.index("--return-target") + 1] == "takeoff"
+    local = json.loads((build_run(SIM / "scenarios" / "recovery" / "return_local.yaml", tmp_path / "local", variant="on") / "scenario.json").read_text())["driver"]["command"]
+    assert local[local.index("--return-frame") + 1] == "local" and local[local.index("--return-target") + 1] == "latlon" and "--set-down-rule" in local
+    for other in ("hook_check", "hook_carry_shaped"):
+        plain = json.loads((build_run(SIM / "scenarios" / "recovery" / f"{other}.yaml", tmp_path / other, variant="on") / "scenario.json").read_text())["driver"]["command"]
+        assert "--return-frame" not in plain and "--set-down-rule" not in plain

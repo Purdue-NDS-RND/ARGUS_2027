@@ -461,6 +461,15 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
             command += ["--shaped"]
         if settings.get("attach_check") is True:
             command += ["--attach-check"]
+        if settings.get("return_frame") is not None:
+            if settings["return_frame"] not in ("global", "local"):
+                raise BuildError(f"driver.return_frame is 'global' or 'local', got {settings['return_frame']!r}")
+            command += ["--return-frame", str(settings["return_frame"])]
+            if settings.get("return_target", "takeoff") not in ("takeoff", "latlon"):
+                raise BuildError(f"driver.return_target is 'takeoff' or 'latlon', got {settings['return_target']!r}")
+            command += ["--return-target", str(settings.get("return_target", "takeoff"))]
+        if settings.get("set_down_rule") is True:
+            command += ["--set-down-rule"]
         command += ["--url", f"udpin:127.0.0.1:{DRIVER_PORT}", "--out", str(run_dir / f"{tool}.json")]
         return {"tool": tool, "command": command, "port": DRIVER_PORT}
     else:
