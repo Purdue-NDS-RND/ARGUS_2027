@@ -61,7 +61,9 @@ FORECAST_MAX_AHEAD_S = 0.2  # how far past the newest pose the vehicle's positio
 # A detector that is not a box detector says how well it places a centre, in pixels (one standard deviation),
 # and its detections are weighed by that instead of by their box's size. The ring fit's figure is its own
 # PIXEL_SIGMA_PX (drone_target_cv/ring_fit.py; a test holds the two together).
-DETECTOR_PIXEL_SIGMA_PX: Dict[str, float] = {"ring_fit": 2.0}
+# The green X and bucket detector (REC-1) places a centre by fitted lines and an ellipse, not by a box: 3 px, between
+# its pass line on renders (2 px, or 1% of the X's span) and the 4.3 px median it showed from a vehicle at 3.5 m/s.
+DETECTOR_PIXEL_SIGMA_PX: Dict[str, float] = {"ring_fit": 2.0, "recovery_cv": 3.0}
 # The near-field ring fit (CEN-13) is listened to, beside the detectors of DETECTORS_PARAMETER, when a mission
 # has this flag on.
 RING_FIT_FLAG = "use_ring_fit"

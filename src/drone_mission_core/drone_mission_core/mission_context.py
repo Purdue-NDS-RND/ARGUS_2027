@@ -254,9 +254,21 @@ class MissionContext:
     def throttle(self):
         """The flight controller's newest throttle as (0 to 1, age in seconds), or None.
 
-        None with the delivery_soft_set_down flag off, or before any was heard.
+        None with the delivery_soft_set_down and package_recovery flags off, or before any was heard.
         """
         feed = getattr(self._node, "_throttle", None)
+        if feed is None:
+            return None
+        return feed.newest(self._now_ns())
+
+    def home_up_m(self):
+        """Home's height in MAVROS's local frame (the local height less the height above home), or None.
+
+        None with the package_recovery flag off, or when no height above home
+        was heard in the last 2 s. A global setpoint's height is above home:
+        this is what a mission takes off a local height to give it one.
+        """
+        feed = getattr(self._node, "_home_height", None)
         if feed is None:
             return None
         return feed.newest(self._now_ns())

@@ -125,7 +125,7 @@ def test_a_box_cut_by_the_edge_of_the_image_is_not_a_measurement():
 def test_a_detector_with_its_own_noise_model_is_weighed_by_it_and_keeps_a_track_alive_where_a_cut_box_cannot():
     from drone_mission_core import estimator_feed
 
-    assert estimator_feed.DETECTOR_PIXEL_SIGMA_PX == {"ring_fit": 2.0}  # the ring fit's own figure (drone_target_cv/ring_fit.py)
+    assert estimator_feed.DETECTOR_PIXEL_SIGMA_PX == {"ring_fit": 2.0, "recovery_cv": 3.0}  # the ring fit's own figure (drone_target_cv/ring_fit.py)
     # The same small box from two detectors: the box detector's centre is trusted less for the box being small,
     # the ring fit's centre is trusted as the ring fit says.
     def variance(pixel_sigma_px):

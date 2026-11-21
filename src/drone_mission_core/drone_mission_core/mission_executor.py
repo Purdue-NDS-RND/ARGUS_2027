@@ -29,6 +29,7 @@ from .mission_context import MissionContext
 from .registry import create_mission, import_mission_modules, load_sequence_file
 from .safety_limits import enforced_violations
 from .set_down import attach_throttle
+from .recovery_flight import attach_home_height
 from .survey_search import attach_localisation_control
 from .time_guard import attach_time_health
 
@@ -136,6 +137,11 @@ class MissionExecutorNode(Node):
         # None unless a mission has the delivery_soft_set_down flag on: then
         # the flight controller's throttle, for the set-down's contact rule (CEN-05).
         self._throttle = attach_throttle(
+            self, [mission.spec for mission in self._sequence]
+        )
+        # None unless a mission has the package_recovery flag on: then home's
+        # height in the local frame, for the height of its global setpoints (REC-2).
+        self._home_height = attach_home_height(
             self, [mission.spec for mission in self._sequence]
         )
         # None unless a mission has the survey_search flag on: then the client

@@ -186,9 +186,15 @@ class ThrottleFeed:
         return self._newest[1], (int(now_ns) - self._newest[0]) * 1.0e-9
 
 
+# The flags that need the throttle: the delivery's soft set-down, and the recovery mission (REC-2: its attach
+# check, its loss watch and its set-down read it; recovery_flight.FLAG, held to this by a test).
+THROTTLE_FLAGS = (SET_DOWN_FLAG, "package_recovery")
+
+
 def attach_throttle(node: Any, specs: Iterable[Any]) -> Optional[ThrottleFeed]:
-    """A ThrottleFeed fed by MAVROS's VFR_HUD through `node`'s own subscription, or None when the flag is off."""
-    if not any(get_feature_flag(spec.features, SET_DOWN_FLAG) for spec in specs):
+    """A ThrottleFeed fed by MAVROS's VFR_HUD through `node`'s own subscription, or None when the flags are off."""
+    specs = list(specs)
+    if not any(get_feature_flag(spec.features, flag) for spec in specs for flag in THROTTLE_FLAGS):
         return None
     from mavros_msgs.msg import VfrHud
     from rclpy.qos import qos_profile_sensor_data
@@ -200,5 +206,6 @@ def attach_throttle(node: Any, specs: Iterable[Any]) -> Optional[ThrottleFeed]:
         feed.add(int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec), message.throttle)
 
     node.create_subscription(VfrHud, THROTTLE_TOPIC, on_hud, qos_profile_sensor_data)
-    node.get_logger().info(f"Throttle feed on ({SET_DOWN_FLAG}): {THROTTLE_TOPIC}, for the delivery's contact rule")
+    on = [flag for flag in THROTTLE_FLAGS if any(get_feature_flag(spec.features, flag) for spec in specs)]
+    node.get_logger().info(f"Throttle feed on ({', '.join(on)}): {THROTTLE_TOPIC}, for the delivery's contact rule and the recovery's attach check and set-down")
     return feed

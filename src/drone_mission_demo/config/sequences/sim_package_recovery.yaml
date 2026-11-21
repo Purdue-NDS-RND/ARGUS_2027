@@ -1,0 +1,58 @@
+# The bucket recovery in the sim (REC-2): take off, then the package_recovery mission.
+# Every flag is false, so as it stands the recovery mission is skipped: it returns SUCCESS on its first
+# tick and commands nothing. A scenario (sim/scenarios/recovery/) or the executor's feature_overrides
+# turns flags on; nothing in this file is edited to do it.
+# The numbers are the sim's recovery vehicle's (sim/sensor_profiles.py, profile `recovery`): the aircraft's
+# and the mechanism's own are the mechanical team's to give, and there is no live copy of this file until
+# they have.
+mission_sequence:
+  on_failure: abort_and_rtl                         # Abort the remaining sequence on failure (the recovery params make the abort a landing).
+  features:                                         # Mission feature flags; a missing flag means false.
+    use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
+    use_target_estimator: false                     # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
+    enforce_safety_limits: false                    # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    time_health_guard: false                        # Treat a stale pose, a stale frame or a time-sync jump as no target (time_health.py).
+    use_height_estimator: false                     # Height above ground from the rangefinder, the barometer otherwise (height_estimator.py). Needs use_frame_time_pose.
+    package_recovery: false                         # Fly the recovery mission (recovery_flight.py). Needs use_target_estimator and use_height_estimator.
+    swing_shaping: false                            # Walk the way back over whole pendulum periods, up to carry_speed_mps (recovery_grip.py). Needs package_recovery.
+    recovery_gps_untrusted: false                   # Never command a global setpoint; the pickup must then be given as local. Needs package_recovery.
+    recovery_telemetry: false                       # Not built: the mission refuses to start with it on.
+    ekf_source_switching: false                     # Not built (REC-6): refused when on.
+    visual_attach_check: false                      # Not built (the hook camera's view of the bucket): refused when on.
+    marker_homing: false                            # Not built (REC-7b): refused when on.
+    keyframe_homing: false                          # Not built (REC-7b): refused when on.
+  missions:
+    - type: takeoff                                # Mission type registered in the mission framework.
+      name: takeoff                                # Human-readable mission instance name for logs.
+      config:
+        target_altitude_m: 15.0                    # Target climb altitude after takeoff in meters.
+
+    - type: package_recovery                       # Hook the bucket at the pickup's coordinates and set it down at the return point.
+      name: package_recovery                       # Human-readable mission instance name for logs.
+      config:
+        # Sim copy: the sim's default target; a scenario sets its own bucket's position.
+        pickup: {latlon: [-35.3631271, 149.1653479]} # Where the green X and the bucket are said to be.
+        return_target: takeoff                     # Where the bucket is taken: takeoff, {latlon: [lat, lon]} or {marker: id, near: [lat, lon]}.
+        camera_mode: sim_delivery                  # Sensor mode the detector's images come from (argus_camera modes.yaml).
+        airframe: sim_iris_downcam                 # Airframe whose camera mount is used (argus_camera robot.yaml).
+        hook_below_m: 0.55                         # How far under the vehicle's origin the hook's tip hangs.
+        hook_forward_left_m: [0.0, 0.0]            # Where the hook hangs from, forward and left of the vehicle's origin.
+        suspension_length_m: 0.32                  # From the hook to the bucket's bottom, hanging.
+        handle_up_m: 0.32                          # The handle above the ground, the bucket standing.
+        capture_half_width_m: 0.10                 # Half the width within which the mechanism takes the handle.
+        vehicle_kg: 1.755                          # The vehicle's mass, for the attach check's expected throttle rise.
+        load_kg: 1.0                               # The bucket's mass.
+        pendulum_m: 0.72                           # The hook's hinge to the middle of the hanging bucket, for swing shaping.
+        transit_height_m: 15.0                     # Height above the ground on the way to the pickup.
+        search_height_m: 20.0                      # Height of the expanding-square search.
+        search_speed_mps: 4.0                      # Speed of the search.
+        approach_height_m: 6.0                     # Height over the track before centring.
+        centre_above_handle_m: 3.0                 # Hook height above the handle at which the descent begins.
+        carry_height_m: 5.0                        # Height above the ground with the bucket on the hook.
+        carry_speed_mps: 1.0                       # Speed of the way back; up to 3 with swing_shaping.
+        clear_aside_m: 2.0                         # How far to the side of the bucket the vehicle moves before landing.
+        land_after: true                           # Land beside the bucket when done.
+        time_budget_s: 600.0                       # The mission fails (or lands with the bucket) when this runs out.
+        max_attempts: 3                            # Descents onto the handle before giving up.
+        ground_below_home_m: 0.0                   # How far the ground at the pickup is below home.
+        engage: {mode: plunge, plunge_depth_m: 0.05} # The mechanism's engage: plunge past the handle, or sweep across it.
