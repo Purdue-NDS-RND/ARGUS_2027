@@ -1635,8 +1635,8 @@
         "LOC-10",
         "LOC-11"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "FAIL",
+      "result": "docs/results/2026-11-20-gate-G4.md"
     },
     "G5": {
       "title": "Recovery",
