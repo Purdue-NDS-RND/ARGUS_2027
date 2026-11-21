@@ -181,12 +181,15 @@ def fly(run_dir: Path) -> dict:
         if message.connected:
             watch.update(armed=message.armed)
 
+    release_times: list[float] = []  # when the mission's log said it let its payload go
+
     def on_log(message) -> None:
         if message.name == "mission_executor":
             for item in events.from_mission_log(message.msg):
                 if item["event"] == "release" and not item.get("fake"):
                     # A real release: the landing of the mission's payload (or, with none, its bucket) is watched from here.
                     recorder.landing.released(recorder.now(), name=released_body)
+                    release_times.append(recorder.now())
                 recorder.event(item.pop("event"), **item)
 
     def on_statustext(message) -> None:
@@ -227,6 +230,12 @@ def fly(run_dir: Path) -> dict:
         finally:
             launch_exit = stop_group(mission)
             tools.stop()
+    # A bucket the payload bridge let go that no mission log line told of is a release all the same: the judge
+    # holds it to the rules' height (a scripted flight has no mission log; a mission's line may not be a known one).
+    bridge_log = run_dir / "payload_bridge.jsonl"
+    if bridge_log.is_file():
+        for t, item in events.from_bridge_log(bridge_log.read_text().splitlines(), release_times):
+            writer.event(t, item.pop("event"), **item)
     t_end = recorder.now()
     recorder.event("end", outcome=outcome)
     writer.close()

@@ -351,3 +351,75 @@ def test_the_recorder_is_given_the_masses_and_told_of_real_releases():
     assert "self.landing = events.LandingWatcher(masses_kg or {})" in fly and "recorder.landing.released(recorder.now(), name=released_body)" in fly
     assert 'released_body = (truth.get("payload") or truth.get("bucket") or {}).get("name")' in fly
     assert 'if item["event"] == "release" and not item.get("fake"):' in fly
+
+
+# --- REC-8: the recovery vehicle's hook, and a grab that is refused (run R6) ---
+
+
+def test_a_bridge_told_to_refuse_grabs_attaches_nothing_until_they_are_used_up():
+    """A latch that did not close: the hook is on the handle, the gripper output says grab, and nothing is attached.
+    The mission's attach check has to find that out for itself; the bridge only records it."""
+    bridge = Bridge(bucket="pail", hook_offset_m=(0.0, 0.0, -0.30), handle_height_m=0.32, refuse_grabs=2)
+    bridge.vehicle = "iris"
+    bridge.start()
+    bridge.on_position("pail", (5.0, 5.0, 0.0))
+    bridge.on_position("iris", (5.0, 5.0, 0.62))
+    bridge.on_servos(20.0, gripper(NEUTRAL))
+    for attempt, left in ((1, 1), (2, 0)):
+        assert bridge.on_servos(20.0 + attempt, gripper(GRAB)) == [] and not bridge.holding
+        assert bridge.events[-1]["event"] == "grab_refused" and bridge.events[-1]["refusals_left"] == left
+        bridge.on_servos(20.5 + attempt, gripper(NEUTRAL))
+    assert bridge.on_servos(23.0, gripper(GRAB)) == [("attach", "pail")] and bridge.holding  # the third try takes
+    summary = bridge.summary()
+    assert (summary["grabs"], summary["grabs_refused"], summary["grab_misses"]) == (1, 2, 0)
+    # A grab outside the envelope is a miss, not a refusal: it does not use one up.
+    away = Bridge(bucket="pail", hook_offset_m=(0.0, 0.0, -0.30), handle_height_m=0.32, refuse_grabs=1)
+    away.vehicle = "iris"
+    away.start()
+    away.on_position("pail", (5.0, 5.0, 0.0))
+    away.on_position("iris", (5.5, 5.0, 0.62))
+    away.on_servos(20.0, gripper(NEUTRAL))
+    away.on_servos(21.0, gripper(GRAB))
+    assert away.events[-1]["event"] == "grab_miss" and away.refusals_left == 1
+    assert Bridge(bucket="pail").refusals_left == 0  # by default every grab in the envelope takes
+
+
+def test_the_recovery_vehicles_hook_is_where_the_built_run_says_and_a_grab_beside_the_handle_misses(tmp_path):
+    """Through a built recovery run: the bridge's settings put the hook's tip 0.55 m under the vehicle, the envelope
+    is the bridge's own 0.10 m, and a hook 0.12 m to the side takes nothing."""
+    from scenario.build import build_run
+
+    run = build_run(SIM / "scenarios" / "recovery" / "hook_check.yaml", tmp_path / "run", variant="on")
+    settings = pb.settings_from(json.loads((run / "scenario.json").read_text()))
+    assert settings["hook_offset_m"] == [0.0, 0.0, -0.55] and settings["capture_half_width_m"] == pb.CAPTURE_HALF_WIDTH_M == 0.10 and "refuse_grabs" not in settings
+
+    def grab(vehicle_at):
+        bridge = Bridge(bucket=settings["bucket"], hook_offset_m=tuple(settings["hook_offset_m"]), capture_half_width_m=settings["capture_half_width_m"])
+        bridge.vehicle = "iris_recovery"
+        bridge.start()
+        bridge.on_position("bucket", (12.0, 8.0, 0.0))
+        bridge.on_position("iris_recovery", vehicle_at)
+        bridge.on_servos(20.0, gripper(NEUTRAL))
+        return bridge.on_servos(21.0, gripper(GRAB)), bridge.events[-1]
+
+    actions, event = grab((12.0, 8.0, 0.32 + 0.55))
+    assert actions == [("attach", "bucket")] and event["event"] == "bucket_grabbed"
+    actions, event = grab((12.12, 8.0, 0.32 + 0.55))
+    assert actions == [] and event["event"] == "grab_miss" and event["horizontal_m"] == pytest.approx(0.12)
+    actions, event = grab((12.0, 8.0, 0.32 + 0.30))  # the delivery vehicle's hook height: 0.25 m too low for this hook
+    assert actions == [] and event["event"] == "grab_miss" and event["vertical_m"] == pytest.approx(0.25)
+
+
+def test_a_bucket_the_bridge_let_go_is_a_release_for_the_judge_unless_the_mission_already_said_so():
+    """The flight-safety review: the recovery judge holds a release to 1.83 m only at a `release` event, and those
+    came only from a mission's log line. A scripted flight has none; the bridge saw the release itself."""
+    lines = [
+        json.dumps({"t": 52.036, "event": "bucket_grabbed", "name": "bucket", "pwm": 1900}),
+        json.dumps({"t": 80.285, "event": "bucket_released", "name": "bucket", "output": "gripper", "pwm": 1100}),
+        "not json",
+        json.dumps({"t": 90.0, "event": "payload_released", "name": "parcel"}),  # a carried payload's release is the mission's to tell of, as before
+    ]
+    ((t, event),) = events.from_bridge_log(lines)
+    assert t == 80.285 and event == {"event": "release", "fake": False, "what": "payload bridge: bucket let go", "source": "payload_bridge"}
+    assert events.from_bridge_log(lines, known_release_times=[79.0]) == []  # the mission's own log line told of it a second before
+    assert len(events.from_bridge_log(lines, known_release_times=[60.0])) == 1 and events.from_bridge_log([]) == []

@@ -22,6 +22,29 @@ def from_mission_log(text: str) -> list[dict]:
     return []
 
 
+def from_bridge_log(lines, known_release_times=(), within_s: float = 3.0) -> list[tuple[float, dict]]:
+    """(sim time, event) for each time the payload bridge let a bucket go that no mission log line already told of.
+
+    The recovery judge holds a release to the rules' 1.83 m at a `release` event. A mission's log line makes one;
+    a flight with no mission (a scripted check), or a mission whose line is not one the runner knows, would
+    otherwise be scored with the ceiling never looked at. The bridge saw the release itself, with its sim time.
+    `lines` are payload_bridge.jsonl's.
+    """
+    import json
+
+    found = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+            t = float(item["t"])
+        except (ValueError, KeyError, TypeError):
+            continue
+        if item.get("event") != "bucket_released" or any(abs(t - known) <= within_s for known in known_release_times):
+            continue
+        found.append((t, {"event": "release", "fake": False, "what": f"payload bridge: {item.get('name', 'the bucket')} let go", "source": "payload_bridge"}))
+    return found
+
+
 def from_statustext(text: str) -> list[dict]:
     """Events in one STATUSTEXT from the autopilot."""
     lower = text.lower()

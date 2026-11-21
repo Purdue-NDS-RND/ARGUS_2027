@@ -49,9 +49,9 @@ from judge.geometry import point_in_polygon  # noqa: E402
 from target_placement import latlon_for  # noqa: E402
 
 if __package__ in (None, ""):
-    from scenario.spec import MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from scenario.spec import DRIVER_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 else:
-    from .spec import MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from .spec import DRIVER_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 
 CONFIG_DIR = REPO / "src" / "drone_mission_demo" / "config"
 LAUNCH_DIR = REPO / "src" / "drone_mission_demo" / "launch"
@@ -241,13 +241,15 @@ def carry(item: dict, vehicle: tuple[float, float, float, float]) -> dict:
     return placed
 
 
-def _joint_to_vehicle(name: str, vehicle_model: str) -> ET.Element:
-    """The detachable joint from a body to the vehicle, made and unmade on the body's own topics (sim/payload_bridge.py)."""
+def _joint_to_vehicle(name: str, vehicle_model: str, link: str = CARRY_LINK) -> ET.Element:
+    """The detachable joint from a body to the vehicle, made and unmade on the body's own topics (sim/payload_bridge.py).
+
+    `link` is the vehicle's link the body is joined to: the camera link, or the recovery vehicle's hook for a bucket."""
     plugin = ET.Element("plugin", {"filename": "gz-sim-detachable-joint-system", "name": "gz::sim::systems::DetachableJoint"})
     for tag, text in (
         ("parent_link", "link"),
         ("child_model", vehicle_model),
-        ("child_link", CARRY_LINK),
+        ("child_link", link),
         ("detach_topic", payload_bridge.joint_topic(name, "detach")),
         ("attach_topic", payload_bridge.joint_topic(name, "attach")),
     ):
@@ -255,11 +257,12 @@ def _joint_to_vehicle(name: str, vehicle_model: str) -> ET.Element:
     return plugin
 
 
-def _embedded_model(item: dict, vehicle_model: str | None = None) -> str:
+def _embedded_model(item: dict, vehicle_model: str | None = None, link: str = CARRY_LINK) -> str:
     """The object's model as a child of <world>, with its pose. Heading is a compass heading.
 
     `vehicle_model` is given for a body that can hang from the vehicle (a
-    carried payload, the mission's bucket): its model then has the joint.
+    carried payload, the mission's bucket): its model then has the joint,
+    to the vehicle's `link`.
     """
     model = ET.fromstring(_object_sdf(item)).find("model")
     pose = ET.Element("pose")
@@ -267,7 +270,7 @@ def _embedded_model(item: dict, vehicle_model: str | None = None) -> str:
     pose.text = f"{item['e']:.4f} {item['n']:.4f} {item['up']:.4f} 0 0 {yaw:.6f}"
     model.insert(0, pose)
     if vehicle_model is not None:
-        model.append(_joint_to_vehicle(item["name"], vehicle_model))
+        model.append(_joint_to_vehicle(item["name"], vehicle_model, link))
     return "    " + ET.tostring(model, encoding="unicode") + "\n"
 
 
@@ -276,6 +279,22 @@ _SUN_DIRECTION = re.compile(r'(<light type="directional" name="sun">.*?<directio
 # which reads the height above that flat ground. SITL's own type 100, which FEATURES.md names, has no data with
 # the Gazebo backend (it takes ranges Gazebo would have to send) and fails the pre-arm check: tried under SIM-05.
 SITL_BASE_PARAMS = {"SIM_TERRAIN": 0}
+RECOVERY_PARM = SIM_DIR / "params" / "recovery.parm"
+
+
+def read_parm(path: Path) -> dict:
+    """A parameter file's `NAME value` lines as {name: number}. Comments and blank lines are skipped."""
+    params = {}
+    for number, line in enumerate(Path(path).read_text().splitlines(), start=1):
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.replace(",", " ").split()
+        try:
+            params[parts[0]] = float(parts[1])
+        except (IndexError, ValueError) as error:
+            raise BuildError(f"{path}, line {number}: expected NAME value, got {line!r}") from error
+    return params
 BASE_VEHICLE_MODEL = "iris_downcam"  # the vehicle the base world includes: the delivery profile's
 _VEHICLE_POSE = re.compile(r'<uri>model://iris_downcam</uri>\s*<pose degrees="true">\s*\S+\s+\S+\s+(\S+)')
 
@@ -285,9 +304,11 @@ WRENCH_SYSTEM = '    <plugin filename="gz-sim-apply-link-wrench-system" name="gz
 
 
 def build_world(
-    base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None, windy: bool = False, vehicle_model: str | None = None, hung: tuple = ()
+    base_sdf: str, site: site_file.Site, objects: list[dict], sun: dict | None, windy: bool = False, vehicle_model: str | None = None, hung: tuple = (), hook_link: str | None = None
 ) -> str:
-    """The run's world. `hung` names the objects that can hang from the vehicle: their models get the joint to `vehicle_model`."""
+    """The run's world. `hung` names the objects that can hang from the vehicle: their models get the joint to `vehicle_model`.
+
+    A bucket's joint is to `hook_link` when the vehicle has a hook (the recovery vehicle), so that it swings with it."""
     text = site_file.site_world(base_sdf, site)
     if sun is not None:  # otherwise the base world's light, as in the 2026 sim
         elevation, azimuth = math.radians(sun["elevation_deg"]), math.radians(sun["azimuth_deg"])
@@ -300,7 +321,9 @@ def build_world(
         if text.count(f"<uri>model://{BASE_VEHICLE_MODEL}</uri>") != 1:
             raise BuildError(f"the base world does not include model://{BASE_VEHICLE_MODEL} exactly once")
         text = text.replace(f"<uri>model://{BASE_VEHICLE_MODEL}</uri>", f"<uri>model://{vehicle_model}</uri>")
-    models = "".join(_embedded_model(item, vehicle_model if item["name"] in hung else None) for item in objects)
+    models = "".join(
+        _embedded_model(item, vehicle_model if item["name"] in hung else None, hook_link if hook_link and item["kind"] == "bucket" else CARRY_LINK) for item in objects
+    )
     head, closing, tail = text.rpartition("</world>")
     if not closing:
         raise BuildError("the base world has no </world>")
@@ -428,6 +451,12 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
     command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / f"{tool}.py"), "--site", str(site_path)]
     if tool == "hover":
         command += ["--height", str(float(settings.get("height_m", 10.0))), "--hold", str(float(settings.get("hold_s", 40.0)))]
+    elif tool == "recovery_check":
+        # It flies beside the payload bridge, which has the tools port: sim/container/start.sh gives it this one.
+        command += ["--run-dir", str(run_dir), "--height", str(float(settings.get("height_m", 5.0))), "--lift", str(float(settings.get("lift_m", 3.0)))]
+        command += ["--return-point", str({**default_settings(scenario.mission), **(scenario.judge or {})}.get("return_point", "takeoff"))]  # the judge's
+        command += ["--url", f"udpin:127.0.0.1:{DRIVER_PORT}", "--out", str(run_dir / f"{tool}.json")]
+        return {"tool": tool, "command": command, "port": DRIVER_PORT}
     else:
         command += ["--speed", str(float(settings.get("speed_mps", 5.0))), "--height", str(float(settings.get("height_m", 15.0)))]
     command += ["--out", str(run_dir / f"{tool}.json")]
@@ -487,7 +516,8 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         stood = vehicle_pose(base_world, BASE_VEHICLE_MODEL)
         objects = [carry(item, stood) if item["name"] == carried[0] else item for item in objects]
     hung = tuple(name for name in (carried[0] if carried else None, scenario.bucket) if name)
-    world = build_world(base_world, site, objects, scenario.sun, windy, profile["model"], hung)
+    hook = profile.get("hook")
+    world = build_world(base_world, site, objects, scenario.sun, windy, profile["model"], hung, hook["link"] if hook else None)
 
     # The localisation node's oracle detector reports the run's true objects: it is told which and how large.
     oracle = None
@@ -504,10 +534,17 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         if list_file is None:
             list_file = str(run_dir / "list" / "judges_list.csv")
     bridge = None
+    driver_tool = None if scenario.driver is None else scenario.driver["tool"]
+    if driver_tool == "recovery_check" and not (scenario.bucket and hook):
+        raise BuildError(f"{scenario.path}: the recovery check grabs the scenario's bucket with the recovery vehicle's hook: it needs `bucket:` and sensor_profile: recovery")
     if hung:
-        if scenario.driver is not None:
+        if scenario.driver is not None and driver_tool != "recovery_check":
             raise BuildError(f"{scenario.path}: a driver flies over the sim's tools port, which the payload bridge needs: no carried payload or bucket in a driver scenario")
         bridge = {"carried": carried[0] if carried else None, "bucket": scenario.bucket, "capture_half_width_m": payload_bridge.CAPTURE_HALF_WIDTH_M}
+        if hook:
+            bridge["hook_offset_m"] = list(hook["offset_m"])  # the hook's tip under the vehicle, in place of the bridge's default
+        if scenario.grab_refusals:
+            bridge["refuse_grabs"] = int(scenario.grab_refusals)  # a latch that does not close, for the mission's attach check to find
 
     truth = {**site_file.truth_block(site), **mission_truth, "scenario": scenario.name}
     truth["objects"] = [{key: value for key, value in item.items() if key not in ("up", "yaw_rad")} for item in objects]
@@ -587,7 +624,9 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     (run_dir / "world.sdf").write_text(world)
     (run_dir / "bridge.yaml").write_text((SIM_DIR / profile["bridge"]).read_text())
     # With something to let go or take hold of, the flight controller gets the sim's gripper and sprayer outputs.
-    sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **scenario.sitl_params}
+    # A flight of the recovery vehicle gets the recovery parameters (sim/params/recovery.parm); the scenario's own come last.
+    recovery = read_parm(RECOVERY_PARM) if scenario.sensor_profile == "recovery" else {}
+    sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **recovery, **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))

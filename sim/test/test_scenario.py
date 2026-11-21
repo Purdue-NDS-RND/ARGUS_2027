@@ -703,3 +703,73 @@ def test_the_survey_scenarios_expect_their_own_lines_in_the_log_with_the_flags_o
         assert bad in broken.read_text()
         with pytest.raises(BuildError, match="expect_log"):
             build_run(broken, tmp_path / "broken")
+
+
+# --- the recovery vehicle and its check flight (REC-8) ---
+
+
+def test_the_hook_check_scenario_joins_the_bucket_to_the_hook_and_flies_the_check_beside_the_bridge(tmp_path):
+    import payload_bridge
+    from scenario.build import RECOVERY_PARM, read_parm
+    from scenario.spec import DRIVER_PORT
+
+    run = build_run(SCENARIOS / "recovery" / "hook_check.yaml", tmp_path / "run", variant="on")
+    manifest = json.loads((run / "scenario.json").read_text())
+    assert manifest["mission"] == "recovery" and manifest["vehicle"]["model"] == "iris_recovery" and manifest["vehicle"]["flow_camera"] is True
+    # The bucket's joint is to the hook, which swings; the world stands the recovery vehicle where the base world stands its own.
+    world = (run / "world.sdf").read_text()
+    assert "<uri>model://iris_recovery</uri>" in world and "<child_link>hook_link</child_link>" in world and world.count("DetachableJoint") == 1
+    # The bridge is told where the hook hangs; the envelope is the bridge's own.
+    bridge = manifest["payload_bridge"]
+    assert bridge == {"carried": None, "bucket": "bucket", "capture_half_width_m": 0.10, "hook_offset_m": [0.0, 0.0, -0.55]} and payload_bridge.wanted(manifest)
+    # The driver flies beside the bridge, on a MAVLink port of its own.
+    driver = manifest["driver"]
+    assert driver["tool"] == "recovery_check" and driver["port"] == DRIVER_PORT == 14554 and "udpin:127.0.0.1:14554" in driver["command"]
+    assert driver["command"][driver["command"].index("--run-dir") + 1] == str(run)
+    # The run's SITL parameters: the recovery file's, with the gripper as the bridge reads it.
+    recovery = read_parm(RECOVERY_PARM)
+    sitl = dict(line.split() for line in (run / "sitl.parm").read_text().splitlines())
+    assert all(float(sitl[name]) == value for name, value in recovery.items())
+    assert {name: recovery[name] for name in ("GRIP_ENABLE", "GRIP_TYPE", "GRIP_RELEASE", "GRIP_GRAB", "GRIP_NEUTRAL", "SERVO7_FUNCTION")} == {
+        name: float(value) for name, value in payload_bridge.SITL_PARAMS.items() if name.startswith(("GRIP", "SERVO7"))
+    }
+    assert int(recovery["FS_OPTIONS"]) & (1 << 5) == 0 and recovery["EK3_SRC_OPTIONS"] == 0 and recovery["EK3_SRC2_POSXY"] == 0 and recovery["GPS2_TYPE"] == 0
+    truth = json.loads((run / "truth.json").read_text())
+    assert truth["bucket"] == {"name": "bucket", "mass_kg": 1.0, "e": 12.0, "n": 8.0} and "takeoff" in truth["return_points"]
+
+
+def test_only_the_recovery_check_may_fly_beside_the_bridge_and_only_with_a_bucket_and_a_hook(tmp_path):
+    source = (SCENARIOS / "recovery" / "hook_check.yaml").read_text()
+    cases = {
+        "no_hook.yaml": (source.replace("sensor_profile: recovery\n", ""), "sensor_profile: recovery"),
+        "no_bucket.yaml": (source.replace("bucket: bucket\n", ""), "needs `bucket:`"),
+        "hover.yaml": (source.replace("tool: recovery_check\n  height_m: 5.0\n  lift_m: 3.0", "tool: hover\n  height_m: 5.0"), "no carried payload or bucket in a driver scenario"),
+        "refusals.yaml": (source.replace("bucket: bucket\n", "bucket: bucket\ngrab_refusals: -1\n"), "grab_refusals is a whole number"),
+    }
+    for name, (text, why) in cases.items():
+        broken = tmp_path / name
+        broken.write_text(text)
+        with pytest.raises(BuildError, match=why):
+            build_run(broken, tmp_path / name.split(".")[0], variant="on")
+    # A delivery on the delivery vehicle has no hook: its payload and its bucket stay joined to the camera link, as before.
+    release = build_run(SCENARIOS / "delivery" / "release.yaml", tmp_path / "release", variant="on")
+    assert "hook_link" not in (release / "world.sdf").read_text() and "hook_offset_m" not in json.loads((release / "scenario.json").read_text())["payload_bridge"]
+    assert "EK3_SRC2_POSXY" not in (release / "sitl.parm").read_text()
+
+
+def test_a_recovery_scenario_can_have_gps_faults_and_refused_grabs_for_the_runs_the_mission_will_fly(tmp_path):
+    """REC-8's runs R3 to R6 need the fault injector (SIM-04) and a latch that does not close, on the recovery vehicle.
+    The mission that flies them is REC-2's; what the sim gives them is built and checked here."""
+    source = (SCENARIOS / "recovery" / "hook_check.yaml").read_text()
+    faulty = tmp_path / "faulty.yaml"
+    faulty.write_text(source.replace("bucket: bucket\n", "bucket: bucket\ngrab_refusals: 2\ngps_events:\n  - {at_s: 25.0, kind: glitch, north_m: 10.0, for_s: 5.0}\n"))
+    run = build_run(faulty, tmp_path / "run", variant="on")
+    manifest = json.loads((run / "scenario.json").read_text())
+    assert manifest["payload_bridge"]["refuse_grabs"] == 2 and manifest["vehicle"]["model"] == "iris_recovery"
+    assert len(manifest["gps_events"]) == 1 and manifest["gps_events"][0]["kind"] == "glitch"
+    plain = json.loads((build_run(SCENARIOS / "recovery" / "hook_check.yaml", tmp_path / "plain", variant="on") / "scenario.json").read_text())
+    assert "refuse_grabs" not in plain["payload_bridge"] and not plain["gps_events"]
+    no_bucket = tmp_path / "no_bucket.yaml"
+    no_bucket.write_text((SCENARIOS / "hover" / "wind_5.yaml").read_text() + "grab_refusals: 1\n")
+    with pytest.raises(BuildError, match="grab_refusals needs a `bucket:`"):
+        build_run(no_bucket, tmp_path / "nb", variant="on")

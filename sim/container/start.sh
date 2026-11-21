@@ -248,6 +248,13 @@ if [[ -n $SITE_FILE ]]; then
         site_parm="$RUN_DIR/sitl.parm"  # the scenario's own, which also has SIM_TERRAIN 0
     fi
     sitl_args+=(--add-param-file "$site_parm" --out "udp:127.0.0.1:$TOOLS_PORT")
+    # A driver that flies beside the payload bridge gets a port of its own (the bridge has the tools port): REC-8's recovery check.
+    if [[ -n $RUN_DIR ]]; then
+        driver_port=$(python3 -c 'import json, sys; print((json.load(open(sys.argv[1])).get("driver") or {}).get("port") or "")' "$RUN_DIR/scenario.json")
+        if [[ -n $driver_port ]]; then
+            sitl_args+=(--out "udp:127.0.0.1:$driver_port")
+        fi
+    fi
     # The fault injector gets a port of its own: a driver or the payload bridge is already listening on the tools port.
     if [[ -n $RUN_DIR ]] && python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("gps_events") else 1)' "$RUN_DIR/scenario.json"; then
         sitl_args+=(--out "udp:127.0.0.1:$FAULTS_PORT")

@@ -20,7 +20,7 @@ KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
-    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log",
+    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 # Fast DDS profiles a scenario may ask for (`dds_profile`): sim/config/fastdds_<name>.xml. Asked for only by
@@ -29,7 +29,13 @@ DDS_PROFILES = ("large_frames",)
 
 # Tools that fly the vehicle themselves, in place of a mission launch, with
 # the settings each takes. fence_check: sim/fence_check.py.
-DRIVERS = {"fence_check": {"speed_mps", "height_m"}, "hover": {"height_m", "hold_s"}}
+DRIVERS = {
+    "fence_check": {"speed_mps", "height_m"},
+    "hover": {"height_m", "hold_s"},
+    # REC-8's check of the recovery sim itself: grab the bucket, lift it, bring it back.
+    "recovery_check": {"height_m", "lift_m"},
+}
+DRIVER_PORT = 14554  # a driver that flies beside the payload bridge has a MAVLink port of its own: the bridge has the tools port
 
 OBJECT_KINDS = {
     "bullseye": {"size_m", "rings"},
@@ -64,9 +70,21 @@ SENSOR_PROFILES = {
         "min_rate_hz": MIN_RATE_HZ.get(name),
         "flow_camera": profile["flow"],
         "headless_only": profile["headless_only"],
+        # The recovery vehicle's hook (REC-8): the link a bucket is joined to, and where its tip hangs under the body.
+        "hook": {"link": sensor_profiles.HOOK["link"], "offset_m": list(sensor_profiles.hook_offset_m(name))} if profile["hook"] else None,
     }
     for name, profile in sensor_profiles.PROFILES.items()
 }
+
+def _grab_refusals(data: dict, where) -> int:
+    """`grab_refusals`: a whole number of grabs for the payload bridge to refuse; only a scenario with a bucket has grabs."""
+    count = data.get("grab_refusals", 0)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise BuildError(f"{where}: grab_refusals is a whole number of grabs to refuse, 0 or more, got {count!r}")
+    if count and data.get("bucket") is None:
+        raise BuildError(f"{where}: grab_refusals needs a `bucket:` for the grabs to be of")
+    return count
+
 
 COORDINATE_ERROR_FORMS = ({"east_m", "north_m"}, {"radius_m"}, {"max_radius_m"})
 
@@ -105,6 +123,7 @@ class Scenario:
     judge: dict
     list_file: str | None = None  # where the mission writes its judges' list (localisation)
     driver: dict | None = None  # {"tool": ..., settings}: flies the vehicle in place of a mission launch
+    grab_refusals: int = 0  # the payload bridge attaches nothing on the first this-many grabs inside its envelope (REC-8, run R6)
     sim_time: bool = False  # variant on runs the whole sim on Gazebo's clock (FND-03); off is wall time, as in 2026
     sensor_check: bool = False  # the flight is run beside sim/sensor_check.py and must pass it (SIM-05)
     truth_poses: bool = False  # true poses go out on /sim/truth/poses during the flight (sim/truth_poses.py)
@@ -281,6 +300,7 @@ def parse_scenario(data, path: Path) -> Scenario:
         targets=_mapping(data, "targets", where),
         payload=_role(data, "payload", objects, where),
         bucket=_role(data, "bucket", objects, where),
+        grab_refusals=_grab_refusals(data, where),
         coordinate_error=coordinate_error,
         flags=_mapping(data, "flags", where),
         node_flags=_mapping(data, "node_flags", where),

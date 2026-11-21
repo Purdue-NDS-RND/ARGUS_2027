@@ -401,6 +401,16 @@ sim/run_scenarios.sh drop/release
 sim/run_scenarios.sh drop/release_wind
 ```
 
+## Recovery
+
+The recovery vehicle is the sensor profile `recovery` (model `iris_recovery`): the delivery profile's downward camera, a flow camera (320 x 200 at 20 Hz, so that a laptop keeps the sim near real time) and a hook, a rod on a damped two-axis joint under the body. A scenario that flies it gets the parameters in `sim/params/recovery.parm`, and its bucket's joint is made to the hook: taken hold of, the bucket hangs from it and swings. The hook's numbers (`HOOK` in `sim/sensor_profiles.py`) are the sim's own until the mechanical team gives the mechanism's.
+
+`recovery/hook_check` proves these parts together before there is a recovery mission: `sim/recovery_check.py` flies the vehicle itself, told where the bucket is, grabs it, lifts it, carries it to the takeoff point at 1 m/s, sets it down and lets go, and the recovery judge scores it. It flies beside the payload bridge on a MAVLink port of its own (14554).
+
+```bash
+sim/run_scenarios.sh recovery/hook_check --seeds 1 --variants on
+```
+
 ## Sensors
 
 The vehicle comes in four camera profiles, all generated from one template (`sim/models/iris_camera.sdf.template`) by `sim/sensor_profiles.py` (SIM-05). A scenario picks one with `sensor_profile:`.

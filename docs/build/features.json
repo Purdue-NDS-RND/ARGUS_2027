@@ -751,9 +751,9 @@
       "land": "L15",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_scenario.py test_payload_bridge.py test_recovery_check.py test_sensors.py test_runner.py -> 277 passed; strict check OK; sim/run_scenarios.sh recovery/hook_check --seeds 1 --variants on -> OK, rtf 0.91, grab 0.006 m from the handle, bucket lifted 2.17 m, set down 0.004 m from the takeoff point, 19.99 points (docs/results/2026-11-20-recovery-sim.md). Left: runs R1 to R6, flown with the recovery mission (REC-2 with REC-1, REC-3, REC-4, REC-7; REC-5 and REC-6 for R3 to R5); the hook's real numbers from the mechanical team (REC-9)",
       "blocked_reason": ""
     },
     {

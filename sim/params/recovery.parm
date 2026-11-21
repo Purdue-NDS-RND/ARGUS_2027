@@ -1,0 +1,24 @@
+# SITL parameters for recovery flights (REC-8): added to a run's sitl.parm when its scenario flies the
+# recovery vehicle (sensor_profile: recovery). Read by sim/scenario/build.py; one "NAME value" a line.
+#
+# The gripper: a servo gripper on output 7, as sim/payload_bridge.py reads it (its SITL_PARAMS are the same
+# numbers; a test holds the two together). The aircraft's own output and PWMs replace these when the
+# mechanical team gives them (REC-9).
+GRIP_ENABLE 1
+GRIP_TYPE 1
+GRIP_RELEASE 1100
+GRIP_GRAB 1900
+GRIP_NEUTRAL 1500
+SERVO7_FUNCTION 28
+# A failsafe must not let the bucket go: FS_OPTIONS bit 5 (release the gripper) clear. 16 is the default (bit 4).
+FS_OPTIONS 16
+# One GPS. No source switching by the EKF on its own: REC-5 switches the source set by command.
+GPS2_TYPE 0
+EK3_SRC_OPTIONS 0
+# Source set 2, for flying on without GPS (REC-5): no horizontal position, velocity from optical flow,
+# height from the barometer, yaw from the compass. Nothing selects it until a mission does.
+EK3_SRC2_POSXY 0
+EK3_SRC2_VELXY 5
+EK3_SRC2_POSZ 1
+EK3_SRC2_VELZ 0
+EK3_SRC2_YAW 1

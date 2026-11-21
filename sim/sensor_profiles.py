@@ -44,11 +44,17 @@ HORIZONTAL_FOV_RAD = 1.37635  # 2 atan(1920 / 2334.99647), as the template has i
 FLOW_HORIZONTAL_FOV_RAD = 1.2  # the flow camera's lens is not calibrated yet: a 69 degree stand-in
 VEHICLE_MASS_KG, VEHICLE_CDA_M2 = 1.755, 0.08
 
+# The recovery vehicle's flow camera is a quarter of the pixels at a third of the rate: with the full one beside
+# the downward camera a club laptop runs the sim at a real-time factor of 0.58, and a flight under 0.8 does not
+# count. The lens (and so the field of view) is the same.
+RECOVERY_FLOW_CAMERA = {"width": 320, "height": 200, "rate_hz": 20}
 PROFILES: Dict[str, dict] = {
-    "delivery": {"model": "iris_downcam", "width": 640, "height": 360, "rate_hz": 30, "bridge": "config/bridge.yaml", "flow": False, "headless_only": False},
-    "survey": {"model": "iris_survey", "width": 1280, "height": 720, "rate_hz": 10, "bridge": "config/bridge_survey.yaml", "flow": False, "headless_only": False},
-    "still4k": {"model": "iris_still4k", "width": 3840, "height": 2160, "rate_hz": 1, "bridge": "config/bridge_still4k.yaml", "flow": False, "headless_only": True},
-    "flow": {"model": "iris_flow", "width": 640, "height": 360, "rate_hz": 30, "bridge": "config/bridge_flow.yaml", "flow": True, "headless_only": False},
+    "delivery": {"model": "iris_downcam", "width": 640, "height": 360, "rate_hz": 30, "bridge": "config/bridge.yaml", "flow": False, "headless_only": False, "hook": False},
+    "survey": {"model": "iris_survey", "width": 1280, "height": 720, "rate_hz": 10, "bridge": "config/bridge_survey.yaml", "flow": False, "headless_only": False, "hook": False},
+    "still4k": {"model": "iris_still4k", "width": 3840, "height": 2160, "rate_hz": 1, "bridge": "config/bridge_still4k.yaml", "flow": False, "headless_only": True, "hook": False},
+    "flow": {"model": "iris_flow", "width": 640, "height": 360, "rate_hz": 30, "bridge": "config/bridge_flow.yaml", "flow": True, "headless_only": False, "hook": False},
+    # The recovery vehicle (REC-8): the delivery profile's downward camera, the flow camera, and a hook on a damped joint.
+    "recovery": {"model": "iris_recovery", "width": 640, "height": 360, "rate_hz": 30, "bridge": "config/bridge_recovery.yaml", "flow": True, "headless_only": False, "hook": True, "flow_camera": RECOVERY_FLOW_CAMERA},
 }
 FLOW_CAMERA = {"width": 640, "height": 400, "rate_hz": 60}
 
@@ -140,10 +146,83 @@ def _about(name: str, profile: dict) -> str:
         f"    horizontal_fov {HORIZONTAL_FOV_RAD} rad: the IMX519's as calibrated, as in iris_downcam.",
     ]
     if profile["flow"]:
-        lines.append(f"    And a flow camera: {FLOW_CAMERA['width']}x{FLOW_CAMERA['height']} mono at {FLOW_CAMERA['rate_hz']} Hz, horizontal_fov {FLOW_HORIZONTAL_FOV_RAD} rad.")
+        flow = flow_camera(name)
+        lines.append(f"    And a flow camera: {flow['width']}x{flow['height']} mono at {flow['rate_hz']} Hz, horizontal_fov {FLOW_HORIZONTAL_FOV_RAD} rad.")
+    if profile["hook"]:
+        lines.append(f"    And a hook: a {HOOK['length_m']:g} m rod on a damped two-axis joint under the body, for the recovery bucket (REC-8).")
     if profile["headless_only"]:
         lines.append("    Headless only: at this size a frame a second is all a club laptop renders beside the flight.")
     return "\n".join(lines + ["  -->", ""])
+
+
+# The recovery vehicle's hook (REC-8): a light rod hinged under the body, free to swing on two axes against
+# damping, with the bucket's detachable joint made to it (sim/scenario/build.py). The numbers are the sim's own
+# until the mechanical team gives the real mechanism's (REC-9): the suspension length above all.
+HOOK = {
+    "link": "hook_link",
+    "hinge_below_m": 0.05,  # the hinge, under the body's origin
+    "length_m": 0.50,  # hinge to tip: the suspension length. Long enough that the legs stay above the bucket's handle
+    "mass_kg": 0.05,
+    "damping_nms": 0.2,  # on each axis: a 1 kg bucket's swing dies in a few periods
+    "swing_limit_rad": 1.0,
+}
+
+_HOOK = """
+    <link name="hook_link">
+      <!-- The hook: a rod hinged under the body. No collision: it passes through what it touches (the ground
+           under a standing vehicle, the handle it goes under). What it holds is joined to it by the payload bridge. -->
+      <pose relative_to="iris_with_ardupilot::iris_with_standoffs::base_link">0 0 @HOOK_MIDDLE@ 0 0 0</pose>
+      <inertial>
+        <mass>@HOOK_MASS@</mass>
+        <inertia>
+          <ixx>@HOOK_IXX@</ixx><iyy>@HOOK_IXX@</iyy><izz>1e-6</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="rod">
+        <geometry><cylinder><radius>0.004</radius><length>@HOOK_LENGTH@</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+    </link>
+
+    <joint name="hook_joint" type="universal">
+      <pose>0 0 @HOOK_HALF@ 0 0 0</pose>
+      <parent>iris_with_ardupilot::iris_with_standoffs::base_link</parent>
+      <child>hook_link</child>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit><lower>-@HOOK_LIMIT@</lower><upper>@HOOK_LIMIT@</upper></limit>
+        <dynamics><damping>@HOOK_DAMPING@</damping></dynamics>
+      </axis>
+      <axis2>
+        <xyz>0 1 0</xyz>
+        <limit><lower>-@HOOK_LIMIT@</lower><upper>@HOOK_LIMIT@</upper></limit>
+        <dynamics><damping>@HOOK_DAMPING@</damping></dynamics>
+      </axis2>
+    </joint>
+"""
+
+
+def hook_offset_m(name: str) -> Optional[tuple]:
+    """Where the hook's tip hangs at rest, from the vehicle's origin (forward, left, up), or None for a profile with no hook."""
+    if not PROFILES[name]["hook"]:
+        return None
+    return (0.0, 0.0, -round(HOOK["hinge_below_m"] + HOOK["length_m"], 6))
+
+
+def _hook_sdf() -> str:
+    text = _HOOK
+    for key, value in (
+        ("@HOOK_MIDDLE@", f"{-(HOOK['hinge_below_m'] + HOOK['length_m'] / 2.0):g}"),
+        ("@HOOK_HALF@", f"{HOOK['length_m'] / 2.0:g}"),
+        ("@HOOK_LENGTH@", f"{HOOK['length_m']:g}"),
+        ("@HOOK_MASS@", f"{HOOK['mass_kg']:g}"),
+        ("@HOOK_IXX@", f"{HOOK['mass_kg'] * HOOK['length_m'] ** 2 / 12.0:g}"),  # a thin rod about its middle
+        ("@HOOK_LIMIT@", f"{HOOK['swing_limit_rad']:g}"),
+        ("@HOOK_DAMPING@", f"{HOOK['damping_nms']:g}"),
+    ):
+        text = text.replace(key, value)
+    return text
 
 
 def render_model(name: str) -> str:
@@ -152,8 +231,11 @@ def render_model(name: str) -> str:
     extra = ""
     if profile["flow"]:
         extra = _FLOW_SENSOR
-        for key, value in (("@FLOW_RATE@", FLOW_CAMERA["rate_hz"]), ("@FLOW_WIDTH@", FLOW_CAMERA["width"]), ("@FLOW_HEIGHT@", FLOW_CAMERA["height"]), ("@FLOW_FOV@", FLOW_HORIZONTAL_FOV_RAD)):
+        flow = flow_camera(name)
+        for key, value in (("@FLOW_RATE@", flow["rate_hz"]), ("@FLOW_WIDTH@", flow["width"]), ("@FLOW_HEIGHT@", flow["height"]), ("@FLOW_FOV@", FLOW_HORIZONTAL_FOV_RAD)):
             extra = extra.replace(key, str(value))
+    if profile["hook"]:
+        extra += _hook_sdf()
     text = TEMPLATE.read_text()
     for key, value in (
         ("@ABOUT@", _about(name, profile)),
@@ -176,6 +258,8 @@ def render_config(name: str) -> str:
     what = f"a downward camera of the '{name}' profile ({profile['width']}x{profile['height']} at {profile['rate_hz']} Hz)"
     if profile["flow"]:
         what += " and a flow camera"
+    if profile["hook"]:
+        what += ", and a hook on a damped joint"
     return (
         '<?xml version="1.0"?>\n<model>\n'
         f"  <name>Iris with ArduPilot, {name} camera profile</name>\n  <version>1.0</version>\n"
@@ -193,7 +277,7 @@ def render_bridge(name: str) -> str:
 
 def render_calibration(name: str) -> Optional[str]:
     """The calibration file of the profile's downward camera, or None for delivery (sim_delivery.yaml is hand-written and kept)."""
-    if name in ("delivery", "flow"):  # flow's downward camera is delivery's
+    if name in ("delivery", "flow", "recovery"):  # flow's and recovery's downward camera is delivery's
         return None
     profile = PROFILES[name]
     fx = focal_px(profile["width"])
@@ -208,12 +292,17 @@ def render_calibration(name: str) -> Optional[str]:
     )
 
 
-def render_flow_calibration() -> str:
+def flow_camera(name: str) -> dict:
+    """The size and rate of a profile's flow camera: its own, or the flow profile's."""
+    return PROFILES[name].get("flow_camera") or FLOW_CAMERA
+
+
+def render_flow_calibration(name: str = "flow") -> str:
     """The flow camera's calibration: an ideal pinhole of its stand-in field of view."""
-    width, height = FLOW_CAMERA["width"], FLOW_CAMERA["height"]
+    width, height = flow_camera(name)["width"], flow_camera(name)["height"]
     fx = focal_px(width, FLOW_HORIZONTAL_FOV_RAD)
     return (
-        "# Generated by sim/sensor_profiles.py. The sim's flow camera (sim/models/iris_flow/model.sdf): an ideal\n"
+        f"# Generated by sim/sensor_profiles.py. The sim's flow camera (sim/models/{PROFILES[name]['model']}/model.sdf): an ideal\n"
         f"# pinhole, {width} x {height}, horizontal field of view {FLOW_HORIZONTAL_FOV_RAD} rad, no distortion. The field of view is a\n"
         "# stand-in: the real flow camera's lens has not been calibrated (modes.yaml, ov9782_flow).\n"
         f"width: {width}\nheight: {height}\nmeasured: true\nbasis: computed from the sim model's field of view\n"
@@ -235,6 +324,9 @@ def generated_files() -> Dict[Path, str]:
         if calibration is not None:
             files[CALIBRATION_DIR / f"sim_{name}.yaml"] = calibration
     files[CALIBRATION_DIR / "sim_flow.yaml"] = render_flow_calibration()
+    for name, profile in PROFILES.items():
+        if profile.get("flow_camera"):  # a flow camera of its own size
+            files[CALIBRATION_DIR / f"sim_flow_{name}.yaml"] = render_flow_calibration(name)
     return files
 
 

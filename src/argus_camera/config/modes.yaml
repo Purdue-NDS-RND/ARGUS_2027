@@ -87,5 +87,14 @@ modes:
     calibration: calibration/sim_flow.yaml
     use: the sim's flow camera
 
+  sim_flow_recovery:
+    camera: flow
+    driver: ros_topic       # input_topic is the bridged flow camera's (sim/config/bridge_recovery.yaml)
+    width: 320
+    height: 200
+    fps: 20                 # a quarter of sim_flow's pixels at a third of its rate: the recovery vehicle has two cameras to render
+    calibration: calibration/sim_flow_recovery.yaml
+    use: the sim's flow camera on the recovery vehicle (iris_recovery)
+
 # The 12 MP spare is not listed: its sensor, CSI port and modes are not known
 # here. Adding it is one more entry above and its calibration file.

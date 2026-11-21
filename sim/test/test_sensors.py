@@ -31,14 +31,15 @@ BASELINE = SIM / "scenarios" / "delivery" / "baseline.yaml"
 def test_the_profiles_are_the_specs():
     profiles = sensor_profiles.PROFILES
     assert {name: (p["width"], p["height"], p["rate_hz"]) for name, p in profiles.items()} == {
-        "delivery": (640, 360, 30), "survey": (1280, 720, 10), "still4k": (3840, 2160, 1), "flow": (640, 360, 30),
+        "delivery": (640, 360, 30), "survey": (1280, 720, 10), "still4k": (3840, 2160, 1), "flow": (640, 360, 30), "recovery": (640, 360, 30),
     }  # fmt: skip
     assert sensor_profiles.FLOW_CAMERA == {"width": 640, "height": 400, "rate_hz": 60}
-    assert [name for name, p in profiles.items() if p["headless_only"]] == ["still4k"] and [name for name, p in profiles.items() if p["flow"]] == ["flow"]
+    assert [name for name, p in profiles.items() if p["headless_only"]] == ["still4k"] and [name for name, p in profiles.items() if p["flow"]] == ["flow", "recovery"]
+    assert [name for name, p in profiles.items() if p["hook"]] == ["recovery"]
     # One field of view for every downward camera: the IMX519's as calibrated.
     assert sensor_profiles.HORIZONTAL_FOV_RAD == pytest.approx(2.0 * math.atan(sensor_profiles.IMX519_WIDTH_PX / 2.0 / sensor_profiles.IMX519_FX_PX), abs=5e-6)
     assert SENSOR_PROFILES["survey"]["model"] == "iris_survey" and SENSOR_PROFILES["delivery"] == {
-        "model": "iris_downcam", "bridge": "config/bridge.yaml", "mass_kg": 1.755, "cda_m2": 0.08, "min_rate_hz": None, "flow_camera": False, "headless_only": False,
+        "model": "iris_downcam", "bridge": "config/bridge.yaml", "mass_kg": 1.755, "cda_m2": 0.08, "min_rate_hz": None, "flow_camera": False, "headless_only": False, "hook": None,
     }  # fmt: skip
     assert SENSOR_PROFILES["survey"]["min_rate_hz"] == 8.0 and SENSOR_PROFILES["flow"]["flow_camera"] is True
 
@@ -49,7 +50,7 @@ def test_every_generated_file_is_what_the_template_gives_and_todays_model_is_the
     files = sensor_profiles.generated_files()
     assert files[SIM / "models" / "iris_downcam" / "model.sdf"] == (SIM / "models" / "iris_downcam" / "model.sdf").read_text()
     assert files[SIM / "config" / "bridge.yaml"] == (SIM / "config" / "bridge.yaml").read_text()
-    assert len(files) == 4 * 3 + 3  # a model, its config and a bridge file each; a calibration for survey, still4k and the flow camera
+    assert len(files) == 5 * 3 + 4  # a model, its config and a bridge file each; a calibration for survey, still4k, the flow camera and the recovery vehicle's own flow camera
 
 
 @pytest.mark.parametrize("name", ["delivery", "survey", "still4k", "flow"])
@@ -90,6 +91,11 @@ def test_the_calibrations_are_ideal_pinholes_of_the_same_field_of_view():
     assert (modes["sim_survey"]["width"], modes["sim_survey"]["height"], modes["sim_survey"]["calibration"]) == (1280, 720, "calibration/sim_survey.yaml")
     assert (modes["sim_still4k"]["width"], modes["sim_still4k"]["fps"]) == (3840, 1)
     assert (modes["sim_flow"]["camera"], modes["sim_flow"]["width"], modes["sim_flow"]["height"], modes["sim_flow"]["fps"]) == ("flow", 640, 400, 60)
+    # The recovery vehicle's own flow camera has a mode of its own: a reader that asked for sim_flow's would be told 640 x 400.
+    recovery_flow = modes["sim_flow_recovery"]
+    assert (recovery_flow["camera"], recovery_flow["width"], recovery_flow["height"], recovery_flow["fps"]) == ("flow", 320, 200, 20) == ("flow", *sensor_profiles.RECOVERY_FLOW_CAMERA.values())
+    calibration = yaml.safe_load((REPO / "src" / "argus_camera" / "config" / recovery_flow["calibration"]).read_text())
+    assert (calibration["width"], calibration["height"]) == (320, 200) and calibration["k"][0] == pytest.approx(160.0 / math.tan(sensor_profiles.FLOW_HORIZONTAL_FOV_RAD / 2.0), abs=1e-4)
 
 
 def test_a_scenarios_profile_picks_the_model_the_bridge_file_and_the_manifest(tmp_path):
@@ -383,3 +389,46 @@ def test_the_sims_mavros_plugin_list_is_the_flights_plus_the_four_the_spec_names
     assert "features" not in sim
     start = (SIM / "container" / "start.sh").read_text()
     assert 'config:=$ARGUS_SIM/config/mavros_sim.yaml' in start
+
+
+# --- the recovery vehicle (REC-8) ---
+
+
+def test_the_recovery_vehicle_has_both_cameras_and_a_hook_on_a_damped_joint():
+    """`iris_recovery`: the delivery profile's downward camera, the flow camera, and a hook hanging from a joint
+    with damping on both of its axes, so that a bucket taken hold of swings and settles."""
+    import xml.etree.ElementTree as ET
+
+    profile = sensor_profiles.PROFILES["recovery"]
+    assert profile["model"] == "iris_recovery" and profile["bridge"] == "config/bridge_recovery.yaml"
+    model = ET.fromstring(sensor_profiles.render_model("recovery")).find("model")
+    assert model.get("name") == "iris_recovery"
+    links = {link.get("name"): link for link in model.findall("link")}
+    assert set(links) == {"downcam_link", "flowcam_link", "hook_link"}
+    hook, joint = links["hook_link"], {joint.get("name"): joint for joint in model.findall("joint")}["hook_joint"]
+    assert hook.find("collision") is None  # it passes through what it touches: the ground under a standing vehicle, the handle it goes under
+    assert float(hook.findtext("inertial/mass")) == sensor_profiles.HOOK["mass_kg"] == 0.05
+    # The rod's middle is half its length under the hinge, and the joint is at its top.
+    x, y, z = (float(v) for v in hook.findtext("pose").split()[:3])
+    assert (x, y) == (0.0, 0.0) and z == pytest.approx(-(sensor_profiles.HOOK["hinge_below_m"] + sensor_profiles.HOOK["length_m"] / 2.0))
+    assert [float(v) for v in joint.findtext("pose").split()[:3]] == pytest.approx([0.0, 0.0, sensor_profiles.HOOK["length_m"] / 2.0])
+    assert joint.get("type") == "universal" and joint.findtext("parent") == "iris_with_ardupilot::iris_with_standoffs::base_link" and joint.findtext("child") == "hook_link"
+    for axis, direction in (("axis", "1 0 0"), ("axis2", "0 1 0")):
+        assert joint.findtext(f"{axis}/xyz") == direction and float(joint.findtext(f"{axis}/dynamics/damping")) == sensor_profiles.HOOK["damping_nms"] > 0.0
+        assert float(joint.findtext(f"{axis}/limit/upper")) == -float(joint.findtext(f"{axis}/limit/lower")) == sensor_profiles.HOOK["swing_limit_rad"]
+    # Where the hook's tip hangs under the body, for the payload bridge's capture check.
+    assert sensor_profiles.hook_offset_m("recovery") == (0.0, 0.0, -0.55) and sensor_profiles.hook_offset_m("delivery") is None
+    assert SENSOR_PROFILES["recovery"]["hook"] == {"link": "hook_link", "offset_m": [0.0, 0.0, -0.55]} and SENSOR_PROFILES["recovery"]["flow_camera"] is True
+    # Its files are generated with the others, its bridge carries both cameras, and its downward camera is delivery's.
+    files = sensor_profiles.generated_files()
+    assert (SIM / "models" / "iris_recovery" / "model.sdf") in files and (SIM / "config" / "bridge_recovery.yaml") in files
+    assert "flowcam" in files[SIM / "config" / "bridge_recovery.yaml"] and sensor_profiles.render_calibration("recovery") is None
+    assert "a hook" in sensor_profiles.render_config("recovery")
+    # Its flow camera is a cheaper one than the flow profile's: the two cameras together must leave the sim near real time.
+    flow = links["flowcam_link"].find("sensor")
+    assert (int(flow.findtext("camera/image/width")), int(flow.findtext("camera/image/height")), int(flow.findtext("update_rate"))) == (320, 200, 20)
+    assert sensor_profiles.flow_camera("recovery") == {"width": 320, "height": 200, "rate_hz": 20} and sensor_profiles.flow_camera("flow") == sensor_profiles.FLOW_CAMERA
+    assert "320 x 200" in files[sensor_profiles.CALIBRATION_DIR / "sim_flow_recovery.yaml"] and "iris_recovery" in files[sensor_profiles.CALIBRATION_DIR / "sim_flow_recovery.yaml"]
+    # The other vehicles are as they were: no hook.
+    for name in ("delivery", "survey", "still4k", "flow"):
+        assert "hook" not in sensor_profiles.render_model(name)

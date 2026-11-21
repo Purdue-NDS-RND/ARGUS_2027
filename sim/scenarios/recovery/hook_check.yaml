@@ -1,0 +1,26 @@
+# REC-8's check of the recovery sim itself, before there is a recovery mission to fly it (REC-2).
+# The recovery vehicle (`sensor_profile: recovery`: the downward camera, the flow camera, and a hook on a damped
+# joint) is flown by sim/recovery_check.py, not by a mission. The tool is told where the bucket truly is: it flies
+# over it, comes down until the hook is at the handle, commands the gripper to grab, lifts the bucket to 3 m,
+# carries it to the takeoff point, sets it down from 5 cm and lets go, then moves aside and lands.
+# What it proves: the vehicle flies with its hook; the payload bridge joins the bucket to the hook when the
+# gripper output says grab and the hook is in the capture envelope; the bucket hangs and is carried; the bridge
+# lets it go; and the recovery judge scores the flight from true positions (lifted above 0.5 m, where it ends).
+# What it does not: finding the X or the bucket, aiming the hook (this flight aims by the sim's GPS at a place it
+# is told, and the hook comes within a centimetre), or any of REC-8's runs R1 to R6, which need the mission.
+# There is no "off" variant worth flying: the tool flies the same with every flag off.
+description: The recovery vehicle grabs the bucket by a scripted flight, carries it to the takeoff point and sets it down.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 420
+sensor_profile: recovery
+driver:
+  tool: recovery_check
+  height_m: 5.0
+  lift_m: 3.0
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+wind: {level: calm}

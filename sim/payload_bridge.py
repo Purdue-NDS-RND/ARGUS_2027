@@ -15,6 +15,11 @@ servo outputs becomes something happening to a body in Gazebo:
     value, but only if the hook is then within the capture half-width
     (0.10 m by default) of the handle horizontally and within 0.15 m of it
     vertically. Otherwise nothing is attached and `grab_miss` is logged.
+    The hook is taken to hang straight down from a level vehicle: where it
+    hangs at rest (the recovery vehicle's hook swings; its swing is not in
+    this check). A scenario's `grab_refusals: N` makes the first N grabs
+    inside the envelope attach nothing (`grab_refused`): a latch that did
+    not close, for the mission's attach check to find.
 
 The flight controller's outputs are read from its SERVO_OUTPUT_RAW
 messages on the sim's tools port; nothing is read from the mission. With
@@ -78,8 +83,10 @@ class Bridge:
         handle_height_m: float = 0.32,
         capture_half_width_m: float = CAPTURE_HALF_WIDTH_M,
         capture_half_height_m: float = CAPTURE_HALF_HEIGHT_M,
+        refuse_grabs: int = 0,
     ) -> None:
         self.carried, self.bucket = carried, bucket
+        self.refusals_left = max(0, int(refuse_grabs))  # grabs still to be refused though the hook is in the envelope (REC-8, run R6)
         self.hook_offset_m, self.handle_height_m = hook_offset_m, float(handle_height_m)
         self.capture_half_width_m, self.capture_half_height_m = float(capture_half_width_m), float(capture_half_height_m)
         self.released = False  # the carried payload has been let go
@@ -164,6 +171,11 @@ class Bridge:
         if horizontal > self.capture_half_width_m or vertical > self.capture_half_height_m:
             self._log(t_s, "grab_miss", name=self.bucket, pwm=pwm, horizontal_m=round(horizontal, 3), vertical_m=round(vertical, 3))
             return []
+        if self.refusals_left > 0:
+            # A latch that did not close: the hook was where it should be, and nothing is attached.
+            self.refusals_left -= 1
+            self._log(t_s, "grab_refused", name=self.bucket, pwm=pwm, horizontal_m=round(horizontal, 3), vertical_m=round(vertical, 3), refusals_left=self.refusals_left)
+            return []
         self.holding = True
         self._log(t_s, "bucket_grabbed", name=self.bucket, pwm=pwm, horizontal_m=round(horizontal, 3), vertical_m=round(vertical, 3))
         return [("attach", self.bucket)]
@@ -181,6 +193,7 @@ class Bridge:
             "releases": kinds.count("payload_released") + kinds.count("bucket_released"),
             "grabs": kinds.count("bucket_grabbed"),
             "grab_misses": kinds.count("grab_miss"),
+            "grabs_refused": kinds.count("grab_refused"),
             "events": self.events,
         }
 
@@ -238,6 +251,7 @@ def run(run_dir: Path, url: str = "udpin:127.0.0.1:14552") -> dict:
         hook_offset_m=tuple(settings.get("hook_offset_m", (0.0, 0.0, -0.30))),
         handle_height_m=float(settings.get("handle_height_m", 0.32)),
         capture_half_width_m=float(settings.get("capture_half_width_m", CAPTURE_HALF_WIDTH_M)),
+        refuse_grabs=int(settings.get("refuse_grabs", 0)),
     )
     bridge.vehicle = vehicle
     lock = threading.Lock()
