@@ -154,7 +154,7 @@ def test_g0_fails_when_a_flight_is_missing_or_was_flown_with_flags_on():
 
 def test_gate_with_nothing_to_fly_yet_cannot_be_checked():
     with pytest.raises(gate.GateError, match="cannot run yet"):
-        gate.check("G5", [])
+        gate.check("G6", [])
     with pytest.raises(gate.GateError, match="field"):
         gate.check("G7", [])
 
@@ -285,7 +285,7 @@ def test_cli_exit_codes_tell_pass_fail_and_invalid_apart(tmp_path):
     assert run_cli("check", "G0", suite_folder(tmp_path / "a", [0.02, 0.03, 0.02, 0.09, 0.4])).returncode == 1
     invalid = run_cli("check", "G0", suite_folder(tmp_path / "b", [0.02, 0.03, 0.02, 0.09, 0.1], slow_seed=3))
     assert invalid.returncode == 3 and "G0: INVALID" in invalid.stdout
-    assert run_cli("check", "G5", suite_folder(tmp_path / "c", [0.1])).returncode == 2
+    assert run_cli("check", "G6", suite_folder(tmp_path / "c", [0.1])).returncode == 2
     assert run_cli("check", "G9", tmp_path).returncode == 2
 
 

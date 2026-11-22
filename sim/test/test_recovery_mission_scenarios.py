@@ -63,6 +63,23 @@ def test_a_recovery_mission_scenario_turns_the_mission_and_its_one_detector_on(n
         assert params["recovery_cv"]["ros__parameters"]["features"]["recovery_cv"] and not any(params["loc_node"]["ros__parameters"]["features"].values())
 
 
+def test_the_gates_flight_is_the_oracle_pickup_with_a_coordinate_error_and_a_glitch(tmp_path):
+    offsets = set()
+    for seed in (1, 2, 3):
+        run = build_run(SCENARIOS / "gate_pickup.yaml", tmp_path / f"gate-{seed}", variant="on", seed=seed)
+        manifest = json.loads((run / "scenario.json").read_text())
+        sequence = yaml.safe_load((run / "sequence.yaml").read_text())["mission_sequence"]
+        truth = json.loads((run / "truth.json").read_text())
+        pickup = next(item for item in sequence["missions"] if item["type"] == "package_recovery")["config"]["pickup"]["latlon"]
+        north, east = offset_ne_m(truth["origin"]["latitude_deg"], truth["origin"]["longitude_deg"], *pickup)
+        off = ((east - 12.0) ** 2 + (north - 8.0) ** 2) ** 0.5
+        assert off <= 8.0 + 0.02
+        offsets.add(round(off, 2))
+        assert manifest["gps_events"] == [{"at_s": 58.0, "kind": "glitch", "north_m": 5.0, "for_s": 10.0}]
+        assert manifest["launch"]["arguments"]["loc_node"] == "true" and manifest["target"] is False
+    assert len(offsets) == 3  # the seed draws the error
+
+
 def test_with_the_flags_off_the_recovery_scenario_flies_the_shipped_sequence_and_starts_no_detector(tmp_path):
     _run, manifest, sequence, params = built("pickup_oracle", tmp_path, variant="off")
     assert not any(sequence["features"].values()) and manifest["flags"] == {} and manifest["node_flags"] == {}

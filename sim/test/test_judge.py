@@ -669,6 +669,19 @@ def test_recovery_scores_sixteen_minus_distance_to_the_takeoff_point():
     assert score["base_points"] == pytest.approx(16.0 - 0.8)
 
 
+def test_recovery_says_whether_the_flight_ended_down_and_gently():
+    """Gate G5 asks it of every flight, the failed ones too."""
+    good = recover(recovery_flight())["details"]
+    assert good["ended_safely"] is True and good["touchdown_mps"] == pytest.approx(1.0)  # 5 m in the last 5 s
+    # Down from 5 m in the last second: a fall, not a landing.
+    vehicle = [(0, 0, 0, 0), (10, 0, 0, 5.0), (99, 0, 0, 5.0), (100, 0, 0, 0)]
+    fell = recover(record(flight(vehicle), path("bucket", [(0, *X_MAT, 0.12), (100, *X_MAT, 0.12)])))["details"]
+    assert fell["ended_safely"] is False and fell["touchdown_mps"] > 1.5
+    # Still up when the record ends: not ended safely either.
+    aloft = [(0, 0, 0, 0), (10, 0, 0, 5.0), (100, 0, 0, 5.0)]
+    assert recover(record(flight(aloft), path("bucket", [(0, *X_MAT, 0.12), (100, *X_MAT, 0.12)])))["details"]["ended_safely"] is False
+
+
 def test_recovery_bucket_that_never_rises_half_a_metre_scores_zero():
     score = recover(recovery_flight(lift=0.4))
     assert score["details"]["lifted"] is False

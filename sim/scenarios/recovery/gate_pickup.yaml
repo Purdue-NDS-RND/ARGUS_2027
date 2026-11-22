@@ -1,0 +1,34 @@
+# Gate G5's flight: recovery/pickup_oracle (the recovery mission on the sim's oracle detector, a stand-in) with the
+# two things the gate asks for. The pickup's coordinates are off by up to 8 m, in a direction and by an amount the
+# seed draws. And the GPS fix steps 5 m north for 10 s, 58 s after arming: with the bucket seen from the pickup's
+# coordinates that is in the cone descent (about 47 to 70 s after arming); in a flight that has to search first
+# it falls earlier in the flight. No log line is expected: the gate counts the flights the judge scores.
+description: Gate G5 - the recovery mission on the oracle detector, with the pickup coordinates up to 8 m off and a 5 m GPS glitch in the descent.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+wind: {level: calm}
+coordinate_error: {max_radius_m: 8.0}
+gps_events:
+  - {at_s: 58.0, kind: glitch, north_m: 5.0, for_s: 10.0}

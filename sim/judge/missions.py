@@ -448,6 +448,14 @@ def judge_recovery(run: Run) -> tuple[float, dict]:
     released_high = release_height is not None and release_height > s["max_release_height_m"]
     details = {"lifted": lifted, "max_lift_m": max_lift, "released": release is not None, "release_height_m": release_height, "released_high": released_high, "return_point": s["return_point"], "distance_m": distance}
 
+    # How the flight ended, bucket or no bucket: down and disarmed, having come down no faster than a landing does.
+    # (A failed recovery lands where it is, beside the bucket, by REC-7's abort mode; gate G5 asks this of every flight.)
+    disarmed = run.flight.t_disarm
+    last = [] if disarmed is None else run.record.track(VEHICLE, disarmed - 5.0, disarmed)
+    falls = [(a.u - b.u) / (b.t - a.t) for a, b in zip(last, last[1:]) if b.t > a.t]
+    details["touchdown_mps"] = max(falls, default=None) if falls else None
+    details["ended_safely"] = bool(falls) and max(falls) <= s["max_touchdown_mps"] and last[-1].u - run.record.pose_at(VEHICLE, run.flight.t_arm).u < s["landed_below_m"]
+
     if not lifted:
         run.notes.append(f"recovery: the bucket never rose above {s['lift_height_m']} m, scored 0")
         return 0.0, details

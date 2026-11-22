@@ -62,7 +62,7 @@ MISSIONS = {
     ),
     "recovery": (
         missions.judge_recovery,
-        {"max_points": 16.0, "points_per_metre": 1.0, "lift_height_m": 0.5, "max_release_height_m": SIX_FEET_M, "return_point": "takeoff"},
+        {"max_points": 16.0, "points_per_metre": 1.0, "lift_height_m": 0.5, "max_release_height_m": SIX_FEET_M, "return_point": "takeoff", "max_touchdown_mps": 1.5, "landed_below_m": 1.5},
     ),
     # Not a competition mission: the flight SIM-03's wind is checked on.
     "hover": (
