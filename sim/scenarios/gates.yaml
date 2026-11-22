@@ -143,8 +143,8 @@ G5:
   pass: ≥ 8/10 with up to 8 m coordinate error and a 5 m glitch mid-descent; no release above 1.83 m; every failure ends in a climb and RTL
   # The recovery mission on the sim's oracle detector (recovery/gate_pickup): the green X detector as built sees
   # nothing below about 3 m, so no flight on it can bring a bucket back, and the result file says the gate was
-  # flown on the stand-in. Ten seeds: ten coordinate errors of up to 8 m, each with a 5 m GPS glitch 58 s after
-  # arming. "Ends safely" is the judge's: down and disarmed, at no more than a landing's speed. A failed recovery
+  # flown on the stand-in. Ten seeds: ten coordinate errors of up to 8 m, each with a 5 m GPS glitch 41 s after
+  # arming, in the descent onto the handle. "Ends safely" is the judge's: down and disarmed, at no more than a landing's speed. A failed recovery
   # lands beside the bucket (REC-7's abort mode is LAND, where this gate's wording says RTL).
   scenarios: [recovery/gate_pickup]
   seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]

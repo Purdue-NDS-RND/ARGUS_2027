@@ -75,7 +75,7 @@ def test_the_gates_flight_is_the_oracle_pickup_with_a_coordinate_error_and_a_gli
         off = ((east - 12.0) ** 2 + (north - 8.0) ** 2) ** 0.5
         assert off <= 8.0 + 0.02
         offsets.add(round(off, 2))
-        assert manifest["gps_events"] == [{"at_s": 58.0, "kind": "glitch", "north_m": 5.0, "for_s": 10.0}]
+        assert manifest["gps_events"] == [{"at_s": 41.0, "kind": "glitch", "north_m": 5.0, "for_s": 10.0}]
         assert manifest["launch"]["arguments"]["loc_node"] == "true" and manifest["target"] is False
     assert len(offsets) == 3  # the seed draws the error
 
