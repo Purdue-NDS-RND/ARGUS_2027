@@ -1,0 +1,37 @@
+# The recovery mission in the sim (REC-2), on a stand-in detector: the sim's oracle (LOC-5), which reports the
+# true bucket and X through the camera model and does not look at the picture. It is here because the green X
+# detector (REC-1) sees nothing below about 3 m, and the mission does not descend blind: with the oracle the
+# whole chain flies, from the pickup's coordinates to the bucket set down at the takeoff point. The oracle
+# refuses to run outside the sim. recovery/pickup_detector is the same flight on the real detector.
+# Variant "off" is every flag false: the recovery mission is skipped, and the vehicle takes off and the
+# sequence ends.
+description: The recovery mission from takeoff to the bucket set down at the takeoff point, on the sim's oracle detector.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
+wind: {level: calm}

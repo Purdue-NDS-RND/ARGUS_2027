@@ -49,11 +49,25 @@ and to the side:
                  go, the vehicle lands with it, and the mission fails once it
                  is down.
 
+  RETREAT        the mission is failing with the vehicle over the bucket and
+                 nothing on the hook: up to CENTRE's height and `clear_aside_m`
+                 to the side first, so that the landing that follows a failure
+                 is beside the bucket and not on it.
+
 Three attempts at the handle in all (`max_attempts`); then the mission
-fails. Before the bucket is on the hook the mission also fails when its time
-budget runs out or a state outstays its limit; with the bucket on, either is
-a CARRYING_FAULT. The bucket lost on the way (recovery_grip.LoadWatch) fails
-the mission where it is.
+fails. Before the gripper has been told to close the mission also fails when
+its time budget runs out or a state outstays its limit; once it has, until
+the attach check has said the hook is empty, and with the bucket on, either
+is a CARRYING_FAULT. The bucket lost on the way (recovery_grip.LoadWatch)
+fails the mission where it is.
+
+Below CENTRE the height is the rangefinder's or there is none: the cone, the
+engage and the lift do not go by a height above home. Above it, a descent
+(APPROACH, CENTRE) needs a confirmed track under 0.5 s old; without one the
+height is held. The cone and the engage go by the bucket's own track, never
+by the X's. A landing the flight asks for is asked again every LAND_RETRY_S
+until the flight controller says landed. The engage flown is the plunge; a
+sweep is refused when the plan is made.
 
 GPS is taken as trusted while there is a fix, unless the plan says
 `gps_untrusted`: then no global setpoint is ever commanded. (REC-6's monitor
@@ -94,7 +108,8 @@ UNBUILT_FLAGS = {
 (CHECKS, TRANSIT, ACQUIRE, SEARCH, APPROACH, CENTRE, CONE_DESCENT, ENGAGE, LIFT, VERIFY_ATTACH, CLIMB, RETURN, SET_DOWN, CLEAR, COMPLETE) = (
     "CHECKS", "TRANSIT", "ACQUIRE", "SEARCH", "APPROACH", "CENTRE", "CONE_DESCENT", "ENGAGE", "LIFT", "VERIFY_ATTACH", "CLIMB", "RETURN", "SET_DOWN", "CLEAR", "COMPLETE",
 )  # fmt: skip
-ABORT_CLIMB, LOST_TARGET, CARRYING_FAULT, FAILED, LANDING = "ABORT_CLIMB", "LOST_TARGET", "CARRYING_FAULT", "FAILED", "LANDING"
+ABORT_CLIMB, LOST_TARGET, CARRYING_FAULT, FAILED, LANDING, RETREAT = "ABORT_CLIMB", "LOST_TARGET", "CARRYING_FAULT", "FAILED", "LANDING", "RETREAT"
+OVER_BUCKET = (APPROACH, CENTRE, CONE_DESCENT, ENGAGE, LIFT, VERIFY_ATTACH, ABORT_CLIMB, LOST_TARGET)  # a failure here retreats first
 CARRYING = (CLIMB, RETURN, SET_DOWN, CARRYING_FAULT)  # the bucket is on the hook
 
 RUNNING, SUCCESS, FAILURE = "running", "success", "failure"
@@ -117,11 +132,17 @@ LOST_MAX_HEIGHT_M = 10.0
 LOST_WAIT_S = 5.0  # at the top of the lost climb, for a track, before searching
 VERIFY_EXTRA_S = 5.0  # the attach check's hold may run this much over, waiting for fresh throttle
 ARRIVED_BACK_M = 0.3
+LOW_HEIGHT_MAX_AGE_S = 0.5  # below CENTRE the height is the rangefinder's, from a reading no older than this
+NO_POSITION_S = 1.0  # without a position for this long: the mission fails (or lands with the bucket)
+LAND_RETRY_S = 2.0  # a landing asked for and not yet seen is asked for again this often
+CARRY_LAND_LIMIT_S = 120.0  # a carrying fault's landing not seen for this long: the mission fails, and the executor's abort takes over
+MAX_RETURN_LEGS = 5  # the way back is begun again (the goal or its frame changed) at most this often
+GEOFENCE_MARGIN_M = 5.0  # the pickup and the search stay this far inside the flight boundary, when one is given
 MAX_TICK_S = 0.2  # a longer gap between ticks walks a setpoint no further than this much time
 CHECKS_S = 10.0
 MAX_PICKUP_DISTANCE_M = 1000.0  # a pickup further than this from the vehicle is a mistake in the coordinates
 # How long a state may last before it is given up (seconds). RETURN's and SEARCH's are worked out from their legs.
-STATE_LIMIT_S = {TRANSIT: 120.0, APPROACH: 60.0, CENTRE: 60.0, CONE_DESCENT: 90.0, ENGAGE: 30.0, LIFT: 30.0, VERIFY_ATTACH: 15.0, CLIMB: 30.0, SET_DOWN: 120.0, CLEAR: 30.0, ABORT_CLIMB: 30.0, LOST_TARGET: 60.0, LANDING: 90.0}  # fmt: skip
+STATE_LIMIT_S = {TRANSIT: 120.0, APPROACH: 60.0, CENTRE: 60.0, CONE_DESCENT: 90.0, ENGAGE: 30.0, LIFT: 30.0, VERIFY_ATTACH: 15.0, CLIMB: 30.0, SET_DOWN: 120.0, CLEAR: 30.0, ABORT_CLIMB: 30.0, LOST_TARGET: 60.0, LANDING: 90.0, RETREAT: 40.0}  # fmt: skip
 LEG_SLACK_S = 30.0
 
 
@@ -129,7 +150,7 @@ LEG_SLACK_S = 30.0
 class Plan:
     """The mission's configuration, checked."""
 
-    hook_below_m: float  # how far under the vehicle's origin the hook's tip hangs
+    hook_below_m: float  # how far the hook's tip hangs under where the height above the ground reads the vehicle to be
     suspension_length_m: float  # from the hook to the bucket's bottom, hanging
     vehicle_kg: float
     load_kg: float
@@ -161,6 +182,8 @@ class Plan:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0.0 or (name in positive and value <= 0.0):
                 raise ValueError(f"{name} must be a number {'above 0' if name in positive else 'of 0 or more'}, got {value!r}")
+        if self.engage.mode != "plunge":
+            raise ValueError(f"the engage is '{self.engage.mode}': the mission flies the plunge only (a sweep's crossing is not flown yet)")
         if not isinstance(self.land_after, bool):
             raise ValueError(f"land_after must be true or false, got {self.land_after!r}")
         if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int) or self.max_attempts < 1:
@@ -182,6 +205,7 @@ class Target:
     sigma_m: float
     age_s: float  # since the frame of its last hit
     confirmed: bool
+    is_bucket: bool = True  # the bucket's own track (the handle is on it); false: the X's, good for finding and centring only
 
 
 @dataclass(frozen=True)
@@ -203,6 +227,8 @@ class Readings:
     pickup_en: Optional[Tuple[float, float]] = None  # the pickup's coordinates in the local frame, once they can be placed
     target: Optional[Target] = None
     ack: Optional[grip.Ack] = None  # the newest answer to a gripper command
+    mode: Optional[str] = None  # the flight controller's mode, for seeing that a landing asked for was taken
+    boundary: Optional[Tuple[Tuple[float, float], ...]] = None  # the flight boundary's corners in the local frame, when one is given
 
 
 @dataclass(frozen=True)
@@ -259,6 +285,13 @@ class RecoveryFlight:
         self._clear_goal: Optional[Tuple[float, float, float]] = None
         self._verify_since_s: Optional[float] = None
         self._closed_attempt: Optional[int] = None  # the engage attempt whose gripper close has been commanded
+        self._no_position_since_s: Optional[float] = None
+        self._land_asked_s: Optional[float] = None
+        self._land_seen = False
+        self._fault_since_s: Optional[float] = None
+        self._fail_reason = ""
+        self._retreat_goal: Optional[Tuple[float, float]] = None
+        self._legs = 0
 
     # --- small helpers -----------------------------------------------------------------
 
@@ -274,8 +307,62 @@ class RecoveryFlight:
         return Command(FAILURE, reason=why)
 
     def _fault(self, now: float, why: str) -> None:
-        """With the bucket on the hook: nothing is let go; land with it."""
+        """With the bucket on the hook (or not known to be off it): nothing is let go; land with it."""
+        self._fault_since_s = now
         self._to(CARRYING_FAULT, now, why)
+
+    def _closed(self) -> bool:
+        """The gripper has been told to close in this attempt, and the attach check has not said the hook is empty."""
+        return self._closed_attempt is not None and self._engage.attempt == self._closed_attempt
+
+    def _give_up(self, r: Readings, now: float, why: str) -> Command:
+        """Fail from where the mission is: with the gripper closed, land with whatever is on it; over the bucket,
+        retreat first; otherwise fail on the spot."""
+        if self.state in (ENGAGE, LIFT, VERIFY_ATTACH) and self._closed():
+            self._fault(now, why + " (the gripper is closed: nothing is let go)")
+            return self._carrying_fault(r, now, self.reason)
+        if self.state in OVER_BUCKET and r.agl_m is not None and r.e is not None:
+            self._fail_reason, self._retreat_goal = why, None
+            self._to(RETREAT, now, why)
+            return self._hold(r)
+        return self._fail(now, why)
+
+    def _land(self, r: Readings, now: float, reason: str = "") -> Command:
+        """The flight controller's own landing, asked for now and again every LAND_RETRY_S until its mode is seen."""
+        self._landing = True
+        self._land_seen = self._land_seen or r.mode == LAND
+        # Once LAND has been the mode it is not asked for again: a pilot who then takes the vehicle out of it is not fought.
+        if not self._land_seen and (self._land_asked_s is None or now - self._land_asked_s >= LAND_RETRY_S):
+            self._land_asked_s = now
+            return Command(RUNNING, mode=LAND, reason=reason)
+        return Command(RUNNING, reason=reason)
+
+    def _inside(self, r: Readings, point: Tuple[float, float]) -> bool:
+        """Whether a place is GEOFENCE_MARGIN_M inside the flight boundary. True when no boundary is given."""
+        if not r.boundary:
+            return True
+        corners = list(r.boundary)
+        inside, nearest = False, math.inf
+        for (ax, ay), (bx, by) in zip(corners, corners[1:] + corners[:1]):
+            if (ay > point[1]) != (by > point[1]) and point[0] < ax + (bx - ax) * (point[1] - ay) / (by - ay):
+                inside = not inside
+            length2 = (bx - ax) ** 2 + (by - ay) ** 2
+            share = 0.0 if length2 <= 0.0 else max(0.0, min(1.0, ((point[0] - ax) * (bx - ax) + (point[1] - ay) * (by - ay)) / length2))
+            nearest = min(nearest, math.hypot(point[0] - (ax + share * (bx - ax)), point[1] - (ay + share * (by - ay))))
+        return inside and nearest >= GEOFENCE_MARGIN_M
+
+    def _may_descend(self, r: Readings) -> bool:
+        """Coming down outside the cone needs a confirmed track of this moment (the repo's rule for any descent)."""
+        return r.target is not None and r.target.confirmed and r.target.age_s <= cone_rule.MAX_TRACK_AGE_S
+
+    def _lower_only_on_a_track(self, r: Readings, up: float) -> float:
+        now_up = self._cmd[2] if self._cmd is not None else r.up
+        return up if up >= now_up or self._may_descend(r) else now_up
+
+    def _low_height(self, r: Readings) -> Optional[float]:
+        """The height above the ground for work near it: the rangefinder's, from a fresh reading, or none. A height
+        above home is not the ground's, and nothing is lowered onto a handle by it."""
+        return r.agl_m if r.agl_from_rangefinder and grip._fresh(r.range_age_s, LOW_HEIGHT_MAX_AGE_S) else None
 
     def _hold(self, r: Readings, reason: str = "") -> Command:
         if self._cmd is None:
@@ -311,7 +398,7 @@ class RecoveryFlight:
         return (target.e - (forward * math.cos(r.yaw_rad) - left * math.sin(r.yaw_rad)), target.n - (forward * math.sin(r.yaw_rad) + left * math.cos(r.yaw_rad)))
 
     def _hook_height(self, r: Readings) -> Optional[float]:
-        return cone_rule.hook_height_above_handle_m(r.agl_m, self.plan.hook_below_m, self.plan.handle_up_m)
+        return cone_rule.hook_height_above_handle_m(self._low_height(r), self.plan.hook_below_m, self.plan.handle_up_m)
 
     def _centre_agl(self) -> float:
         return self.plan.centre_above_handle_m + self.plan.hook_below_m + self.plan.handle_up_m
@@ -334,9 +421,13 @@ class RecoveryFlight:
         if r.e is None or r.n is None or r.up is None or r.yaw_rad is None:
             if self.state == CHECKS and now - self._started_s < CHECKS_S:
                 return Command(RUNNING, reason="waiting for a position")
-            if self.state in CARRYING:
+            self._no_position_since_s = self._no_position_since_s if self._no_position_since_s is not None else now
+            if self.state != CHECKS and now - self._no_position_since_s < NO_POSITION_S:
+                return Command(RUNNING, reason="no position this tick: the last setpoint stands")
+            if self.state in CARRYING or self._closed():
                 return self._carrying_fault(r, now, "no position")
             return self._fail(now, "no position from the flight controller")
+        self._no_position_since_s = None
         if self._previous_en is not None and not self._trusted(r):
             self._flown_untrusted_m += math.hypot(r.e - self._previous_en[0], r.n - self._previous_en[1])
         elif self._trusted(r):
@@ -350,25 +441,26 @@ class RecoveryFlight:
 
         carrying = self.state in CARRYING
         limit = STATE_LIMIT_S.get(self.state)
+        since = self._state_since_s
         if self.state == RETURN and self._leg_goal is not None:
-            limit = self._leg_duration() + LEG_SLACK_S
+            limit, since = self._leg_duration() + LEG_SLACK_S, self._leg_since_s  # (each leg has its own time)
         if self.state == SEARCH:
             limit = self._search_length_m() / self.plan.search_speed_mps + LEG_SLACK_S + 60.0
         out_of_time = now - self._started_s >= self.plan.time_budget_s
-        outstayed = limit is not None and now - self._state_since_s >= limit
-        if self.state not in (CARRYING_FAULT, CHECKS) and (outstayed or (out_of_time and not carrying)):
+        outstayed = limit is not None and now - since >= limit
+        if self.state not in (CARRYING_FAULT, CHECKS) and (outstayed or (out_of_time and not carrying and self.state not in (RETREAT, LANDING))):
             why = f"{self.state} lasted over {limit:g} s" if outstayed else f"the time budget of {self.plan.time_budget_s:g} s ran out in {self.state}"
             if carrying:
                 self._fault(now, why)
-            elif self.state in (ENGAGE, LIFT, VERIFY_ATTACH):
-                return self._fail(now, why + " (the gripper may be closed on the handle: nothing was let go)")
+            elif self.state == RETREAT:
+                return self._fail(now, self._fail_reason)
             else:
-                return self._fail(now, why)
+                return self._give_up(r, now, why)
 
         handler = {
             CHECKS: self._checks, TRANSIT: self._transit, ACQUIRE: self._acquire, SEARCH: self._search, APPROACH: self._approach, CENTRE: self._centre,
             CONE_DESCENT: self._cone_descent, ENGAGE: self._engaging, LIFT: self._lift, VERIFY_ATTACH: self._verify, CLIMB: self._climb, RETURN: self._return,
-            SET_DOWN: self._setting_down, CLEAR: self._clear, LANDING: self._landing_beside, ABORT_CLIMB: self._abort_climb, LOST_TARGET: self._lost, CARRYING_FAULT: self._carrying_fault,
+            SET_DOWN: self._setting_down, CLEAR: self._clear, LANDING: self._landing_beside, RETREAT: self._retreating, ABORT_CLIMB: self._abort_climb, LOST_TARGET: self._lost, CARRYING_FAULT: self._carrying_fault,
         }[self.state]  # fmt: skip
         if self.state == CARRYING_FAULT:
             return self._carrying_fault(r, now, self.reason)
@@ -390,6 +482,8 @@ class RecoveryFlight:
             away = math.hypot(r.pickup_en[0] - r.e, r.pickup_en[1] - r.n)
             if away > MAX_PICKUP_DISTANCE_M:
                 return self._fail(now, f"the pickup's coordinates are {away:.0f} m from the vehicle, over the {MAX_PICKUP_DISTANCE_M:g} m a pickup may be: not flown to")
+            if not self._inside(r, (r.pickup_en[0], r.pickup_en[1])):
+                return self._fail(now, f"the pickup's coordinates are not {GEOFENCE_MARGIN_M:g} m inside the flight boundary: not flown to")
             self._pickup = (float(r.pickup_en[0]), float(r.pickup_en[1]))
             self._search_centre = self._pickup
             self._to(TRANSIT, now)
@@ -438,6 +532,11 @@ class RecoveryFlight:
         blind = self._need_height(r, now)
         if blind is not None:
             return blind
+        while self._search_index < len(self.plan.search_waypoints):
+            east, north = self.plan.search_waypoints[self._search_index]
+            if self._inside(r, (self._search_centre[0] + east, self._search_centre[1] + north)):
+                break
+            self._search_index += 1  # a corner of the square outside the flight boundary is not flown to
         if self._search_index >= len(self.plan.search_waypoints):
             return self._fail(now, "the search ended with no track of the bucket or the X")
         east, north = self.plan.search_waypoints[self._search_index]
@@ -465,7 +564,7 @@ class RecoveryFlight:
             return blind
         over = self._over_handle(r, target)
         e, n = self._walk(r, over[0], over[1], capped_speed("survey", APPROACH_SPEED_MPS), dt)
-        up = self._climb_toward(r, self._up_for(r, self.plan.approach_height_m), 2.0, dt)
+        up = self._lower_only_on_a_track(r, self._climb_toward(r, self._up_for(r, self.plan.approach_height_m), 2.0, dt))
         if math.hypot(r.e - over[0], r.n - over[1]) <= OVER_M and abs(r.agl_m - self.plan.approach_height_m) <= 2.0 * HEIGHT_M:
             self._begin_centre(now)
         return self._local(e, n, up)
@@ -484,7 +583,7 @@ class RecoveryFlight:
             return blind
         over = self._over_handle(r, target)
         e, n = self._walk(r, over[0], over[1], capped_speed("centring", 1.0), dt)
-        up = self._climb_toward(r, self._up_for(r, self._centre_agl()), CLIMB_RATE_MPS, dt)
+        up = self._lower_only_on_a_track(r, self._climb_toward(r, self._up_for(r, self._centre_agl()), CLIMB_RATE_MPS, dt))
         error = cone_rule.hook_error_m((target.e, target.n), (r.e, r.n), r.yaw_rad, self.plan.hook_forward_left_m)
         settled = error is not None and error <= CENTRED_M and abs(r.agl_m - self._centre_agl()) <= HEIGHT_M and target.confirmed and target.age_s <= cone_rule.MAX_TRACK_AGE_S
         if not settled:
@@ -495,7 +594,7 @@ class RecoveryFlight:
                 self._attach.baseline_sample(r.throttle, now, r.throttle_age_s)  # the empty hover, before the grab
             if now - self._centred_since_s >= CENTRED_S:
                 if self.attempts >= self.plan.max_attempts:
-                    return self._fail(now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket")
+                    return self._give_up(r, now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket")
                 self.attempts += 1
                 self._cone.reset()
                 self._engage.reset()
@@ -503,7 +602,7 @@ class RecoveryFlight:
         return self._local(e, n, up)
 
     def _cone_descent(self, r: Readings, now: float, dt: float) -> Command:
-        target = r.target
+        target = r.target if r.target is not None and r.target.is_bucket else None  # the handle is on the bucket, not on the X
         hook_height = self._hook_height(r)
         error = None if target is None else cone_rule.hook_error_m((target.e, target.n), (r.e, r.n), r.yaw_rad, self.plan.hook_forward_left_m)
         age = None if target is None or not target.confirmed else target.age_s
@@ -529,11 +628,11 @@ class RecoveryFlight:
         return self._local(e, n, up, answer.reason)
 
     def _engaging(self, r: Readings, now: float, dt: float) -> Command:
-        target = r.target
+        target = r.target if r.target is not None and r.target.is_bucket else None
         # The engage's height rests on a detection as young as the cone asks for this low: without one it is not
         # given a height, and nothing is closed or lowered on a guess.
         fresh = target is not None and target.confirmed and target.age_s <= cone_rule.MAX_DETECTION_AGE_S
-        closed = self._engage.attempt == self._closed_attempt
+        closed = self._closed()
         hook_height = self._hook_height(r) if (fresh or closed) else None
         answer = self._engage.update(hook_height, r.ack, now)
         e, n, up = self._cmd if self._cmd is not None else (r.e, r.n, r.up)
@@ -546,25 +645,28 @@ class RecoveryFlight:
             self._closed_attempt = answer.attempt
             command = self._local(e, n, up)
             return Command(RUNNING, LOCAL, command.e, command.n, command.up, gripper=CLOSE, attempt=answer.attempt)
-        if answer.action == grip.REFUSED:
+        if answer.action == grip.REFUSED and not closed:
             self._to(ABORT_CLIMB, now, f"the engage was refused ({answer.reason})")
             return self._local(e, n, up)
-        if answer.action == grip.ENGAGED:
-            if r.agl_m is None:
-                return self._fail(now, "no height above the ground at the engage (the gripper is closed on the handle: nothing was let go)")
+        if answer.action in (grip.ENGAGED, grip.REFUSED):
+            # The gripper was told to close. Acknowledged or not, what is on the hook is now for the lift and the
+            # attach check to say: a close that was refused, or never answered, may still have taken the handle.
+            low = self._low_height(r)
+            if low is None:
+                return self._local(e, n, up, "the gripper is closed; waiting for the rangefinder's height before the lift")
             # The rangefinder's reading with the hook at the handle of the standing bucket: the height at which the
             # hanging bucket will touch the ground again, for the set-down.
-            self._touch_range_m = r.agl_m
-            self._lift_to_agl = r.agl_m + grip.lift_height_m(self.plan.suspension_length_m)
-            self._to(LIFT, now)
+            self._touch_range_m = low
+            self._lift_to_agl = low + grip.lift_height_m(self.plan.suspension_length_m)
+            self._to(LIFT, now, "" if answer.action == grip.ENGAGED else f"the gripper's close was not acknowledged ({answer.reason}): lifting to see what is on the hook")
         return self._local(e, n, up)
 
     def _lift(self, r: Readings, now: float, dt: float) -> Command:
-        blind = self._need_height(r, now)
-        if blind is not None:
-            return blind
-        up = self._climb_toward(r, self._up_for(r, self._lift_to_agl), LIFT_RATE_MPS, dt)
-        if r.agl_m >= self._lift_to_agl - 0.05:
+        low = self._low_height(r)
+        if low is None:
+            return self._hold(r, "no rangefinder height: holding the lift")
+        up = self._climb_toward(r, r.up + (self._lift_to_agl - low), LIFT_RATE_MPS, dt)
+        if low >= self._lift_to_agl - 0.05:
             self._verify_since_s = now
             self._to(VERIFY_ATTACH, now)
         return self._local(self._cmd[0], self._cmd[1], up)
@@ -575,6 +677,11 @@ class RecoveryFlight:
         if held < grip.VERIFY_HOLD_S or (not self._attach.ready and held < grip.VERIFY_HOLD_S + VERIFY_EXTRA_S):
             return self._hold(r)
         verdict = self._attach.verdict()
+        if not self._attach.ready:
+            # The check could not be made (no fresh throttle before the grab, or in this hold): what is on the hook
+            # is not known, and a hook that may hold the bucket is not flown about as if it were empty.
+            self._fault(now, f"the attach check could not be made ({verdict.reason}): the bucket may be on the hook")
+            return self._carrying_fault(r, now, self.reason)
         if verdict.attached:
             self._watch = grip.LoadWatch(self._attach.baseline_throttle, self._attach.loaded_throttle)
             self._to(CLIMB, now)
@@ -584,6 +691,7 @@ class RecoveryFlight:
         fresh = grip.AttachCheck(self.plan.vehicle_kg, self.plan.load_kg)
         fresh._baseline = list(self._attach._baseline)
         self._attach = fresh
+        self._closed_attempt = None  # the hook is empty, by the throttle
         self._to(ABORT_CLIMB, now, f"not attached: {verdict.reason}")
         return self._hold(r)
 
@@ -594,7 +702,7 @@ class RecoveryFlight:
         if blind is not None:
             return blind
         if self.attempts >= self.plan.max_attempts:
-            return self._fail(now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket ({self.reason})")
+            return self._give_up(r, now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket ({self.reason})")
         goal = self._up_for(r, self._centre_agl())
         up = self._climb_toward(r, goal, CLIMB_RATE_MPS, dt)
         if r.agl_m >= self._centre_agl() - HEIGHT_M:
@@ -605,7 +713,7 @@ class RecoveryFlight:
         if self._seen(r) is not None:
             self._lost_top_since_s = None
             if self.attempts >= self.plan.max_attempts:
-                return self._fail(now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket ({self.reason})")
+                return self._give_up(r, now, f"{self.plan.max_attempts} descents onto the handle did not take the bucket ({self.reason})")
             self._to(APPROACH if r.agl_m is not None and r.agl_m > self._centre_agl() + HEIGHT_M + 1.0 else CENTRE, now)
             self._centred_since_s = None
             return self._hold(r)
@@ -622,7 +730,7 @@ class RecoveryFlight:
         if now - self._lost_top_since_s >= LOST_WAIT_S:
             self._lost_top_since_s = None
             if not self.plan.search_waypoints:
-                return self._fail(now, "the bucket was lost and no search is planned")
+                return self._give_up(r, now, "the bucket was lost and no search is planned")
             if self._last_target is not None:
                 self._search_centre = (self._last_target.e, self._last_target.n)
             self._search_index = 0
@@ -634,10 +742,23 @@ class RecoveryFlight:
             self._fault(now, why)
         if r.landed is True and grip._fresh(r.landed_age_s, grip.LANDED_MAX_AGE_S):
             return self._fail(now, f"landed with the bucket on the hook: {self.reason}")
-        if not self._landing:
-            self._landing = True
-            return Command(RUNNING, mode=LAND, reason=self.reason)
-        return Command(RUNNING, reason=self.reason)
+        if self._fault_since_s is not None and now - self._fault_since_s >= CARRY_LAND_LIMIT_S:
+            return self._fail(now, f"no landing seen {CARRY_LAND_LIMIT_S:g} s after it was first asked for ({self.reason})")
+        return self._land(r, now, self.reason)
+
+    def _retreating(self, r: Readings, now: float, dt: float) -> Command:
+        """Failing over the bucket with nothing on the hook: up and to the side, then the failure."""
+        if r.agl_m is None:
+            return self._fail(now, self._fail_reason)
+        e, n = self._cmd[0], self._cmd[1]
+        if self._retreat_goal is None:
+            self._retreat_goal = (e + self.plan.clear_aside_m, n)
+        up = self._climb_toward(r, self._up_for(r, max(self._centre_agl(), r.agl_m)), CLIMB_RATE_MPS, dt)
+        if r.agl_m >= self._centre_agl() - HEIGHT_M:
+            e, n = self._walk(r, self._retreat_goal[0], self._retreat_goal[1], capped_speed("centring", 1.0), dt)
+            if math.hypot(r.e - self._retreat_goal[0], r.n - self._retreat_goal[1]) <= ARRIVED_BACK_M:
+                return self._fail(now, self._fail_reason)
+        return self._local(e, n, up)
 
     # --- back with the bucket ----------------------------------------------------------
 
@@ -663,6 +784,10 @@ class RecoveryFlight:
             goal = back.return_goal(self.plan.return_target, gps_trusted=False, takeoff=self._takeoff, flown_untrusted_m=self._flown_untrusted_m, vehicle_en=(r.e, r.n))  # no height to give a global setpoint
         if self._leg_goal is None or goal.frame != self._leg_goal.frame or math.hypot(goal.e - self._leg_goal.e, goal.n - self._leg_goal.n) > 0.05:
             # A new leg from where the vehicle is: at the start, and whenever the goal or its frame changes.
+            self._legs += 1
+            if self._legs > MAX_RETURN_LEGS:
+                self._fault(now, f"the way back was begun {MAX_RETURN_LEGS} times over (the goal or its frame kept changing)")
+                return self._carrying_fault(r, now, self.reason)
             self._leg_start = back.Anchor(r.e, r.n, *(r.fix if goal.frame == GLOBAL else (None, None)))
             self._leg_goal, self._leg_since_s = goal, now
             length = back.leg_length_m(self._leg_start, goal)
@@ -709,10 +834,7 @@ class RecoveryFlight:
             self._to(CLEAR, now)
             return self._local(e, n, up)
         if answer.action == back.LAND:
-            if not self._landing:
-                self._landing = True
-                return Command(RUNNING, mode=LAND, reason=answer.reason)
-            return Command(RUNNING, reason=answer.reason)
+            return self._land(r, now, answer.reason)
         if self._landing:
             return Command(RUNNING, gripper=OPEN if answer.open_gripper else None, attempt=answer.attempt)
         command = self._local(e, n, up + answer.rate_up_mps * dt)
@@ -735,7 +857,7 @@ class RecoveryFlight:
             if math.hypot(r.e - east, r.n - north) <= ARRIVED_BACK_M:
                 if self.plan.land_after:
                     self._to(LANDING, now)
-                    return Command(RUNNING, mode=LAND)
+                    return self._land(r, now)
                 self._to(COMPLETE, now)
                 return Command(SUCCESS)
         return self._local(e, n, up)
@@ -744,7 +866,7 @@ class RecoveryFlight:
         if r.landed is True and grip._fresh(r.landed_age_s, grip.LANDED_MAX_AGE_S):
             self._to(COMPLETE, now)
             return Command(SUCCESS)
-        return Command(RUNNING)
+        return self._land(r, now)
 
 
 HOME_HEIGHT_TOPIC = "/mavros/global_position/rel_alt"  # std_msgs/Float64: the height above home
@@ -822,6 +944,9 @@ def plan_from_config(config: Any, features: Any, get_flag: Any, search_waypoints
         "search_height_m", "search_speed_mps", "approach_height_m", "centre_above_handle_m", "carry_height_m", "carry_speed_mps", "pendulum_m", "clear_aside_m",
         "time_budget_s", "max_attempts", "land_after",
     }  # fmt: skip
+    unknown = sorted(set(config) - known - {"return_target", "engage"})
+    if unknown:
+        raise ValueError(f"the recovery mission has no setting(s) {', '.join(unknown)}")
     values = {key: config[key] for key in known if key in config}
     if "hook_forward_left_m" in values:
         offset = values["hook_forward_left_m"]

@@ -196,7 +196,7 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("rate_check")  # and to have the message rates the stream keeper holds
     if (manifest.get("flags") or {}).get("use_frame_time_pose") is True and manifest.get("target", True) is not False:
         needed.add("projection_check")  # projection v2's ground point is compared with the truth
-    if (manifest.get("flags") or {}).get("use_target_estimator") is True:
+    if (manifest.get("flags") or {}).get("use_target_estimator") is True and manifest.get("target", True) is not False:
         needed.add("estimator_check")  # the estimator's bullseye track is compared with the truth
     if (manifest.get("flags") or {}).get("use_height_estimator") is True:
         needed.add("height_check")  # the height estimator's height and source are compared with the true height
@@ -209,7 +209,7 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("sensor_check")  # the camera's rate and the rangefinder are checked against the truth
     if manifest.get("truth_poses") is True:
         needed.add("truth_poses")  # true poses go out on /sim/truth/poses
-    if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True:
+    if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True and manifest.get("mission") != "recovery":
         needed.add("loc_check")  # the localisation pipeline's rate, its start and stop, and what it reports
     if ((manifest.get("node_flags") or {}).get("recovery_cv") or {}).get("recovery_cv") is True:
         needed.add("recovery_cv_check")  # the green X and bucket detector's pixels against the truth

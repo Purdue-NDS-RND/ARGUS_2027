@@ -1,0 +1,119 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node, SetParameter
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
+
+
+def generate_launch_description() -> LaunchDescription:
+    params = PathJoinSubstitution(
+        [
+            FindPackageShare("drone_mission_demo"),
+            LaunchConfiguration("params"),
+        ]
+    )
+    sequence = PathJoinSubstitution(
+        [
+            FindPackageShare("drone_mission_demo"),
+            LaunchConfiguration("sequence"),
+        ]
+    )
+
+    takeoff_service_node = Node(
+        package="drone_utils",
+        executable="simple_takeoff_service",
+        name="simple_takeoff_service",
+        output="screen",
+        parameters=[params],
+    )
+
+    executor_node = Node(
+        package="drone_mission_core",
+        executable="mission_executor",
+        name="mission_executor",
+        output="screen",
+        parameters=[
+            params,
+            {
+                "sequence_file": sequence,
+                # Flags to turn on for this launch; empty changes nothing.
+                "feature_overrides": ParameterValue(
+                    LaunchConfiguration("feature_overrides"), value_type=str
+                ),
+                "mission_modules": ["drone_mission_demo.missions"],
+            },
+        ],
+    )
+
+    # The sim's oracle detector, as a stand-in for a detector that sees the bucket all the way down (REC-2): the
+    # localisation node run for its oracle alone, its boxes sent to the topic the estimator listens to for a
+    # detector named sim_oracle. Started only when asked (loc_node:=true); its features.loc_node and
+    # features.sim_oracle_detector flags must be on in the params file as well, and it refuses to run outside
+    # the sim.
+    loc_node = Node(
+        package="argus_localisation",
+        executable="loc_node",
+        name="loc_node",
+        output="screen",
+        parameters=[params],
+        remappings=[("/loc/detections", "/perception/sim_oracle/detections")],
+        condition=IfCondition(LaunchConfiguration("loc_node")),
+    )
+
+    # The green X and bucket detector (REC-1). Started only when asked (recovery_cv:=true); its
+    # features.recovery_cv flag must be on in the params file as well, or it does nothing.
+    recovery_cv_node = Node(
+        package="drone_target_cv",
+        executable="recovery_cv",
+        name="recovery_cv",
+        output="screen",
+        parameters=[params],
+        condition=IfCondition(LaunchConfiguration("recovery_cv")),
+    )
+
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "use_sim_time",
+                default_value="false",
+                description="Run every node of this launch on /clock (the sim started with SIM_TIME=1)",
+            ),
+            # Adds nothing to any node unless use_sim_time is true.
+            SetParameter(
+                name="use_sim_time",
+                value=True,
+                condition=IfCondition(LaunchConfiguration("use_sim_time")),
+            ),
+            DeclareLaunchArgument(
+                "feature_overrides",
+                default_value="",
+                description="Feature flags to turn on for this launch, comma-separated (profiles/README.md)",
+            ),
+            DeclareLaunchArgument(
+                "params",
+                default_value="config/params/sim_recovery_mission.yaml",
+                description="ROS params YAML relative to the drone_mission_demo package",
+            ),
+            DeclareLaunchArgument(
+                "sequence",
+                default_value="config/sequences/sim_package_recovery.yaml",
+                description="Mission sequence YAML relative to the drone_mission_demo package",
+            ),
+            DeclareLaunchArgument(
+                "loc_node",
+                default_value="false",
+                description="Start the sim's oracle detector as the bucket's detector (its features.loc_node and features.sim_oracle_detector flags must be on as well)",
+            ),
+            DeclareLaunchArgument(
+                "recovery_cv",
+                default_value="false",
+                description="Start the green X and bucket detector (its features.recovery_cv flag must be on as well)",
+            ),
+            takeoff_service_node,
+            executor_node,
+            loc_node,
+            recovery_cv_node,
+        ]
+    )

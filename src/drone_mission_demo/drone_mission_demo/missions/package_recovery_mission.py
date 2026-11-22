@@ -51,7 +51,8 @@ from drone_mission_core.registry import register_mission
 FLAG = "package_recovery"  # recovery_flight.FLAG (a test holds the two together); named here so that the flag-off path imports nothing new
 SEARCH_RADIUS_M = 25.0
 FIX_MAX_AGE_S = 2.0
-TARGET_CLASSES = ("bucket", "green_x")  # the bucket's own track first: the handle is on it
+POSE_MAX_AGE_S = 0.5
+TARGET_CLASSES = ("bucket", "green_x")  # the bucket's own track first: the handle is on it. The X's finds and centres; the cone and the engage go by the bucket's only
 CONFIRMED = "CONFIRMED"
 LOG_EVERY_S = 2.0
 
@@ -90,12 +91,18 @@ class PackageRecoveryMission(BaseMission):
             search_height = float(config.get("search_height_m", 20.0))
             spacing = coverage_planner.track_spacing(min(across, along) * search_height)
             self.plan = recovery_flight.plan_from_config(
-                {key: value for key, value in config.items() if key not in ("pickup", "ground_below_home_m", "camera_mode", "airframe")},
+                {key: value for key, value in config.items() if key not in ("pickup", "ground_below_home_m", "camera_mode", "airframe", "flight_boundary")},
                 spec.features,
                 get_feature_flag,
                 recovery_flight.expanding_square(spacing, SEARCH_RADIUS_M),
                 min(across, along),
             )
+            self._boundary_latlon = None
+            if config.get("flight_boundary") is not None:
+                corners = config["flight_boundary"]
+                if not isinstance(corners, (list, tuple)) or len(corners) < 3:
+                    raise ValueError("flight_boundary must be three or more [latitude, longitude] corners")
+                self._boundary_latlon = [self._pickup({"latlon": corner})[0] for corner in corners]
             if self.plan.gps_untrusted and self._pickup_local is None:
                 raise ValueError(f"with {recovery_flight.UNTRUSTED_FLAG} on the pickup is given in the local frame (pickup: {{local: [east, north]}}): a latitude and longitude cannot be placed without trusting GPS")
         except ValueError as error:
@@ -127,8 +134,11 @@ class PackageRecoveryMission(BaseMission):
         self._yaw_deg: Optional[float] = None
         self._placed: Optional[Tuple[float, float]] = self._pickup_local
         self._near: Optional[Tuple[float, float]] = None
+        self._boundary: Any = None  # the flight boundary in the local frame, once its corners can be placed
         self._said_state = ""
         self._last_log_s = -1.0e9
+        if self._boundary_latlon is None:
+            context.logger.warn(f"[{self.name}] no flight_boundary is given: the pickup and the search are held only to 1000 m of the vehicle and to the flight controller's fence")
 
     def on_exit(self, context: Any) -> None:
         if self._enabled:
@@ -163,6 +173,12 @@ class PackageRecoveryMission(BaseMission):
         now_s = context.now().nanoseconds * 1.0e-9
         values: dict = {"now_s": now_s, "ack": self._ack}
         pose = context.local_pose
+        state = getattr(context, "mavros_state", None)
+        stamp = None if pose is None else _stamp_s(pose)
+        # A position counts while the flight controller is connected and the pose is of this moment.
+        if pose is not None and (state is None or not getattr(state, "connected", False) or stamp is None or not -0.1 <= now_s - stamp <= POSE_MAX_AGE_S):
+            pose = None
+        values["mode"] = getattr(state, "mode", None)
         if pose is not None:
             position = pose.pose.position
             values.update(e=float(position.x), n=float(position.y), up=float(position.z), yaw_rad=_yaw_rad(pose.pose.orientation))
@@ -191,12 +207,18 @@ class PackageRecoveryMission(BaseMission):
             placed = context.latlon_to_local_enu(*self._pickup_latlon)
             if placed is not None:
                 self._placed = (float(placed[0]), float(placed[1]))
-        values["pickup_en"] = self._placed
+        if self._boundary_latlon is not None and self._boundary is None:
+            placed = [context.latlon_to_local_enu(lat, lon) for lat, lon in self._boundary_latlon]
+            if all(point is not None for point in placed):
+                self._boundary = tuple((float(point[0]), float(point[1])) for point in placed)
+        values["boundary"] = self._boundary
+        # (With a boundary given, the pickup is not handed over until the boundary can be placed too: CHECKS waits.)
+        values["pickup_en"] = self._placed if self._boundary_latlon is None or self._boundary is not None else None
         for class_id in TARGET_CLASSES:
             track = context.primary_target(class_id, near=self._near)
             if track is not None and track.state in (CONFIRMED, "COASTING"):
                 self._near = (track.position[0], track.position[1])
-                values["target"] = rf.Target(track.position[0], track.position[1], float(track.sigma_m), float(track.age_s), track.state == CONFIRMED)
+                values["target"] = rf.Target(track.position[0], track.position[1], float(track.sigma_m), float(track.age_s), track.state == CONFIRMED, class_id == "bucket")
                 break
         return rf.Readings(**values)
 

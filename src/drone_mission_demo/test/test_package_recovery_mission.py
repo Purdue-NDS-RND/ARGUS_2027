@@ -35,7 +35,7 @@ S = 1_000_000_000
 PICKUP = {"latlon": list(world_tests.World().anchor.to_global(40.0, 30.0))}  # the world's bucket, as a latitude and longitude
 # The test world's own: its bucket's place, and the masses its throttle is made for (0.40 empty, 0.45 loaded: the
 # rise 1 kg gives a 4 kg vehicle; the sim vehicle's 1.755 kg would ask for more rise than that).
-WORLD = {"pickup": PICKUP, "vehicle_kg": 4.0, "load_kg": 1.0}
+WORLD = {"pickup": PICKUP, "vehicle_kg": 4.0, "load_kg": 1.0, "hook_below_m": world_tests.HOOK, "handle_up_m": world_tests.HANDLE}
 
 
 def mission(features=ON, **config):
@@ -61,11 +61,20 @@ class Context:
     def now(self):
         return centring_tests.stand_ins.FakeTime(int(round(self.world.t * S)))
 
+    connected, pose_age_s = True, 0.02
+
+    @property
+    def mavros_state(self):
+        return SimpleNamespace(connected=self.connected, mode="LAND" if self.world.landing else "GUIDED")
+
     @property
     def local_pose(self):
         e, n, up = self.world.pos
         half = math.pi / 4.0  # facing north: a yaw of 90 degrees
-        return SimpleNamespace(pose=SimpleNamespace(position=SimpleNamespace(x=e, y=n, z=up), orientation=SimpleNamespace(x=0.0, y=0.0, z=math.sin(half), w=math.cos(half))))
+        return SimpleNamespace(
+            header=SimpleNamespace(stamp=self._stamp(self.pose_age_s)),
+            pose=SimpleNamespace(position=SimpleNamespace(x=e, y=n, z=up), orientation=SimpleNamespace(x=0.0, y=0.0, z=math.sin(half), w=math.cos(half))),
+        )
 
     def height_agl(self, ground_below_home_m=0.0):
         return target_access.HeightAgl(self.world.agl(), "rangefinder")
@@ -183,7 +192,7 @@ def test_with_the_flag_on_the_mission_flies_the_recovery_through_the_context():
     assert [release for _t, release in context.gripper_calls] == [False, True] and world.opens[0][2] is True
     # GPS trusted: global setpoints on the way back, each with the yaw the mission began with; a landing at the end.
     assert len(context.global_sets) > 20 and {round(yaw) for *_rest, yaw in context.global_sets + [s[1:] for s in context.local_sets]} == {90}
-    assert context.modes == ["LAND"] and context.errors == [] and context.cleared >= 2
+    assert context.modes == ["LAND"] and context.errors == [] and context.cleared >= 2  # asked once: its mode was seen
     # The bucket's own track is asked for first, near where it was last seen.
     assert context.near_asked[0] == ("bucket", None) and any(near is not None for _class, near in context.near_asked)
     states = [line for line in context.infos if "State:" in line]
@@ -226,6 +235,32 @@ def test_the_shipped_sequence_declares_every_flag_false_and_its_numbers_make_a_p
         with pytest.raises(ValueError):
             mission(**bad)
     assert get_feature_flag(flags, "package_recovery") is False
+
+
+def test_a_stale_pose_or_a_lost_connection_is_no_position_and_a_boundary_is_placed_before_the_pickup():
+    for fault in ({"pose_age_s": 2.0}, {"connected": False}):
+        context = Context(world_tests.World())
+        for name, value in fault.items():
+            setattr(context, name, value)
+        flown = mission()
+        flown.on_enter(context)
+        status = MissionStatus.RUNNING
+        for _ in range(int(12.0 * 20)):
+            status = context.tick(flown)
+            if status != MissionStatus.RUNNING:
+                break
+        assert status == MissionStatus.FAILURE and "no position" in context.errors[-1] and context.local_sets == [] and context.global_sets == []
+    # A flight boundary is given as latitudes and longitudes; the pickup outside it is refused before anything moves.
+    world = world_tests.World()
+    corners = [list(world.anchor.to_global(east, north)) for east, north in ((-20.0, -20.0), (30.0, -20.0), (30.0, 50.0), (-20.0, 50.0))]
+    flown, context = mission(flight_boundary=corners), Context(world)
+    assert run(flown, context, seconds=5.0) == MissionStatus.FAILURE and "flight boundary" in context.errors[-1]
+    with pytest.raises(ValueError, match="flight_boundary"):
+        mission(flight_boundary=[[0.0, 0.0]])
+    with pytest.raises(ValueError, match="plunge only"):
+        mission(engage={"mode": "sweep"})
+    with pytest.raises(ValueError, match="no setting"):
+        mission(handle_height_m=0.3)
 
 
 def test_the_home_height_feed_pairs_the_height_above_home_with_the_local_height():

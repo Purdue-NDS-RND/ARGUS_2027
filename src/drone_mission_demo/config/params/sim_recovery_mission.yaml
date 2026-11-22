@@ -1,0 +1,70 @@
+# The sim's recovery flight (REC-2): the 2026 take-off service settings, the executor with recovery's abort mode
+# (REC-7) and the detectors the estimator listens to, the green X and bucket detector, and the sim's oracle
+# detector as a stand-in for a detector that sees the bucket all the way down. Every flag is false: as shipped,
+# neither detector node does anything.
+simple_takeoff_service:
+  ros__parameters:
+    default_takeoff_altitude_m: 20.0
+    guided_mode_name: "GUIDED"
+    mode_retry_s: 2.0
+    arm_retry_s: 5.0
+    max_arm_attempts: 5
+    post_arm_settle_s: 5.0
+    takeoff_retry_s: 5.0
+    loop_rate_hz: 2.0
+    stream_rate_hz: 20
+    required_topics:
+      - "/mavros/local_position/pose"
+      - "/mavros/imu/data"
+      - "/mavros/extended_state"
+
+mission_executor:
+  ros__parameters:
+    loop_rate_hz: 20.0
+    abort_rtl_mode: "LAND"           # recovery aborts by landing: an RTL refused for want of a position is asked for again for ever (REC-7)
+    estimator_detectors: ["recovery_cv", "sim_oracle"]  # whose detections the target estimator takes: the green X detector's, and the sim oracle's when a scenario runs it
+
+loc_node:  # The sim's oracle detector as the bucket's detector: a stand-in, sim only. Only started by a launch given loc_node:=true.
+  ros__parameters:
+    camera_mode: "sim_delivery"      # the sensor mode the frames come from (argus_camera modes.yaml)
+    airframe: "sim_iris_downcam"     # the airframe whose camera mount is used (argus_camera robot.yaml)
+    image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
+    detector: "oracle"               # the sim's stand-in for the trained detector, behind features.sim_oracle_detector
+    engine_path: ""                  # the sim runs no engine
+    engine_classes: ["marker"]       # (the engine detector's class list; not used by the oracle)
+    start_enabled: true              # no survey mission starts it here: it runs from the start, when its flags are on
+    sim_only: true                   # this file is the sim's: the oracle refuses to run without this and sim time
+    ground_below_home_m: 0.0   # how far the ground under the survey is below home, in metres (negative: above it); where boxes are put when the rangefinder is not believed
+    oracle_objects_file: ""          # written into the run folder by the sim's scenario build
+    oracle_seed: 0                   # the scenario's seed, set by the build
+    oracle_pixel_sigma_px: 2.0       # the oracle's pixel noise, in full-frame pixels
+    oracle_miss_rate: 0.05           # the share of sightings the oracle leaves out
+    oracle_false_alarms_per_frame: 0.02  # boxes of nothing added to a frame, on average
+    digit_model_path: ""         # the trained digit classifier's ONNX file; with none the digit reader does not start, and the node runs without it
+    digit_min_confidence: 0.9    # the digit reader answers only when its best digit has at least this probability; written with a decimal point
+    digit_ids_unique: true       # the rules give each digit to one marker: two tracks claiming one digit are settled by one assignment over tracks and digits. False switches that step off.
+    judges_list_dir: ""          # the folder the judges' list is written in; its parent must exist
+    frame_log_dir: ""            # the folder the survey's frames are logged under (a new folder each survey); it must exist: outside the repo, on the NVMe
+    frame_log_workers: 3         # threads that encode the JPEGs (the Orin Nano has no hardware encoder); 1 or more, a whole number
+    frame_log_jpeg_quality: 90   # JPEG quality of the logged frames; a whole number
+    frame_log_max_gb: 400.0      # one survey's log stops at this size; written with a decimal point
+    frame_log_min_free_gb: 20.0  # the logging stops, or does not start, with less than this free on the disk; written with a decimal point
+    features:
+      loc_node: false              # Run the localisation pipeline: frames to /loc/detections and /loc/status (loc_node.py).
+      sim_oracle_detector: false   # The sim's oracle detector: true object poses through the camera model. Sim only (oracle.py).
+      loc_tiling: false            # Give the detector overlapping windows of the full frame instead of the shrunk frame (tiling.py).
+      marker_tracker: false        # Track the markers on the ground and publish /loc/tracks (marker_tracker.py, LOC-7).
+      loc_median_position: false   # A track's published position is the weighted median of its sightings, not the filter's (final_position.py, LOC-9). Needs marker_tracker.
+      survey_frame_log: false      # Log every frame of the survey as JPEG under frame_log_dir, giving way to the detector (frame_logging.py, LOC-11).
+      digit_reader: false          # Read the digit of every marker crop, or abstain (digit_reader.py, LOC-6).
+      template_digit_classifier: false  # The digit reader's stand-in classifier for the sim's marker model; not a trained model. Needs digit_reader, sim time and sim_only.
+      digit_vote: false            # A track's digit is the weighted vote of its readings, one digit to one track (digit_vote.py, LOC-8). Needs marker_tracker and digit_reader.
+      judges_list: false           # Write the judges' list (ID,Latitude,Longitude), a KML and a map in judges_list_dir as the tracks change (judges_list.py, LOC-10). Needs marker_tracker.
+
+recovery_cv:  # The green X and bucket detector (REC-1). Only started by a launch given recovery_cv:=true.
+  ros__parameters:
+    camera_mode: "sim_delivery"      # the sensor mode the frames come from (argus_camera modes.yaml)
+    airframe: "sim_iris_downcam"     # the airframe whose camera mount is used (argus_camera robot.yaml)
+    image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
+    features:
+      recovery_cv: false             # Look for the recovery mat's green X and the bucket in each frame and report them on the detection contract (green_x.py, REC-1).

@@ -54,8 +54,12 @@ POSE_TOPIC = "/mavros/local_position/pose"
 
 
 def wanted(manifest: dict) -> bool:
-    """Whether a built scenario turns the estimator's flag on, so that its flight is checked."""
-    return (manifest.get("flags") or {}).get(FLAG) is True
+    """Whether a built scenario turns the estimator's flag on and has a target, so that its flight is checked.
+
+    The check compares the estimator's bullseye track with the scenario's target. A scenario with no such target
+    (the recovery mission's is its bucket) gives it nothing to compare, as with the projection check.
+    """
+    return (manifest.get("flags") or {}).get(FLAG) is True and manifest.get("target", True) is not False
 
 
 def band_name(height_m: float) -> str:

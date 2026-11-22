@@ -55,8 +55,12 @@ LISTED_STATES = (1, 2)  # MarkerTrack.msg: CONFIRMED, COASTING
 
 
 def wanted(manifest: dict) -> bool:
-    """Whether a built scenario turns the localisation node on, so that its flight is checked."""
-    return ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True
+    """Whether a built scenario runs the localisation pipeline, so that its flight is checked.
+
+    Not a recovery flight's: there the node runs only as the sim's oracle detector, from the start to the end and
+    on the estimator's topic (REC-2), and none of what this check asks of a survey's pipeline applies.
+    """
+    return (((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True) and manifest.get("mission") != "recovery"
 
 
 def expected_classes(run_dir) -> Set[str]:

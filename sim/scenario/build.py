@@ -369,11 +369,17 @@ def build_sequence(scenario: Scenario, shipped: dict, objects: list[dict], site:
     lat0, lon0 = site.origin.latitude_deg, site.origin.longitude_deg
     for mission_name, object_name in scenario.targets.items():
         config = entry_for(mission_name, "targets").get("config") or {}
-        if "target_latitude" not in config or "target_longitude" not in config:
-            raise BuildError(f"targets: mission '{mission_name}' takes no target_latitude and target_longitude")
+        takes_pickup = "pickup" in config  # the recovery mission's target is its pickup's coordinates (REC-2)
+        if not takes_pickup and ("target_latitude" not in config or "target_longitude" not in config):
+            raise BuildError(f"targets: mission '{mission_name}' takes no target_latitude and target_longitude, and no pickup")
         if object_name not in by_name:
             raise BuildError(f"targets: there is no object named '{object_name}'")
         target = by_name[object_name]
+        if takes_pickup:
+            # (No truth "target" for it: that is the bullseye the projection and estimator checks compare with. The
+            # recovery's own truth is the scenario's bucket, which the recovery judge reads.)
+            config["pickup"] = {"latlon": list(latlon_for(lat0, lon0, target["n"] + error_north, target["e"] + error_east))}
+            continue
         config["target_latitude"], config["target_longitude"] = latlon_for(lat0, lon0, target["n"] + error_north, target["e"] + error_east)
         truth.setdefault("target", {"name": object_name, "e": target["e"], "n": target["n"]})
 

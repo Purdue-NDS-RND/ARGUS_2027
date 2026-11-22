@@ -31,7 +31,8 @@ def plan(**given):
 class World:
     """Everything outside the flight: where things are, what is seen, what the gripper and the throttle do."""
 
-    def __init__(self, bucket=(40.0, 30.0), pickup=None, see_above_agl=0.0, lose_below_hook_m=None, grab_misses=0, open_result=0, gps=True, home_up=0.0):
+    def __init__(self, bucket=(40.0, 30.0), pickup=None, see_above_agl=0.0, lose_below_hook_m=None, grab_misses=0, open_result=0, gps=True, home_up=0.0,
+                 land_refusals=0, sigma=0.1, lose_for_good=False, rangefinder=True, close_result=0, x_only=False, boundary=None):  # fmt: skip
         self.t = 100.0
         self.pos = [0.0, 0.0, 15.0]
         self.bucket = list(bucket)  # where the bucket stands (or hangs)
@@ -48,6 +49,10 @@ class World:
         self.throttle_override = None
         self.min_hook_height = 99.0
         self.seen = []  # for each tick, whether the bucket was in the readings
+        self.land_refusals, self.sigma, self.lose_for_good, self.rangefinder = land_refusals, sigma, lose_for_good, rangefinder
+        self.close_result, self.x_only, self.boundary = close_result, x_only, boundary
+        self.lost_once = False
+        self.max_agl_after_loss = 0.0
 
     def agl(self):
         return self.pos[2]
@@ -65,13 +70,20 @@ class World:
         visible = self.agl() >= self.see_above_agl and offset <= 0.45 * max(self.agl(), 1.0)
         if self.lose_below_hook_m is not None and self.hook_height() < self.lose_below_hook_m:
             visible = False
+        if self.lose_below_hook_m is not None and self.hook_height() < self.lose_below_hook_m:
+            self.lost_once = True
+        if self.lost_once:
+            self.max_agl_after_loss = max(self.max_agl_after_loss, self.agl())
+        if self.lost_once and self.lose_for_good:
+            visible = False
         if visible and not self.attached:
-            target = rf.Target(self.bucket[0], self.bucket[1], 0.1, 0.05, True)
+            target = rf.Target(self.bucket[0], self.bucket[1], self.sigma, 0.05, True, not self.x_only)
         self.seen.append(target is not None)
         throttle = self.throttle_override if self.throttle_override is not None else (EMPTY if self.standing() else LOADED)
         landed = self.landing and (self.agl() <= 0.0 or (self.attached and self.agl() <= self.touch_agl))
         return rf.Readings(
-            now_s=self.t, e=e, n=n, up=up, yaw_rad=math.pi / 2.0, agl_m=self.agl(), agl_from_rangefinder=True, range_age_s=0.05,
+            now_s=self.t, e=e, n=n, up=up, yaw_rad=math.pi / 2.0, agl_m=self.agl(), agl_from_rangefinder=self.rangefinder, range_age_s=0.05 if self.rangefinder else None,
+            mode=rf.LAND if self.landing else "GUIDED", boundary=self.boundary,
             throttle=throttle, throttle_age_s=0.05, landed=landed, landed_age_s=0.1, fix=self.anchor.to_global(e, n) if self.gps else None,
             home_up_m=self.home_up, pickup_en=self.pickup, target=target, ack=self.ack,
         )  # fmt: skip
@@ -80,14 +92,15 @@ class World:
         self.commands.append(command)
         if command.mode == rf.LAND:
             self.modes.append(command.mode)
-            self.landing = True
+            self.land_refusals -= 1
+            self.landing = self.land_refusals < 0  # (the first `land_refusals` requests are not taken)
         if command.gripper == rf.CLOSE:
             self.closes.append((round(self.t, 2), command.attempt))
             near = math.hypot(self.bucket[0] - self.pos[0], self.bucket[1] - self.pos[1]) <= 0.12 and abs(self.hook_height()) <= 0.15
             if near and self.grab_misses <= 0:
                 self.attached, self.touch_agl = True, self.agl()
             self.grab_misses -= 1
-            self.pending_ack = (self.t + 0.1, rg.Ack(command.attempt, 0))
+            self.pending_ack = (self.t + 0.1, rg.Ack(command.attempt, self.close_result))
         if command.gripper == rf.OPEN:
             self.opens.append((round(self.t, 2), round(self.agl(), 3), self.standing()))
             if self.open_result == 0:
@@ -172,10 +185,12 @@ def test_no_descent_below_point_eight_after_the_handle_is_lost():
     after = [command.up for command in world.commands[last_seen + 1 :]]
     assert len(after) >= 30 and all(b >= a - 1.0e-9 for a, b in zip(after, after[1:])) and after[0] >= world.commands[last_seen].up - 0.006
     assert 0.6 < world.min_hook_height < 0.71
-    # It climbs, sees the bucket again from above, and tries again: three descents in all, then the mission fails.
+    # It climbs, sees the bucket again from above, and tries again: three descents in all, then the mission fails,
+    # having first gone up and two metres to the side: the landing that follows a failure is not onto the bucket.
     last = fly(flight, world)
-    assert last.status == rf.FAILURE and flight.attempts == 3 and "3 descents" in last.reason
+    assert last.status == rf.FAILURE and flight.attempts == 3 and "3 descents" in last.reason and flight.transitions[-2:] == [rf.RETREAT, rf.FAILED]
     assert world.closes == [] and world.min_hook_height > 0.6  # nothing was closed, and the hook never went lower
+    assert math.hypot(world.pos[0] - world.bucket[0], world.pos[1] - world.bucket[1]) > 1.6 and world.agl() > 3.0
 
 
 def test_a_detector_that_sees_nothing_below_three_metres_ends_in_three_lost_descents():
@@ -191,15 +206,23 @@ def test_a_pickup_point_that_is_off_is_found_by_the_expanding_square():
     last = fly(flight, world)
     assert last.status == rf.SUCCESS and flight.transitions[:5] == [rf.CHECKS, rf.TRANSIT, rf.ACQUIRE, rf.SEARCH, rf.APPROACH]
     # The square's speed: the commanded point moves at 4 m/s, no faster.
-    search = [command for command in world.commands if command.frame == rf.LOCAL][:4000]
-    steps = [math.hypot(b.e - a.e, b.n - a.n) for a, b in zip(search, search[1:])]
     assert rf.SEARCH in flight.transitions and math.hypot(*world.bucket) < 0.35
     # Nothing there at all: the search ends, and the mission fails without having descended.
     empty = World(bucket=(500.0, 500.0), pickup=(40.0, 30.0))
     flight = rf.RecoveryFlight(plan())
-    last = fly(flight, empty)
-    assert last.status == rf.FAILURE and "search ended" in last.reason and empty.pos[2] > 14.0
-    assert steps  # (kept: the walk's steps were measured above)
+    searching, last = [], None
+    for _ in range(int(900.0 * 20)):
+        last = flight.update(empty.readings())
+        if flight.state == rf.SEARCH:
+            searching.append(last)
+        empty.apply(last)
+        if last.status != rf.RUNNING:
+            break
+    assert last.status == rf.FAILURE and "search ended" in last.reason
+    # The square was flown at 20 m, its commanded point moving at 4 m/s and no faster, round every corner.
+    walked = [math.hypot(b.e - a.e, b.n - a.n) / 0.05 for a, b in zip(searching[1:], searching[2:])]
+    assert max(walked) == pytest.approx(4.0, abs=1.0e-6) and sum(1 for speed in walked if speed > 3.99) > 0.9 * len(walked)
+    assert empty.pos[2] == pytest.approx(20.0, abs=0.3) and abs(len(walked) * 0.05 - 300.0 / 4.0) < 8.0  # 300 m of square: 75 s
 
 
 def test_the_expanding_square_covers_the_radius():
@@ -219,10 +242,11 @@ def test_a_hook_that_comes_up_empty_goes_back_to_centre_and_tries_again():
     walk = flight.transitions
     first_verify = walk.index(rf.VERIFY_ATTACH)
     assert walk[first_verify + 1 : first_verify + 4] == [rf.ABORT_CLIMB, rf.CENTRE, rf.CONE_DESCENT] and world.opens and len(world.opens) == 1
-    # Three empty hooks: the mission fails, and the gripper was never opened in the air.
+    # Three empty hooks: the mission fails (beside the bucket, not over it), and the gripper was never opened in the air.
     world, flight = World(grab_misses=9), rf.RecoveryFlight(plan())
     last = fly(flight, world)
     assert last.status == rf.FAILURE and flight.attempts == 3 and world.opens == [] and "3 descents" in last.reason
+    assert rf.RETREAT in flight.transitions and math.hypot(world.pos[0] - world.bucket[0], world.pos[1] - world.bucket[1]) > 1.6
 
 
 def test_a_gripper_that_will_not_open_lands_with_the_bucket_and_nothing_is_dropped():
@@ -333,3 +357,113 @@ def test_no_position_or_no_pickup_place_fails_on_the_spot_before_anything_moves(
     world.pickup = None
     last = fly(flight, world, seconds=15.0)
     assert last.status == rf.FAILURE and "could not be placed" in last.reason and all(math.hypot(c.e, c.n) < 1.0e-6 for c in world.commands if c.frame == rf.LOCAL)
+
+
+# --- the reviews' cases ---------------------------------------------------------------------------
+
+
+def test_a_landing_that_is_not_taken_is_asked_for_again_until_it_is():
+    """The flight-safety review: one request, refused or lost, left the mission running for ever with no setpoint."""
+    world, flight = World(open_result=4, land_refusals=3), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.FAILURE and "landed with the bucket" in last.reason and len(world.modes) == 4  # three not taken, the fourth was
+    times = [i for i, command in enumerate(world.commands) if command.mode == rf.LAND]
+    assert all(abs((b - a) * 0.05 - rf.LAND_RETRY_S) < 0.11 for a, b in zip(times, times[1:]))
+    # Never taken at all: after two minutes the mission fails, and the executor's own abort takes over.
+    world, flight = World(open_result=4, land_refusals=10_000), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.FAILURE and "no landing seen 120 s" in last.reason and world.attached and len(world.opens) == 3
+    # The landing beside the bucket at the end is asked for again in the same way.
+    world, flight = World(land_refusals=2), rf.RecoveryFlight(plan())
+    assert fly(flight, world).status == rf.SUCCESS and len(world.modes) == 3
+    # Once LAND has been seen it is not asked for again: a pilot who takes the vehicle out of it is not put back.
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.LANDING and w.landing and w.t - f._state_since_s > 0.5)
+    asked = len(world.modes)
+    for _ in range(int(10.0 * 20)):
+        world.t += 0.05
+        r = world.readings()
+        assert flight.update(rf.Readings(**{**r.__dict__, "mode": "LOITER", "landed": False})).mode is None
+    assert asked == 1
+
+
+def test_near_the_ground_the_height_is_the_rangefinders_or_nothing_is_lowered():
+    """The flight-safety review: a height above home was taken for the height above the ground in the cone."""
+    world, flight = World(rangefinder=False), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.FAILURE and world.closes == [] and flight.attempts == 3
+    assert world.min_hook_height > 3.0 - 0.35  # CENTRE's height was the lowest the hook came: the cone never took it down
+
+
+def test_the_x_alone_finds_and_centres_and_the_cone_wants_the_buckets_own_track():
+    world, flight = World(x_only=True), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.FAILURE and rf.CONE_DESCENT in flight.transitions and world.closes == [] and world.min_hook_height > 3.0 - 0.35
+
+
+def test_a_descent_outside_the_cone_needs_a_confirmed_track_of_this_moment():
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.APPROACH and w.agl() < 12.0)
+    height = world.agl()
+    readings = world.readings()
+    coasting = rf.Target(readings.target.e, readings.target.n, 0.1, 0.9, False)  # the track is coasting: nothing has hit it for 0.9 s
+    for _ in range(20):
+        world.t += 0.05
+        r = world.readings()
+        command = flight.update(rf.Readings(**{**r.__dict__, "target": coasting}))
+        world.pos[2] += max(-0.1, min(0.1, command.up - world.pos[2]))
+    assert world.agl() >= height - 0.11 and flight.state == rf.APPROACH  # held, not lowered, while the track coasted
+
+
+def test_the_lost_climb_goes_as_high_as_the_tracks_uncertainty_asks_and_no_higher_than_ten_metres():
+    # footprint 0.9 m per metre of height: three sigma either way of a 1 m sigma is 6 m, seen whole from 6.67 m.
+    for sigma, top in ((1.0, 6.0 / 0.9), (3.0, rf.LOST_MAX_HEIGHT_M)):
+        world, flight = World(lose_below_hook_m=0.7, lose_for_good=True, sigma=sigma), rf.RecoveryFlight(plan())
+        fly(flight, world, until=lambda f, w: f.state == rf.SEARCH)
+        assert flight.state == rf.SEARCH and world.max_agl_after_loss == pytest.approx(top, abs=0.35), sigma
+
+
+def test_a_close_that_is_not_acknowledged_is_still_lifted_and_checked_and_an_unknown_hook_is_landed_with():
+    # Refused, and the handle taken all the same: the throttle says so, and the bucket is carried home.
+    world, flight = World(close_result=4), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.SUCCESS and len(world.closes) == 1 and "not acknowledged" in " ".join([flight.reason] + [c.reason for c in world.commands])
+    # The attach check cannot be made (no throttle heard in the hold): the hook may hold the bucket. Land with it.
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.LIFT)
+    for _ in range(int(60.0 * 20)):
+        r = world.readings()
+        command = flight.update(rf.Readings(**{**r.__dict__, "throttle": None, "throttle_age_s": None}))
+        world.apply(command)
+        if command.status != rf.RUNNING:
+            break
+    assert rf.CARRYING_FAULT in flight.transitions and rf.ABORT_CLIMB not in flight.transitions and world.opens == [] and "could not be made" in flight.reason
+
+
+def test_a_position_missing_for_a_tick_is_waited_out_and_for_a_second_is_not():
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.TRANSIT and w.t > 103.0)
+    assert flight.update(rf.Readings(now_s=world.t + 0.05)).status == rf.RUNNING and flight.update(rf.Readings(now_s=world.t + 0.9)).status == rf.RUNNING
+    world.t += 0.95
+    assert flight.update(world.readings()).status == rf.RUNNING  # back: the second starts anew
+    assert flight.update(rf.Readings(now_s=world.t + 0.5)).status == rf.RUNNING and flight.update(rf.Readings(now_s=world.t + 1.6)).status == rf.FAILURE
+
+
+def test_the_pickup_and_the_search_keep_five_metres_inside_the_flight_boundary():
+    field = ((-20.0, -20.0), (60.0, -20.0), (60.0, 50.0), (-20.0, 50.0))
+    world, flight = World(boundary=field, bucket=(500.0, 500.0), pickup=(40.0, 30.0)), rf.RecoveryFlight(plan())
+    last = fly(flight, world)
+    assert last.status == rf.FAILURE and "search ended" in last.reason
+    flown = [(command.e, command.n) for command in world.commands if command.frame == rf.LOCAL]
+    assert max(e for e, _n in flown) <= 55.0 + 1.0e-6 and max(n for _e, n in flown) <= 45.0 + 1.0e-6 and min(n for _e, n in flown) >= -15.0 - 1.0e-6
+    outside = World(boundary=field, pickup=(58.0, 30.0))
+    last = fly(rf.RecoveryFlight(plan()), outside, seconds=5.0)
+    assert last.status == rf.FAILURE and "flight boundary" in last.reason and len(outside.commands) == 1
+
+
+def test_a_sweep_and_a_setting_the_mission_does_not_have_are_refused_when_the_plan_is_made():
+    config = {"hook_below_m": 0.55, "suspension_length_m": 0.25, "vehicle_kg": 4.0, "load_kg": 1.0}
+    with pytest.raises(ValueError, match="plunge only"):
+        rf.plan_from_config({**config, "engage": {"mode": "sweep"}}, {}, get_feature_flag)
+    with pytest.raises(ValueError, match="handle_height_m"):
+        rf.plan_from_config({**config, "handle_height_m": 0.3}, {}, get_feature_flag)  # (it is handle_up_m)

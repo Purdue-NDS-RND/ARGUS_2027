@@ -856,9 +856,9 @@
       "land": "L17",
       "proven_in": "Unit, Sim",
       "note": "",
-      "status": "DOING",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_recovery_flight.py -> 23 passed, test_package_recovery_mission.py -> 7 passed; sim recovery/pickup_oracle OK (19.993 points, bucket 0.005 m from the takeoff point, one descent, on the sim's oracle stand-in) and recovery/pickup_detector OK (the green X detector as built: three lost descents, retreat, mission FAILURE, nothing grabbed); docs/results/2026-11-22-recovery-mission.md; strict check OK. Left: a pickup on a real detector (REC-1 sees nothing below about 3 m; the flow-camera hand-off); a live sequence with the aircraft's and the mechanism's numbers; REC-8's runs R1-R6; sim flights of the search, an empty hook, a refused release, swing shaping and the untrusted mode (unit-tested); the five flags with nothing behind them (REC-5, REC-6, REC-7b, the hook camera); a sweep engage",
       "blocked_reason": ""
     },
     {

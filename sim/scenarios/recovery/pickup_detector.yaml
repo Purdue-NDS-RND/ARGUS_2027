@@ -1,0 +1,35 @@
+# The recovery mission in the sim (REC-2) on the green X and bucket detector as built (REC-1). The detector
+# gives the X and the bucket from the transit height down to about 3 m and nothing below that (the mat fills the
+# picture; the hand-off to the flow camera is not built). The mission flies to the pickup's coordinates, takes
+# the track, approaches, centres 3 m above the handle and starts down the cone; when the detections stop the
+# cone holds and says the handle is lost, the mission climbs to see it again, and after three descents it
+# fails and the executor lands the vehicle (recovery's abort mode). No bucket is taken: the flight shows the
+# chain from the camera to the cone, and that the mission does not go down blind.
+description: The recovery mission on the green X detector as built - it reaches the cone and does not descend blind.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+node_flags:
+  recovery_cv:
+    recovery_cv: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "State: CENTRE -> CONE_DESCENT"
+  - "-> LOST_TARGET"
+wind: {level: calm}

@@ -204,6 +204,7 @@ else
     run_test "" sim/test/test_payload_bridge.py
     run_test "" sim/test/test_sensors.py
     run_test "" sim/test/test_carry_swing.py
+    run_test "" sim/test/test_recovery_mission_scenarios.py
     run_test "" sim/test/test_recovery_check.py
     run_test "" sim/test/test_recovery_cv_check.py
     run_test "" sim/test/test_inject.py

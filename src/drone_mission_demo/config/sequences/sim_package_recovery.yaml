@@ -35,7 +35,7 @@ mission_sequence:
         return_target: takeoff                     # Where the bucket is taken: takeoff, {latlon: [lat, lon]} or {marker: id, near: [lat, lon]}.
         camera_mode: sim_delivery                  # Sensor mode the detector's images come from (argus_camera modes.yaml).
         airframe: sim_iris_downcam                 # Airframe whose camera mount is used (argus_camera robot.yaml).
-        hook_below_m: 0.55                         # How far under the vehicle's origin the hook's tip hangs.
+        hook_below_m: 0.36                         # How far the hook's tip hangs under where the height above the ground reads the vehicle to be (0.55 under the sim vehicle's origin, which stands 0.19 above the ground when that height reads zero).
         hook_forward_left_m: [0.0, 0.0]            # Where the hook hangs from, forward and left of the vehicle's origin.
         suspension_length_m: 0.32                  # From the hook to the bucket's bottom, hanging.
         handle_up_m: 0.32                          # The handle above the ground, the bucket standing.
@@ -55,4 +55,4 @@ mission_sequence:
         time_budget_s: 600.0                       # The mission fails (or lands with the bucket) when this runs out.
         max_attempts: 3                            # Descents onto the handle before giving up.
         ground_below_home_m: 0.0                   # How far the ground at the pickup is below home.
-        engage: {mode: plunge, plunge_depth_m: 0.05} # The mechanism's engage: plunge past the handle, or sweep across it.
+        engage: {mode: plunge, plunge_depth_m: 0.05} # The mechanism's engage: a plunge past the handle (the mission does not fly a sweep yet).
