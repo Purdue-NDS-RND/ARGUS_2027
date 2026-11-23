@@ -920,9 +920,9 @@
       "land": "L19",
       "proven_in": "Bench",
       "note": "Write the probe and its analysis; wiring the LED and running it are person steps",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest: test_latency_probe 21, test_command_delay 13, test_step_probe 22, test_step_probe_mission 17 passed; CHECK_STRICT=1 scripts/check.sh -> OK. Sim (SITL's numbers, not the aircraft's): sim/run_scenarios.sh hover/step_probe --variants on --record -> OK, then sim/replay/command_delay.py -> actuation delay median 79 ms over 12 steps; capture to command p95 102 and 92 ms on two recorded delivery flights (line 150 ms); docs/results/2026-11-23-latency-probe.md. Left for the lead (Needs a person): the LED probe on the bench in each sensor mode and capture_offset_s from it (closes FND-01's 5 ms line); the step probe and a vision flight on the aircraft for its own two numbers",
       "blocked_reason": ""
     },
     {

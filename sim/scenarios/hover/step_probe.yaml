@@ -1,0 +1,21 @@
+# The latency probe's second test in the sim (PLT-05): take off to 10 m, six
+# velocity steps of 1 m/s for 1 s, there and back, then home. Flown with
+# --record, sim/replay/command_delay.py reads the actuation delay off the bag:
+# each step of the command to the vehicle's first tilt.
+# Variant "off" has the flag off: the step probe is skipped and the flight is a
+# takeoff and a return, too short to count as a hover (the judge says so).
+# Not in the nightly suite: it measures, it does not guard anything.
+description: Take off, command six velocity steps in a hover (flag command_step_probe), return; for the actuation delay.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: command_step_probe.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  command_step_probe: true
+wind: {level: calm}
+judge:
+  max_drift_m: 5.0
+  min_hold_s: 20.0

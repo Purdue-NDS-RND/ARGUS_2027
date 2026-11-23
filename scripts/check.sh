@@ -118,6 +118,7 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_grip.p
 run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_return.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_flight.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_gps_route.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_step_probe.py
 run_test "" tools/test/test_cen_loop_sim.py
 run_test "" platform/jetson/test/test_setup.py
 run_test "" platform/jetson/test/test_services.py
@@ -170,6 +171,7 @@ else
     run_test "" src/drone_mission_demo/test/test_recovery_params.py
     run_test "" src/drone_mission_demo/test/test_package_recovery_mission.py
     run_test "" src/drone_mission_demo/test/test_gps_route_2027.py
+    run_test "" src/drone_mission_demo/test/test_step_probe_mission.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
@@ -203,6 +205,7 @@ else
     run_test "" sim/test/test_replay_bag.py
     run_test "" sim/test/test_replay_core.py
     run_test "" sim/test/test_replay_latency.py
+    run_test "" sim/test/test_command_delay.py
     run_test "" sim/test/test_replay_record.py
     run_test "" sim/test/test_wind_model.py
     run_test "" sim/test/test_wind.py
@@ -218,6 +221,7 @@ else
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
     run_test src/argus_camera src/argus_camera/test/test_capture_clock.py
+    run_test src/argus_camera src/argus_camera/test/test_latency_probe.py
     run_test "" src/argus_localisation/test/test_loc_pipeline.py
     run_test "" src/argus_localisation/test/test_loc_node.py
     run_test "" src/argus_localisation/test/test_marker_tracker.py

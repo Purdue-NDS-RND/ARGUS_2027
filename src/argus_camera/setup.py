@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'camera_node = argus_camera.camera_node:main',
             'camera_bench = argus_camera.bench:main',
+            'latency_probe = argus_camera.latency_probe:main',
         ],
     },
 )

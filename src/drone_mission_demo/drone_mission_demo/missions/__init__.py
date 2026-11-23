@@ -7,9 +7,11 @@ from .package_drop_mission import PackageDropMission
 from .package_recovery_mission import PackageRecoveryMission
 from .rtl_mission import RTLMission
 from .search_pattern_mission import SearchPatternMission
+from .step_probe_mission import CommandStepProbeMission
 from .takeoff_mission import TakeoffMission
 
 __all__ = [
+    "CommandStepProbeMission",
     "GpsWaypointMission",
     "LocalWaypointMission",
     "PackageDeliveryMission",

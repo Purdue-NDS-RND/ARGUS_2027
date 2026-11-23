@@ -1,0 +1,34 @@
+# The latency probe's second test (PLT-05): take off, command short velocity steps in a hover, come home.
+# Every flag is false, so as it stands the step probe is skipped: it returns SUCCESS on its first tick and
+# commands nothing, and the flight is a takeoff and a return. A scenario (sim/scenarios/hover/step_probe.yaml)
+# or the executor's feature_overrides turns the flag on; nothing in this file is edited to do it.
+# Fly it with the topics recorded; `python3 sim/replay/command_delay.py <bag>` then gives the actuation delay.
+# There are no coordinates in it, so the same file is flown in the sim and on the aircraft.
+mission_sequence:
+  on_failure: abort_and_rtl                         # Abort the remaining sequence and request RTL on failure.
+  features:                                         # Mission feature flags; a missing flag means false.
+    use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
+    use_target_estimator: false                     # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
+    enforce_safety_limits: false                    # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    time_health_guard: false                        # Treat a stale pose, a stale frame or a time-sync jump as no target (time_health.py).
+    command_step_probe: false                       # Command the velocity steps (step_probe.py). Off: the mission is skipped.
+  missions:
+    - type: takeoff                                # Mission type registered in the mission framework.
+      name: takeoff                                # Human-readable mission instance name for logs.
+      config:
+        target_altitude_m: 10.0                    # Target climb altitude after takeoff in meters.
+
+    - type: command_step_probe                     # Velocity steps in a hover, there and back.
+      name: command_step_probe                     # Human-readable mission instance name for logs.
+      config:
+        steps: 6                                   # How many steps; they alternate direction, so an even number ends where it began.
+        step_speed_mps: 1.0                        # The velocity commanded during a step.
+        step_s: 1.0                                # How long a step lasts.
+        rest_s: 3.0                                # Zero velocity before each step and after the last.
+        max_drift_m: 10.0                          # The probe fails when the vehicle is this far from where it began.
+        heading_deg: 0.0                           # Direction of the first step, anticlockwise from east.
+
+    - type: rtl                                    # Return-to-launch mission.
+      name: rtl                                    # Human-readable mission instance name for logs.
+      config:
+        rtl_mode: "RTL"                            # Flight mode string sent to the FCU for return-to-launch.
