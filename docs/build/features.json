@@ -1652,8 +1652,8 @@
       "after_ids": [
         "PLT-13"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-23-gate-G6.md"
     },
     "G0-W2": {
       "title": "Flags-off baseline re-check after wave 2",
