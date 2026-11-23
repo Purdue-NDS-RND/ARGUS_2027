@@ -886,9 +886,9 @@
       "land": "L19",
       "proven_in": "Bench",
       "note": "Write and unit-test; running it on the Jetson is a person step",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest platform/jetson/test/test_setup.py -> 26 passed (the real script against a fake Jetson: 1 of 8 to 8 of 8, a second run changes nothing, JetPack 6.1 and other boards refused); CHECK_STRICT=1 scripts/check.sh -> OK. Left for the lead (Bench, Needs a person): the run on the real Orin, the values setup.conf marks bench, /dev/argus/pixhawk with the flight controller plugged in, the disk image",
       "blocked_reason": ""
     },
     {
