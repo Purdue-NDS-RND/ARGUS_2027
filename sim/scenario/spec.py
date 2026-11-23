@@ -20,7 +20,7 @@ KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
-    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals", "forbid_log", "fc_scripts",
+    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals", "forbid_log", "fc_scripts", "preflight",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 # Fast DDS profiles a scenario may ask for (`dds_profile`): sim/config/fastdds_<name>.xml. Asked for only by
@@ -122,6 +122,7 @@ class Scenario:
     expect_log: list  # text the mission's log must contain when the flight is flown with the scenario's flags on
     forbid_log: list  # text it must not contain then
     fc_scripts: list  # Lua scripts the flight controller runs (repo paths), in both variants: SITL loads them at start
+    preflight: dict  # {} or {"expect": "GO"|"NO-GO", "failed": [...], "cameras": {topic: Hz}}: the preflight is run before the flight and must say this
     wind: dict
     gps_events: list
     sun: dict | None  # None: the base world's light, as in the 2026 sim
@@ -144,6 +145,29 @@ def _mapping(data: dict, key: str, where: str) -> dict:
     if not isinstance(value, dict):
         raise BuildError(f"{where}: {key} must be a mapping")
     return value
+
+
+PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")  # drone_utils/preflight.py CHECKS
+PREFLIGHT_PORT = 14555  # a MAVLink output of its own, for the preflight's reading of the flight controller's parameters
+
+
+def _preflight(data: dict, where: str) -> dict:
+    """The scenario's `preflight`: what the preflight must say before this flight. {} when it is not asked for."""
+    wanted = _mapping(data, "preflight", where)
+    if not wanted:
+        return {}
+    extra = sorted(set(wanted) - {"expect", "failed", "cameras"})
+    if extra:
+        raise BuildError(f"{where}: preflight has unknown setting(s) {', '.join(map(str, extra))}")
+    if wanted.get("expect") not in ("GO", "NO-GO"):
+        raise BuildError(f"{where}: preflight.expect is GO or NO-GO")
+    failed = wanted.get("failed") or []
+    if not isinstance(failed, list) or not all(name in PREFLIGHT_CHECKS for name in failed) or (wanted["expect"] == "GO") != (not failed):
+        raise BuildError(f"{where}: preflight.failed lists the checks that must be NO-GO (of: {', '.join(PREFLIGHT_CHECKS)}): none with GO, at least one with NO-GO")
+    cameras = wanted.get("cameras") or {}
+    if not isinstance(cameras, dict) or not all(isinstance(topic, str) and topic.startswith("/") and isinstance(hz, (int, float)) and not isinstance(hz, bool) and hz > 0 for topic, hz in cameras.items()):
+        raise BuildError(f"{where}: preflight.cameras maps an image topic to the rate it must have, in Hz")
+    return {"expect": wanted["expect"], "failed": list(failed), "cameras": {topic: float(hz) for topic, hz in cameras.items()}}
 
 
 def _check_object(item, index: int, where: str) -> dict:
@@ -325,6 +349,7 @@ def parse_scenario(data, path: Path) -> Scenario:
         expect_log=list(expect_log),
         forbid_log=list(forbid_log),
         fc_scripts=list(fc_scripts),
+        preflight=_preflight(data, where),
         wind=_check_wind(_mapping(data, "wind", where), where),
         gps_events=gps_events,
         sun={"elevation_deg": float(sun.get("elevation_deg", 60.0)), "azimuth_deg": float(sun.get("azimuth_deg", 180.0))} if sun else None,

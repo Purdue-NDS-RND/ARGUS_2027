@@ -184,7 +184,7 @@ class LandingWatcher:
 
 
 def tools_needed(manifest: dict) -> set[str]:
-    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "height_check", "record", "payload_bridge", "sensor_check", "truth_poses", "loc_check"."""
+    """Which sim tools a scenario needs running beside the flight: "wind", "gps_events", "time_check", "rate_check", "projection_check", "estimator_check", "height_check", "record", "payload_bridge", "sensor_check", "truth_poses", "loc_check", "preflight"."""
     needed = set()
     wind = manifest.get("wind") or {}
     if wind.get("mean_mps") or wind.get("gust_mps") or wind.get("discrete_gust_mps"):
@@ -211,6 +211,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("truth_poses")  # true poses go out on /sim/truth/poses
     if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True and manifest.get("mission") != "recovery":
         needed.add("loc_check")  # the localisation pipeline's rate, its start and stop, and what it reports
+    if manifest.get("preflight"):
+        needed.add("preflight")  # the preflight is run before the flight and held to what the scenario expects of it
     if ((manifest.get("node_flags") or {}).get("recovery_cv") or {}).get("recovery_cv") is True:
         needed.add("recovery_cv_check")  # the green X and bucket detector's pixels against the truth
     return needed
@@ -235,6 +237,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "sensor_check": "it asks for the sensor check, and the tool (sim/sensor_check.py) is missing",
         "truth_poses": "it asks for true poses on a topic, and the tool that publishes them (sim/truth_poses.py) is missing",
         "loc_check": "it turns the localisation node on, and the check of its pipeline (sim/loc_check.py) is missing",
+        "preflight": "it says what the preflight must say, and the tool that runs it (sim/preflight_check.py) is missing",
         "recovery_cv_check": "it turns the recovery detector on, and the check of it against the truth (sim/recovery_cv_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)

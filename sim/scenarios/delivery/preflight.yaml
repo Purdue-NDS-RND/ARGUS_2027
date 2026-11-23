@@ -1,0 +1,51 @@
+# The preflight before a flight (PLT-10). SITL starts on the 2027 baseline's values (the block below is
+# hover/failsafe_radio's), the site's fence is uploaded, and sim/preflight_check.py runs the real preflight command
+# while the vehicle is on the ground: parameters read from the flight controller and held to the baseline, the
+# fence, GPS, the estimate, the rangefinder, the camera, time sync, the disk, the battery and the profile.
+# It must say GO, with nothing failed. Then the 2026 delivery is flown, with no mission flag on, on those
+# parameters: it must score as delivery/baseline does.
+# On sim time (variant "on"): with the sim on wall time MAVROS's estimate of the flight controller's clock steps by
+# tens of milliseconds an exchange, because the sim runs slower than the wall clock, and the preflight's timesync
+# check rightly says so. Flown with --variants on. Not in the nightly suite.
+description: 2026 delivery mission, no mission flag on, on the flight-controller baseline and sim time - the preflight must say GO before it, and the flight must score as the baseline does.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}
+sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param), value for value: a test holds the two together
+  SIM_BATT_VOLTAGE: 25.0      # a 6S pack, charged: SITL's own 12.6 V would trip the battery failsafe on the ground
+  BATT_LOW_VOLT: 21.0
+  BATT_CRT_VOLT: 19.8
+  BATT_LOW_TIMER: 10.0
+  BATT_FS_LOW_ACT: 2.0
+  BATT_FS_CRT_ACT: 1.0
+  FS_THR_ENABLE: 1.0
+  FS_THR_VALUE: 975.0
+  FS_GCS_ENABLE: 1.0
+  FS_GCS_TIMEOUT: 5.0
+  FS_EKF_ACTION: 1.0
+  FS_EKF_THRESH: 0.8
+  FS_OPTIONS: 16.0
+  GRIP_ENABLE: 1.0
+  GRIP_TYPE: 1.0
+  SERVO7_FUNCTION: 28.0
+  GRIP_GRAB: 1900.0
+  GRIP_RELEASE: 1100.0
+  GRIP_NEUTRAL: 1500.0
+  EK3_SRC_OPTIONS: 0.0
+  GPS2_TYPE: 0.0
+preflight:
+  expect: GO
+  cameras:
+    /camera/image: 15         # the sim's delivery camera: it renders at 20 to 26 Hz on a laptop

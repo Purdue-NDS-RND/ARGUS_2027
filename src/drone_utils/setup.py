@@ -28,6 +28,7 @@ setup(
             'gimbal_point_service = drone_utils.gimble_point_service:main',
             'session_logger = drone_utils.session_logger:main',
             'stream_keeper = drone_utils.stream_keeper_node:main',
+            'preflight = drone_utils.preflight_node:main',
         ],
     },
 )

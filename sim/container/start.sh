@@ -266,6 +266,13 @@ if [[ -n $SITE_FILE ]]; then
             sitl_args+=(--out "udp:127.0.0.1:$driver_port")
         fi
     fi
+    # The preflight reads the flight controller's parameters on a port of its own (PLT-10; sim/preflight_check.py).
+    if [[ -n $RUN_DIR ]]; then
+        preflight_port=$(python3 -c 'import json, sys; print((json.load(open(sys.argv[1])).get("preflight") or {}).get("port") or "")' "$RUN_DIR/scenario.json")
+        if [[ -n $preflight_port ]]; then
+            sitl_args+=(--out "udp:127.0.0.1:$preflight_port")
+        fi
+    fi
     # The fault injector gets a port of its own: a driver or the payload bridge is already listening on the tools port.
     if [[ -n $RUN_DIR ]] && python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("gps_events") else 1)' "$RUN_DIR/scenario.json"; then
         sitl_args+=(--out "udp:127.0.0.1:$FAULTS_PORT")

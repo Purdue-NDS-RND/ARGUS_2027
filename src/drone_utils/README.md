@@ -164,6 +164,36 @@ Keeps the MAVLink message rates the 2027 stack needs: `LOCAL_POSITION_NED` 30 Hz
 - One request is out at a time, after a refused or unanswered one it asks for nothing for 5 s, and a message that stays low after three accepted requests (a sensor that is not fitted) is left alone until it does arrive at its rate, or the next reboot. It does not use MAVROS's `set_message_interval` service: that one blocks the group that also serves `set_mode` for a second per call.
 - The table and the timing are in `drone_utils/stream_keeper.py`, with no ROS in it; `stream_keeper_node.py` is the wrapper.
 
+### `preflight` (2027, PLT-10)
+
+The go/no-go before a flight. It listens to the aircraft for five seconds and prints one line a check and a verdict:
+
+```
+ros2 run drone_utils preflight --profile profiles/comp_2026.yaml --sequence <sequence.yaml> \
+    --baseline platform/fcu/argus_2027.param --param-dump <today's dump> --log-dir /mnt/argus-logs \
+    --camera /camera/image=30 --clock-source <the laptop's address> --clock-tool platform/jetson/clock_sync.py
+```
+
+| Check | GO when |
+| --- | --- |
+| `params` | the flight controller's values are the baseline file's (read over MAVLink with `--fc-url`, through MAVROS's param plugin if it is loaded, or from the ground station's dump saved in the last 24 h); the baseline's sha256 is printed and logged |
+| `fence` | SYS_STATUS says the fence is present, enabled and healthy, and where the parameters were read, at least three fence points are stored (`FENCE_TOTAL`) |
+| `gps` | a 3D fix or better, HDOP at most 1.4, at least 8 satellites |
+| `ekf` | SYS_STATUS says the estimate is healthy and the flight controller's own pre-arm checks pass |
+| `rangefinder` | a reading of this moment, inside the sensor's range, and SYS_STATUS says the downward rangefinder has data (a sensor that is unplugged goes on sending a zero) |
+| `cameras` | each `--camera TOPIC=HZ` is publishing at 80% of that rate or more; with none named the check is NO-GO unless `--no-camera` says the flight needs none |
+| `engine` | no engine is named, or `--engine` is there and its sha256 is `--engine-sha256` |
+| `timesync` | MAVROS's time sync is alive and steps under 20 ms; with `--clock-source`, chrony follows the laptop |
+| `disk` | 20 GB free in `--log-dir` (`--min-free-gb`) |
+| `battery` | 3.9 V a cell or more (`--cells`, `--min-cell-v`) |
+| `profile` | the profile reads and fits the sequence |
+
+A check that had nothing to read is NO-GO. Exit code 0 is GO, 1 is NO-GO. `--override "<reason>"` goes ahead on a NO-GO: the line then reads `NO-GO OVERRIDDEN by <user>: ...`, and the override is written to `<log dir>/preflight.jsonl` with every check; if it cannot be written it does not stand. Every run is logged there, a run that could not look included (a file that is not there, a link that did not answer: exit code 2, every check NO-GO, no override).
+
+It never lowers a message rate: a message it reads and has not heard after 1.5 s is asked for once, at the stream keeper's own rate; one that is arriving is left alone. (Asking goes through `/mavros/set_message_interval`, which holds MAVROS's command queue for about a second a call: run the preflight before the mission, not during it.)
+
+The rules are `drone_utils/preflight.py` (no ROS); the node only fills in what it heard.
+
 ## Library Module
 
 ### `sdf_objects.py`
@@ -193,6 +223,8 @@ Registered in `setup.py`:
 simple_takeoff_service = drone_utils.simple_takeoff_service:main
 gimbal_point_service   = drone_utils.gimble_point_service:main
 session_logger         = drone_utils.session_logger:main
+stream_keeper          = drone_utils.stream_keeper_node:main
+preflight              = drone_utils.preflight_node:main
 ```
 
 Run individually:

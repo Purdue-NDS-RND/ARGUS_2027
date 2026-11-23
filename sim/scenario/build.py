@@ -49,9 +49,9 @@ from judge.geometry import point_in_polygon  # noqa: E402
 from target_placement import latlon_for  # noqa: E402
 
 if __package__ in (None, ""):
-    from scenario.spec import DRIVER_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from scenario.spec import DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 else:
-    from .spec import DRIVER_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from .spec import DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 
 CONFIG_DIR = REPO / "src" / "drone_mission_demo" / "config"
 LAUNCH_DIR = REPO / "src" / "drone_mission_demo" / "launch"
@@ -605,6 +605,10 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             raise BuildError(f"{scenario.path}: fc_scripts names {name}, which is not a file in the repo")
         fc_scripts.append(str(script))
     scripting = {"SCR_ENABLE": 1.0} if fc_scripts else {}
+    # The preflight before the flight (PLT-10): the baseline SITL can be held to, and the flags as a profile.
+    preflight = None
+    if scenario.preflight:
+        preflight = {**scenario.preflight, "baseline": str(run_dir / "fc_baseline.param"), "profile": str(run_dir / "profile.yaml"), "port": PREFLIGHT_PORT}
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,
@@ -645,6 +649,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "expect_log": list(scenario.expect_log) if flags_on else [],
         "forbid_log": list(scenario.forbid_log) if flags_on else [],  # and text it must not contain
         "fc_scripts": fc_scripts,  # Lua scripts SITL runs, flags on or off (sim/container/start.sh copies them in)
+        "preflight": preflight,  # what the preflight must say before this flight (sim/preflight_check.py), or None
         "target": "target" in truth,  # false: nothing for the projection check to compare with (sim/projection_check.py)
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
@@ -665,6 +670,11 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     recovery = read_parm(RECOVERY_PARM) if scenario.sensor_profile == "recovery" else {}
     sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **recovery, **scripting, **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
+    if preflight is not None:
+        sim_baseline = [line for line in FC_BASELINE.read_text().splitlines() if line and not line.startswith(("#", "RNGFND1_"))]
+        (run_dir / "fc_baseline.param").write_text("# platform/fcu/argus_2027.param without the rangefinder's lines: SITL's rangefinder is its own.\n" + "\n".join(sim_baseline) + "\n")
+        on = [flag for flag, value in scenario.flags.items() if value is True] if flags_on else []
+        (run_dir / "profile.yaml").write_text("description: this run's flags, as a profile\nenable: [" + ", ".join(on) + "]\n")
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))
         (run_dir / "params.yaml").write_text(header + yaml.safe_dump(params, sort_keys=False))

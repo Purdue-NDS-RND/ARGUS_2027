@@ -970,9 +970,9 @@
       "land": "L20",
       "proven_in": "Sim, Bench",
       "note": "The engine-manifest check waits for DAT-04 (data hold); build the rest",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_preflight.py 63 passed, test_preflight_check.py 11 passed); sim/run_scenarios.sh delivery/preflight --variants on -> OK, GO, 16.21 points; hover/preflight_nogo --variants on -> OK, NO-GO: params, battery; docs/results/2026-11-23-preflight.md. Left: the bench run against the real flight controller, GPS, rangefinder and cameras (lead; steps under Needs a person)",
       "blocked_reason": ""
     },
     {

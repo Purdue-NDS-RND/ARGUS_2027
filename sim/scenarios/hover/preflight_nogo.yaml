@@ -1,0 +1,24 @@
+# The preflight on an aircraft that is not ready (PLT-10): SITL as the sim always had it, which is 2026's
+# flight controller in the two ways that matter here: the baseline's failsafes are not set, and the battery is
+# SITL's own 12.6 V, which is 2.1 V a cell on the six cells the preflight counts. sim/preflight_check.py runs the
+# real preflight command on the ground: it must say NO-GO, for the parameters and the battery and nothing else.
+# The hover is flown all the same (the sim is not gated by it). On sim time, as delivery/preflight is and for
+# its reason, so that the time base is not a third thing wrong. Flown with --variants on. Not in the nightly suite.
+description: The preflight on SITL's own settings - it must say NO-GO for the parameters and the battery, and for nothing else.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sim_time: true
+driver:
+  tool: hover
+  height_m: 10.0
+  hold_s: 20.0
+wind: {level: calm}
+preflight:
+  expect: NO-GO
+  failed: [params, battery]
+  cameras:
+    /camera/image: 15
+judge:
+  min_hold_s: 10.0

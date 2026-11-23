@@ -51,6 +51,7 @@ TOOLS = {
     "sensor_check": SIM_DIR / "sensor_check.py",  # beside flights whose scenario asks for it (SIM-05)
     "truth_poses": SIM_DIR / "truth_poses.py",  # beside flights whose scenario asks for true poses on a topic (SIM-05)
     "loc_check": SIM_DIR / "loc_check.py",  # beside flights with the localisation node on (LOC-5)
+    "preflight": SIM_DIR / "preflight_check.py",  # beside flights whose scenario says what the preflight must say (PLT-10)
     "recovery_cv_check": SIM_DIR / "recovery_cv_check.py",  # beside flights with the green X and bucket detector on (REC-1)
 }
 CLOCK_MARK_S = 5.0
