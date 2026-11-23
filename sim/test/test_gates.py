@@ -152,9 +152,15 @@ def test_g0_fails_when_a_flight_is_missing_or_was_flown_with_flags_on():
     assert verdict["verdict"] == "FAIL" and "seed 5" in verdict["reason"]
 
 
-def test_gate_with_nothing_to_fly_yet_cannot_be_checked():
-    with pytest.raises(gate.GateError, match="cannot run yet"):
+def test_gate_with_nothing_to_fly_yet_cannot_be_checked(monkeypatch):
+    # (Every sim gate has its flights now; a gate that names what it needs and no scenarios is still refused.)
+    gates = gate.load_gates()
+    waiting = {key: value for key, value in gates["G6"].items() if key not in ("scenarios", "seeds")}
+    monkeypatch.setattr(gate, "definition_of", lambda name: {**waiting, "needs": "scenarios nobody has written"})
+    monkeypatch.setattr(gate, "flights", lambda name: [])
+    with pytest.raises(gate.GateError, match="cannot run yet: it needs scenarios nobody has written"):
         gate.check("G6", [])
+    monkeypatch.undo()
     with pytest.raises(gate.GateError, match="field"):
         gate.check("G7", [])
 
@@ -285,7 +291,7 @@ def test_cli_exit_codes_tell_pass_fail_and_invalid_apart(tmp_path):
     assert run_cli("check", "G0", suite_folder(tmp_path / "a", [0.02, 0.03, 0.02, 0.09, 0.4])).returncode == 1
     invalid = run_cli("check", "G0", suite_folder(tmp_path / "b", [0.02, 0.03, 0.02, 0.09, 0.1], slow_seed=3))
     assert invalid.returncode == 3 and "G0: INVALID" in invalid.stdout
-    assert run_cli("check", "G6", suite_folder(tmp_path / "c", [0.1])).returncode == 2
+    assert run_cli("check", "G7", suite_folder(tmp_path / "c", [0.1])).returncode == 2  # not a sim gate
     assert run_cli("check", "G9", tmp_path).returncode == 2
 
 

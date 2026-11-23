@@ -168,7 +168,12 @@ G5:
 G6:
   proves: GPS missions
   pass: Waypoint within 1 m and time trial within 4 m, 5/5 including moderate wind
-  needs: waypoint and time-trial scenarios at the site in calm and moderate wind (PLT-13; SIM-03)
+  # The seven-point site circuit with PLT-13's flags on: the waypoint mission with a 3 s hold at every waypoint
+  # (waypoint_navigation/circuit_hold) and the time trial as an uploaded AUTO mission (time_trial/circuit_auto),
+  # each in calm air and in moderate wind (4 m/s, gusting 1 m/s). Three seeds of each: six waypoint flights and
+  # six time trials, six of the twelve in moderate wind.
+  scenarios: [waypoint_navigation/circuit_hold, waypoint_navigation/circuit_hold_wind, time_trial/circuit_auto, time_trial/circuit_auto_wind]
+  seeds: [1, 2, 3]
   variants: ["on"]
   rules:
     - name: every waypoint of every flight passed within tolerance
