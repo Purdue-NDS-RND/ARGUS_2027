@@ -1664,8 +1664,8 @@
     "G0-W3": {
       "title": "Flags-off baseline re-check after wave 3",
       "after_wave": "3",
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-23-gate-G0-W3.md"
     },
     "G0-W4": {
       "title": "Flags-off baseline re-check after wave 4",
