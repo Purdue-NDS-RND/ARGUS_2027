@@ -120,6 +120,8 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_flight
 run_test src/drone_mission_core src/drone_mission_core/test/test_gps_route.py
 run_test "" tools/test/test_cen_loop_sim.py
 run_test "" platform/jetson/test/test_setup.py
+run_test "" platform/jetson/test/test_services.py
+run_test "" platform/jetson/test/test_clock_sync.py
 
 # The 2027 build ledger must stay valid (see docs/build/SESSION.md).
 echo "== docs/build/features.json"

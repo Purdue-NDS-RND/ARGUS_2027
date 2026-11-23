@@ -1,0 +1,15 @@
+[Unit]
+Description=ARGUS: the camera driver, when /etc/argus/boot.env names a sensor mode
+After=network.target
+
+[Service]
+Type=simple
+User=@USER@
+EnvironmentFile=/etc/argus/boot.env
+ExecStart=@REPO@/platform/jetson/boot/argus-boot.sh camera
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=multi-user.target

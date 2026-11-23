@@ -684,7 +684,10 @@ def test_nothing_outside_the_package_starts_the_node():
     # Other packages read its config (projection v2 reads the calibration and the mount). None starts its node:
     # no launch file includes its launch, names its package for a Node, or runs its executables.
     starters = mentions(r"argus_camera\.launch|package=.argus_camera.|ros2 (run|launch) argus_camera|camera_node|camera_bench")
-    assert starters == [], starters
+    # One thing may: the boot service's script (PLT-02), which starts it only when /etc/argus/boot.env names a
+    # sensor mode. It ships "off" (platform/jetson/test/test_services.py holds it to that), so the 2026 start-up
+    # still opens the camera with its own grabber.
+    assert set(starters) <= {"platform/jetson/boot/argus-boot.sh", "platform/jetson/test/test_services.py"}, starters
     readers = [path for path in mentions("argus_camera") if path.startswith("src/") and path.endswith(".py") and "/test/" not in path]  # flight code
     assert set(readers) <= {
         "src/drone_mission_core/drone_mission_core/estimator_feed.py",  # the estimator's camera, through frame_projection (FND-06)

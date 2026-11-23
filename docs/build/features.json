@@ -903,9 +903,9 @@
       "land": "L19",
       "proven_in": "Bench",
       "note": "Write and unit-test; running it on the Jetson is a person step",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest platform/jetson/test/ -> 66 passed (services.sh against the fake Jetson, argus-boot.sh's commands and its wait for the device, clock_sync.py's verdicts); CHECK_STRICT=1 scripts/check.sh -> OK. Left for the lead (Bench, Needs a person): the six bench steps in platform/jetson/README.md, of which the replug of the flight controller is a real unknown; when boot.env goes from the 2026 start-up to the 2027 one",
       "blocked_reason": ""
     },
     {
