@@ -261,6 +261,20 @@ class MissionContext:
             return None
         return feed.newest(self._now_ns())
 
+    def mission_upload_ready(self) -> bool:
+        """Whether an AUTO mission can be uploaded now: the time_trial_auto flag is on and MAVROS's mission service is there."""
+        upload = getattr(self._node, "_mission_upload", None)
+        return upload is not None and upload.ready()
+
+    def upload_mission(self, items, done_callback=None):
+        """Upload an AUTO mission (gps_route.MissionItem list). Ask `mission_upload_ready` first."""
+        return self._node._mission_upload.push(items, done_callback)
+
+    def mission_reached_seq(self):
+        """The newest mission item the flight controller says it has reached, or None (none yet, or the flag off)."""
+        upload = getattr(self._node, "_mission_upload", None)
+        return None if upload is None else upload.reached_seq
+
     def home_up_m(self):
         """Home's height in MAVROS's local frame (the local height less the height above home), or None.
 

@@ -41,6 +41,10 @@ PLUGIN_OF = {
 # Named in the tree without being used through MAVROS: file names, and the
 # node the sim's time check knows not to ask for parameters.
 NOT_TOPICS = {"argus_mavros", "install_geographiclib_datasets", "param"}
+# Used only behind a flag, by code that flies on without it, and whose plugin the aircraft's MAVROS does not load:
+# a plugin in the allow-list runs with every flag off, so adding one is the lead's to decide. /mavros/mission is
+# the AUTO mission's upload (PLT-13, flag time_trial_auto); with no `waypoint` plugin the time trial flies in GUIDED.
+FLAG_ONLY_NOT_ALLOWED = {"mission": "waypoint"}
 
 
 # --- the config file -----------------------------------------------------------------------------
@@ -69,7 +73,8 @@ def test_the_allowed_plugins_are_exactly_the_ones_the_repo_uses():
         ["git", "grep", "-ohE", r"/mavros/[a-z_]+", "--", "src", "sim", "tools", "*.sh", "*.py", ":!*/test/*", ":!sim/gps/*"],
         cwd=REPO, capture_output=True, text=True, check=True,
     ).stdout.split()  # fmt: skip
-    used = {name.split("/")[2] for name in found} - NOT_TOPICS
+    used = {name.split("/")[2] for name in found} - NOT_TOPICS - set(FLAG_ONLY_NOT_ALLOWED)
+    assert not set(FLAG_ONLY_NOT_ALLOWED.values()) & allowed  # (once the lead allows one, it moves to PLUGIN_OF)
     assert len(used) >= 15
     unknown = sorted(used - set(PLUGIN_OF))
     assert unknown == [], f"/mavros/{unknown[0]}/... is used but no plugin is mapped to it here; add its plugin to argus_mavros.yaml"

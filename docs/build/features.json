@@ -871,7 +871,7 @@
       "land": "L18",
       "proven_in": "Sim",
       "note": "Harness is on main (PR #10). Left: per-waypoint timeout and hold, AUTO upload, route optimiser and flying start behind flags. Fly it through sim/run_scenarios.sh, not the club sim",
-      "status": "TODO",
+      "status": "DOING",
       "attempts": 0,
       "evidence": "",
       "blocked_reason": ""

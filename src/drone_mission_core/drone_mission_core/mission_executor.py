@@ -30,6 +30,7 @@ from .registry import create_mission, import_mission_modules, load_sequence_file
 from .safety_limits import enforced_violations
 from .set_down import attach_throttle
 from .recovery_flight import attach_home_height
+from .gps_route import attach_mission_upload
 from .survey_search import attach_localisation_control
 from .time_guard import attach_time_health
 
@@ -142,6 +143,11 @@ class MissionExecutorNode(Node):
         # None unless a mission has the package_recovery flag on: then home's
         # height in the local frame, for the height of its global setpoints (REC-2).
         self._home_height = attach_home_height(
+            self, [mission.spec for mission in self._sequence]
+        )
+        # None unless a mission has the time_trial_auto flag on: then the AUTO
+        # mission's upload through MAVROS's waypoint plugin (PLT-13).
+        self._mission_upload = attach_mission_upload(
             self, [mission.spec for mission in self._sequence]
         )
         # None unless a mission has the survey_search flag on: then the client

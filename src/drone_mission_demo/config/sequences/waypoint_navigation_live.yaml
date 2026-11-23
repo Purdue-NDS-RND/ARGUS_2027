@@ -4,6 +4,10 @@ mission_sequence:
     use_frame_time_pose: false
     use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    waypoint_timeout_hold: false # A waypoint not reached in its time is given up; a waypoint with a hold is held (gps_route_2027.py).
+    time_trial_auto: false # Fly the route as an uploaded AUTO mission, pass radius 2 m; GUIDED is the fallback (gps_route_2027.py).
+    route_optimiser: false # Fly the waypoints in the shortest order. Only if the organisers allow it (gps_route.py).
+    flying_start: false # Run in on the first leg's line so the first waypoint is passed at speed. Only if the organisers allow it.
   missions:
     - type: takeoff
       name: takeoff
@@ -19,6 +23,11 @@ mission_sequence:
         arrival_alt_tolerance_m: 2.0
         hold_time_s: 0.5
         desired_yaw_deg: 90.0
+        waypoint_timeout_s: null                   # 2027, read only with waypoint_timeout_hold: seconds before a waypoint is given up; null is no timeout.
+        waypoint_timeouts_s: {}                    # 2027: a timeout for one waypoint, by its name.
+        waypoint_holds_s: {}                       # 2027: a hold at one waypoint, by its name; hold_time_s is every other waypoint's.
+        flying_start_run_in_m: 30.0                # 2027, read only with flying_start: how far before the first waypoint the run-in point is.
+        auto_stall_s: 20.0                         # 2027, read only with time_trial_auto: AUTO with no waypoint passed for this long is taken back to GUIDED.
         mode: waypoint_navigation
 
     - type: rtl

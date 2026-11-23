@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 from rclpy.time import Time
 
+from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.registry import register_mission
@@ -17,6 +18,9 @@ from drone_mission_core.registry import register_mission
 
 EARTH_RADIUS_M = 6_371_000.0
 FEET_TO_METERS = 0.3048
+# The 2027 behaviours' flags (PLT-13; gps_route_2027.FLAGS, held to this by a test). With all of them false this
+# file flies as it did in 2026 and gps_route_2027 is not imported.
+ROUTE_2027_FLAGS = ("waypoint_timeout_hold", "time_trial_auto", "route_optimiser", "flying_start")
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,13 @@ class GpsWaypointMission(BaseMission):
         }:
             context.logger.error(f"[{self.name}] Unsupported GPS waypoint mode: {self._mode}")
 
+        # PLT-13: with one of the 2027 flags on, the route is flown by gps_route_2027.Route2027.
+        self._route_2027 = None
+        if not self._failed and any(get_feature_flag(self.spec.features, flag) for flag in ROUTE_2027_FLAGS):
+            from .gps_route_2027 import Route2027
+
+            self._route_2027 = Route2027(self)
+
     def on_exit(self, context: MissionContext) -> None:
         self._log_summary(context)
 
@@ -101,6 +112,8 @@ class GpsWaypointMission(BaseMission):
             return MissionStatus.FAILURE
 
         self._update_min_distances(context)
+        if self._route_2027 is not None:
+            return self._route_2027.update(context)
         handler = {
             GpsWaypointState.INIT: self._handle_init,
             GpsWaypointState.WAITING_FOR_CONNECTION: self._handle_waiting_for_connection,
