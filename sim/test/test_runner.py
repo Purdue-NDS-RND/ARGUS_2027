@@ -827,3 +827,29 @@ def test_a_failsafe_flight_counts_only_with_its_check_passed(report, status, wor
     # A flight not flown by the check is not asked for one.
     plain = result.run_result(make_run(tmp_path / "plain", score=SCORE))
     assert plain["status"] == "OK" and plain["failsafe_check"] is None
+
+
+def test_a_watchdog_flight_counts_only_with_its_check_passed(tmp_path):
+    manifest = {"mission": "hover", "name": "watchdog", "driver": {"tool": "watchdog_check", "command": ["python3", "sim/watchdog_check.py"]}}
+    run = make_run(tmp_path, score=HOVER_SCORE, manifest=manifest)
+    assert result.run_result(run)["status"] == "INVALID"
+    (run / "watchdog_check.json").write_text(json.dumps({"passed": False, "problem": "no LOITER within 5 s of the last setpoint"}))
+    summary = result.run_result(run)
+    assert summary["status"] == "FAIL" and "watchdog check failed: no LOITER" in summary["reason"]
+    (run / "watchdog_check.json").write_text(json.dumps({"passed": True, "problem": "", "loiter_delay_s": 1.25}))
+    summary = result.run_result(run)
+    assert summary["status"] == "OK" and summary["watchdog_check"]["loiter_delay_s"] == 1.25 and summary["failsafe_check"] is None
+
+
+def test_a_line_the_log_must_not_have_fails_the_run(tmp_path):
+    manifest = {"expect_log": ["TAKEOVER:"], "forbid_log": ["Mission failure policy triggered abort", "Abort RTL mode request sent"]}
+    run = make_run(tmp_path, score=SCORE, manifest=manifest)
+    (run / "launch.log").write_text("[mission_executor]: TAKEOVER: the mode went from GUIDED to LOITER\n")
+    summary = result.run_result(run)
+    assert summary["status"] == "OK" and summary["forbid_log"] == {"unwanted": manifest["forbid_log"], "found": []}
+    (run / "launch.log").write_text("[mission_executor]: TAKEOVER: ...\n[mission_executor]: Mission failure policy triggered abort via RTL\n")
+    summary = result.run_result(run)
+    assert summary["status"] == "FAIL" and "must not have: Mission failure policy triggered abort" in summary["reason"]
+    assert summary["forbid_log"]["found"] == ["Mission failure policy triggered abort"]
+    # A run with no forbidden lines named is not looked at for them.
+    assert result.run_result(make_run(tmp_path / "plain", score=SCORE))["forbid_log"] is None

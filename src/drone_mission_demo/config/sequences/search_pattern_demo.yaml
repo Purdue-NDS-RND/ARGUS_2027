@@ -7,6 +7,7 @@ mission_sequence:
     use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
     use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    takeover_latch: false        # A flight mode autonomy did not ask for stops the executor until it is re-armed by hand (takeover.py).
     time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
     use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
     survey_search: false # The search_pattern mission flies its survey: planned tracks at the survey height, the height guard, the localisation pipeline started and stopped (search_pattern_mission.py, LOC-3). Needs use_height_estimator. Off: the mission is skipped.

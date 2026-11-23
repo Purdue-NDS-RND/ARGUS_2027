@@ -1,0 +1,22 @@
+# The 2026 delivery with PLT-09's Lua watchdog loaded on the flight controller (platform/fcu/scripts/argus_watchdog.lua)
+# and every flag off. The watchdog switches to LOITER when setpoints stop for a second in GUIDED; a healthy
+# mission must never see it act: not in the take-off (the flight controller's own, no setpoints), not on the
+# ground at the delivery, not in the relaunch. The flight must score as delivery/baseline does.
+# Flown with --variants off (there are no flags to turn on). Not in the nightly suite.
+description: 2026 delivery mission, flags off, with the companion watchdog script running on the flight controller - it must fly as the baseline does.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}
+fc_scripts:
+  - platform/fcu/scripts/argus_watchdog.lua

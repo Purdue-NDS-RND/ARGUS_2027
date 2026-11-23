@@ -410,6 +410,7 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
             )
             return MissionStatus.FAILURE
         context.set_local_velocity_setpoint(0.0, 0.0, 0.0, yaw_deg=HOLD_YAW_DEG)
+        release_allowed = False  # the set-down rule's word on this tick, for the actuation lock (PLT-09)
         if not self._delivery_complete and not self._actuator_requested:
             # The rules' ceiling for a set-down, at the moment of the release:
             # at or under 6 ft by the height as it is now, or landed by the
@@ -429,6 +430,7 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
                 self._set_down.contact_again()
                 self._transition_to(PackageDeliveryState.FINAL_SET_DOWN, context)
                 return MissionStatus.RUNNING
+            release_allowed = True
         if self._ground_dwell_start is None:
             self._ground_dwell_start = context.now()
             if self._fake_drop:
@@ -441,6 +443,8 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
                 return MissionStatus.WAITING
             context.logger.info(f"[{self.name}] Releasing gripper payload")
             self._actuator_requested = True
+            # A no-op without the lock: this is the release state, entered on contact, and the height is under the ceiling or the vehicle landed.
+            context.permit_actuation("gripper", state=self._state.name, gates_hold=release_allowed, why="the set-down rule did not allow a release on this tick")
             context.command_gripper(
                 release=True,
                 done_callback=self._on_gripper_response,

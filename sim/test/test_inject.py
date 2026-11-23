@@ -214,3 +214,43 @@ def test_the_injector_has_its_own_mavlink_port_and_the_runner_starts_it():
     assert '"gps_events": SIM_DIR / "inject.py"' in fly
     assert events.unsupported({"gps_events": [{"at_s": 1, "kind": "jam"}]}, {"gps_events"}) == ""
     assert "sim/inject.py" in events.unsupported({"gps_events": [{"at_s": 1, "kind": "jam"}]}, set())
+
+
+# --- a flight-mode change at a set moment (PLT-09's takeover scenario) ------------------------------------------
+
+
+def test_a_mode_event_changes_no_parameter_and_carries_its_mode_to_the_injectors_loop():
+    events_ = [{"at_s": 45.0, "kind": "mode", "mode": "LOITER"}, {"at_s": 60.0, "kind": "mode", "mode": "LAND"}]
+    assert inject.check_events(events_) == [{"at_s": 45.0, "kind": "mode", "mode": "LOITER", "for_s": None}, {"at_s": 60.0, "kind": "mode", "mode": "LAND", "for_s": None}]
+    assert inject.changes_for(events_[0], APOLLO_LAT, {}) == ({}, {})
+    # The injector hands the schedule events that have been checked once already (the first flight's injector
+    # stopped here: a checked event carries `for_s: None`, and the mode kind did not take a for_s).
+    schedule = inject.Schedule(inject.check_events(events_), APOLLO_LAT, {})
+    assert len(schedule) == 2 and schedule.due(44.9) == []
+    assert schedule.due(45.0) == [({}, {"event": "mode", "what": "on", "at_s": 45.0, "mode": "LOITER"})]
+    assert schedule.due(70.0) == [({}, {"event": "mode", "what": "on", "at_s": 60.0, "mode": "LAND"})] and schedule.done
+    assert inject.roles_needed(inject.check_events(events_)) == set()  # no SITL parameter is needed for it
+
+
+@pytest.mark.parametrize("event", [{"at_s": 1.0, "kind": "mode"}, {"at_s": 1.0, "kind": "mode", "mode": "ACRO"}, {"at_s": 1.0, "kind": "mode", "mode": "LOITER", "for_s": 5.0}])
+def test_a_mode_event_needs_a_mode_it_knows_and_nothing_else(event):
+    with pytest.raises(InjectError, match="mode"):
+        inject.check_events([event])
+
+
+def test_the_takeover_scenario_is_a_mode_change_in_mid_mission_with_the_latch_on(tmp_path):
+    run = build_run(SIM / "scenarios" / "delivery" / "takeover.yaml", tmp_path / "run", variant="on")
+    manifest = json.loads((run / "scenario.json").read_text())
+    assert manifest["flags"] == {"takeover_latch": True} and events.tools_needed(manifest) >= {"gps_events"}
+    assert manifest["node_flags"] == {"simple_takeoff_service": {"takeoff_cancel": True}}
+    import yaml as _yaml
+
+    params = _yaml.safe_load((run / "params.yaml").read_text())
+    assert params["simple_takeoff_service"]["ros__parameters"]["features"] == {"takeoff_cancel": True}
+    assert [(e["at_s"], e["mode"]) for e in manifest["gps_events"]] == [(45.0, "LOITER"), (60.0, "LAND")]
+    assert manifest["expect_log"] == ["TAKEOVER: the mode went from GUIDED to LOITER"]
+    assert "Mission failure policy triggered abort" in manifest["forbid_log"] and len(manifest["forbid_log"]) == 3
+    import yaml
+
+    sequence = yaml.safe_load((run / "sequence.yaml").read_text())["mission_sequence"]
+    assert sequence["features"]["takeover_latch"] is True and sequence["features"]["actuation_lock"] is False

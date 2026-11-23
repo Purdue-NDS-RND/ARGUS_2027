@@ -58,6 +58,10 @@ else:
 MIN_REAL_TIME_FACTOR = 0.8
 
 
+# Driver tools whose own report decides the run with the judge: {tool: what it is called in a reason}.
+DRIVER_REPORTS = {"failsafe_check": "failsafe check", "watchdog_check": "watchdog check"}
+
+
 def _read_json(path: Path):
     try:
         return json.loads(path.read_text())
@@ -128,6 +132,8 @@ def run_result(run_dir: Path) -> dict:
         "loc_check": None,
         "recovery_cv_check": None,
         "failsafe_check": None,
+        "watchdog_check": None,
+        "forbid_log": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -280,14 +286,16 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the run had the recovery detector on but left no check of it (recovery_cv_check.json)")
         elif result["status"] == "OK" and not result["recovery_cv_check"]["passed"]:
             result.update(status="FAIL", reason="the recovery detector missed a pass line: " + "; ".join(result["recovery_cv_check"].get("problems") or ["no reason given"]))
-    if (manifest.get("driver") or {}).get("tool") == "failsafe_check":
-        # Flown by the failsafe check (PLT-08): the hover judge only says the vehicle stayed near; the check says
-        # whether the failsafe acted, in time, into the right mode, with the gripper held.
-        result["failsafe_check"] = _read_json(run_dir / "failsafe_check.json")
-        if result["status"] == "OK" and result["failsafe_check"] is None:
-            result.update(status="INVALID", reason="the flight was flown by the failsafe check but left no report (failsafe_check.json)")
-        elif result["status"] == "OK" and not result["failsafe_check"].get("passed"):
-            result.update(status="FAIL", reason="the failsafe check failed: " + (result["failsafe_check"].get("problem") or "no reason given"))
+    tool = (manifest.get("driver") or {}).get("tool")
+    if tool in DRIVER_REPORTS:
+        # Flown by a check of the flight controller (PLT-08's failsafes, PLT-09's watchdog): the hover judge only says
+        # the vehicle stayed near and came down; the check's own verdict says whether what it is for was shown.
+        report = _read_json(run_dir / f"{tool}.json")
+        result[tool] = report
+        if result["status"] == "OK" and report is None:
+            result.update(status="INVALID", reason=f"the flight was flown by the {DRIVER_REPORTS[tool]} but left no report ({tool}.json)")
+        elif result["status"] == "OK" and not report.get("passed"):
+            result.update(status="FAIL", reason=f"the {DRIVER_REPORTS[tool]} failed: " + (report.get("problem") or "no reason given"))
     wanted = [str(line) for line in manifest.get("expect_log") or []]
     if wanted:
         # A flight can pass its judge without doing what the scenario is there to show (a height guard that never
@@ -300,6 +308,17 @@ def run_result(run_dir: Path) -> dict:
         result["expect_log"] = {"wanted": wanted, "missing": missing}
         if missing and result["status"] == "OK":
             result.update(status="FAIL", reason="the mission's log has no line with: " + "; ".join(missing))
+    unwanted = [str(line) for line in manifest.get("forbid_log") or []]
+    if unwanted:
+        # The other half: something the flight is there to show did not happen (a latched-out executor asked for no mode).
+        try:
+            log = (run_dir / "launch.log").read_text(errors="replace")
+        except OSError:
+            log = ""
+        found = [line for line in unwanted if line in log]
+        result["forbid_log"] = {"unwanted": unwanted, "found": found}
+        if found and result["status"] == "OK":
+            result.update(status="FAIL", reason="the mission's log has a line it must not have: " + "; ".join(found))
     return result
 
 

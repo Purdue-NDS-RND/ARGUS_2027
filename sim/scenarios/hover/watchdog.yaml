@@ -1,0 +1,20 @@
+# PLT-09's Lua watchdog in the sim: SITL runs platform/fcu/scripts/argus_watchdog.lua, and sim/watchdog_check.py
+# plays the companion: a take-off with no setpoints (left alone), a quiet hover (left alone: nothing had started),
+# six seconds of setpoints at 10 Hz (GUIDED, and the vehicle follows them), then silence: LOITER must begin more
+# than 1 s and no more than 2 s after the last setpoint.
+# The hover judge only says the vehicle stayed near; the run counts with the check's own verdict (watchdog_check.json).
+# Not in the nightly suite: flown when the script changes.
+description: The companion watchdog script - setpoints that stop in GUIDED must end in LOITER between 1 and 2 s later.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: watchdog_check
+  height_m: 10.0
+fc_scripts:
+  - platform/fcu/scripts/argus_watchdog.lua
+wind: {level: calm}
+judge:
+  max_drift_m: 15.0
+  min_hold_s: 10.0

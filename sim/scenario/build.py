@@ -458,6 +458,8 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
     command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / f"{tool}.py"), "--site", str(site_path)]
     if tool == "hover":
         command += ["--height", str(float(settings.get("height_m", 10.0))), "--hold", str(float(settings.get("hold_s", 40.0)))]
+    elif tool == "watchdog_check":
+        command += ["--height", str(float(settings.get("height_m", 10.0)))]
     elif tool == "failsafe_check":
         # The baseline it holds the autopilot to is the committed file; the scenario's sitl_params start SITL on it.
         command += ["--failsafe", str(settings["failsafe"]), "--params", str(FC_BASELINE), "--height", str(float(settings.get("height_m", 10.0)))]
@@ -595,6 +597,14 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         for node in FLAG_STARTED_NODES:
             if (scenario.node_flags.get(node) or {}).get(node) is True:
                 launch_arguments[node] = "true"
+    # Lua scripts for the flight controller (PLT-09): checked here, copied into SITL's scripts folder by the sim's start script.
+    fc_scripts = []
+    for name in scenario.fc_scripts:
+        script = REPO / name
+        if not script.is_file():
+            raise BuildError(f"{scenario.path}: fc_scripts names {name}, which is not a file in the repo")
+        fc_scripts.append(str(script))
+    scripting = {"SCR_ENABLE": 1.0} if fc_scripts else {}
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,
@@ -633,6 +643,8 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         "dds_profile": scenario.dds_profile,  # a Fast DDS profile for the container (sim/container/start.sh), or None
         # Text the flight's launch.log must contain (sim/runner/result.py). The lines are the flags-on mission's.
         "expect_log": list(scenario.expect_log) if flags_on else [],
+        "forbid_log": list(scenario.forbid_log) if flags_on else [],  # and text it must not contain
+        "fc_scripts": fc_scripts,  # Lua scripts SITL runs, flags on or off (sim/container/start.sh copies them in)
         "target": "target" in truth,  # false: nothing for the projection check to compare with (sim/projection_check.py)
         "expected_missions": [str(entry.get("name")) for entry in root.get("missions", [])],
         "wind": scenario.wind,
@@ -651,7 +663,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     # With something to let go or take hold of, the flight controller gets the sim's gripper and sprayer outputs.
     # A flight of the recovery vehicle gets the recovery parameters (sim/params/recovery.parm); the scenario's own come last.
     recovery = read_parm(RECOVERY_PARM) if scenario.sensor_profile == "recovery" else {}
-    sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **recovery, **scenario.sitl_params}
+    sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **recovery, **scripting, **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
     if sequence is not None:
         (run_dir / "sequence.yaml").write_text(header + yaml.safe_dump(sequence, sort_keys=False))

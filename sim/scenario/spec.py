@@ -20,7 +20,7 @@ KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
     "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
-    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals",
+    "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals", "forbid_log", "fc_scripts",
 }  # fmt: skip
 REQUIRED = ("mission", "site")
 # Fast DDS profiles a scenario may ask for (`dds_profile`): sim/config/fastdds_<name>.xml. Asked for only by
@@ -34,6 +34,8 @@ DRIVERS = {
     "hover": {"height_m", "hold_s"},
     # PLT-08: trip one of the baseline's failsafes and measure the answer (sim/failsafe_check.py).
     "failsafe_check": {"failsafe", "height_m"},
+    # PLT-09: stop the setpoints and time the flight controller's watchdog (sim/watchdog_check.py).
+    "watchdog_check": {"height_m"},
     # REC-8's check of the recovery sim itself: grab the bucket, lift it, bring it back.
     "recovery_check": {"height_m", "lift_m", "carry_speed_mps", "shaped", "attach_check", "return_frame", "return_target", "set_down_rule"},  # REC-4: shaping, attach check. REC-7: the way back's frame, the set-down by rule
 }
@@ -118,6 +120,8 @@ class Scenario:
     waypoints: dict | None
     survey: dict | None  # a survey mission's search area, in metres from the take-off point (LOC-3)
     expect_log: list  # text the mission's log must contain when the flight is flown with the scenario's flags on
+    forbid_log: list  # text it must not contain then
+    fc_scripts: list  # Lua scripts the flight controller runs (repo paths), in both variants: SITL loads them at start
     wind: dict
     gps_events: list
     sun: dict | None  # None: the base world's light, as in the 2026 sim
@@ -286,6 +290,12 @@ def parse_scenario(data, path: Path) -> Scenario:
     expect_log = data.get("expect_log") or []
     if not isinstance(expect_log, list) or not all(isinstance(line, str) and line.strip() for line in expect_log):
         raise BuildError(f"{where}: expect_log is a list of pieces of text the mission's log must contain")
+    forbid_log = data.get("forbid_log") or []
+    if not isinstance(forbid_log, list) or not all(isinstance(line, str) and line.strip() for line in forbid_log):
+        raise BuildError(f"{where}: forbid_log is a list of pieces of text the mission's log must not contain")
+    fc_scripts = data.get("fc_scripts") or []
+    if not isinstance(fc_scripts, list) or not all(isinstance(name, str) and name.endswith(".lua") for name in fc_scripts):
+        raise BuildError(f"{where}: fc_scripts is a list of .lua files, as paths from the repo's top")
 
     dds_profile = data.get("dds_profile")
     if dds_profile is not None and dds_profile not in DDS_PROFILES:
@@ -313,6 +323,8 @@ def parse_scenario(data, path: Path) -> Scenario:
         waypoints=waypoints,
         survey=survey,
         expect_log=list(expect_log),
+        forbid_log=list(forbid_log),
+        fc_scripts=list(fc_scripts),
         wind=_check_wind(_mapping(data, "wind", where), where),
         gps_events=gps_events,
         sun={"elevation_deg": float(sun.get("elevation_deg", 60.0)), "azimuth_deg": float(sun.get("azimuth_deg", 180.0))} if sun else None,

@@ -824,3 +824,52 @@ def test_a_failsafe_check_needs_a_failsafe_it_knows(tmp_path):
         build_run(scenario_file(tmp_path, base=base, driver={"tool": "failsafe_check", "failsafe": "ekf"}), tmp_path / "run")
     with pytest.raises(BuildError, match="failsafe"):
         build_run(scenario_file(tmp_path, base=base, driver={"tool": "failsafe_check"}), tmp_path / "run2")
+
+
+# --- flight-controller scripts, forbidden log lines and the watchdog check (PLT-09) -------------------------
+
+
+WATCHDOG_SCRIPT = REPO / "platform" / "fcu" / "scripts" / "argus_watchdog.lua"
+
+
+def test_a_scenario_with_fc_scripts_has_sitl_run_them_flags_on_or_off(tmp_path):
+    for variant in ("off", "on"):
+        run = build_run(SCENARIOS / "delivery" / "watchdog.yaml", tmp_path / variant, variant=variant)
+        manifest = read(run, "scenario.json")
+        assert manifest["fc_scripts"] == [str(WATCHDOG_SCRIPT)]
+        sitl = {line.split()[0]: float(line.split()[1]) for line in (run / "sitl.parm").read_text().splitlines()}
+        assert sitl["SCR_ENABLE"] == 1.0
+        assert manifest["flags"] == {}  # every flag off: the 2026 delivery, with the script on the flight controller
+    # Without them nothing is loaded and scripting stays off.
+    plain = build_run(DELIVERY, tmp_path / "plain")
+    assert read(plain, "scenario.json")["fc_scripts"] == [] and "SCR_ENABLE" not in (plain / "sitl.parm").read_text()
+    # The start script copies what the manifest names into SITL's scripts folder, and empties the folder first.
+    start = (SIM / "container" / "start.sh").read_text()
+    assert 'rm -rf -- "${SITL_DIR:?}/scripts"' in start and 'cp -- "${fc_scripts[@]}" "$SITL_DIR/scripts/"' in start
+    assert start.index('rm -rf -- "${SITL_DIR:?}/scripts"') < start.index("sim_vehicle.py")
+
+
+@pytest.mark.parametrize("scripts, message", [(["platform/fcu/scripts/none.lua"], "not a file"), (["platform/fcu/argus_2027.param"], "lua"), ("argus_watchdog.lua", "lua")])
+def test_fc_scripts_that_are_not_lua_files_of_the_repo_are_refused(scripts, message, tmp_path):
+    with pytest.raises(BuildError, match=message):
+        build_run(scenario_file(tmp_path, fc_scripts=scripts), tmp_path / "run")
+
+
+def test_the_watchdog_scenario_is_flown_by_its_check_with_the_script_loaded(tmp_path):
+    run = build_run(SCENARIOS / "hover" / "watchdog.yaml", tmp_path / "run")
+    manifest = read(run, "scenario.json")
+    command = manifest["driver"]["command"]
+    assert manifest["driver"]["tool"] == "watchdog_check" and command[4] == str(SIM / "watchdog_check.py")
+    assert command[command.index("--out") + 1] == str(run / "watchdog_check.json")
+    assert manifest["fc_scripts"] == [str(WATCHDOG_SCRIPT)] and "SCR_ENABLE 1" in (run / "sitl.parm").read_text()
+
+
+def test_forbid_log_is_carried_with_the_flags_on_and_must_be_text(tmp_path):
+    on = build_run(SCENARIOS / "delivery" / "actuation_lock.yaml", tmp_path / "on", variant="on")
+    assert read(on, "scenario.json")["forbid_log"] == ["Actuation lock: the gripper command was not sent", "TAKEOVER"]
+    assert read(on, "scenario.json")["flags"]["takeover_latch"] is True  # a healthy flight with the latch on must not be latched out
+    assert read(on, "scenario.json")["flags"]["actuation_lock"] is True and read(on, "scenario.json")["flags"]["delivery_soft_set_down"] is True
+    off = build_run(SCENARIOS / "delivery" / "actuation_lock.yaml", tmp_path / "off", variant="off")
+    assert read(off, "scenario.json")["forbid_log"] == []  # the lines are the flags-on flight's
+    with pytest.raises(BuildError, match="forbid_log"):
+        build_run(scenario_file(tmp_path, forbid_log=[3]), tmp_path / "bad")

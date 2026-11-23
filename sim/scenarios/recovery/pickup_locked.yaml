@@ -1,0 +1,42 @@
+# The actuation lock on the gripper in a recovery (PLT-09): recovery/pickup_oracle with the flags actuation_lock
+# and takeover_latch on. The gripper's close (from ENGAGE) and its open (from SET_DOWN) each ask the lock, and
+# each must go out; the mission's own landing at the end (it asks for LAND itself) must not be taken for a
+# takeover. On the sim's oracle stand-in. Flown with --variants on. Not in the nightly suite.
+description: The recovery of recovery/pickup_oracle with the actuation lock and the takeover latch on - the gripper must close and open once each, and a healthy flight must not be latched out.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+  actuation_lock: true
+  takeover_latch: true
+node_flags:
+  simple_takeoff_service:
+    takeoff_cancel: true      # the latch flies nothing without the take-off node's cancel
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "Actuation lock on"
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
+wind: {level: calm}
+forbid_log:
+  - "Actuation lock: the gripper command was not sent"
+  - "TAKEOVER"

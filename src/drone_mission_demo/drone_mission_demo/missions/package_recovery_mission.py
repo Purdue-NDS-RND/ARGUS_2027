@@ -256,6 +256,12 @@ class PackageRecoveryMission(BaseMission):
             context.set_global_position_setpoint(command.lat, command.lon, command.alt, yaw_deg=yaw_deg)
         if command.gripper is not None:
             attempt = command.attempt
+            # A no-op without the actuation lock (PLT-09). The flight commands the gripper only where its rules say so:
+            # the close in ENGAGE (the cone brought the hook to the handle), the open in SET_DOWN (the release rule).
+            # The lock is told the state, and that the command is the one that state's rule gives: an open from
+            # ENGAGE, or a close from SET_DOWN, is no state's rule and is refused.
+            expected_state = rf.SET_DOWN if command.gripper == rf.OPEN else rf.ENGAGE
+            context.permit_actuation("gripper", state=self.flight.state, gates_hold=self.flight.state == expected_state, why=f"{command.gripper} is not {self.flight.state}'s command")
             context.command_gripper(release=command.gripper == rf.OPEN, done_callback=lambda future: self._on_gripper(future, attempt))
 
     def _on_gripper(self, future: Any, attempt: int) -> None:

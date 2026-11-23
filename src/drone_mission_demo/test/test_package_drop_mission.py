@@ -216,6 +216,13 @@ class FakeContext:
     def command_service_ready(self) -> bool:
         return True
 
+    def permit_actuation(self, actuator, *, state, gates_hold, why="") -> bool:
+        """With no actuation lock (the flag off) the real context does nothing here and says yes."""
+        if not hasattr(self, "actuation_permits"):
+            self.actuation_permits = []
+        self.actuation_permits.append((actuator, state, gates_hold))
+        return True
+
     def command_sprayer(self, *, enable: bool, done_callback=None) -> FakeFuture:
         self.sprayer_commands.append(enable)
         future = FakeFuture(success=True)

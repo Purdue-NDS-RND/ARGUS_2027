@@ -952,9 +952,9 @@
       "land": "L20",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_takeover 13, test_actuation_lock 20, test_executor_takeover 13, test_takeoff_cancel 4, test_watchdog_check 10 passed; CHECK_STRICT=1 scripts/check.sh -> OK. Sim (ArduCopter SITL 4.6.3): hover/watchdog OK (LOITER 1.04 s after the setpoints stopped); delivery/watchdog off OK (16.21 points, 0.03 m, the script loaded and silent); delivery/takeover on OK (TAKEOVER at the injected LOITER, no abort, no mode request after it); delivery/actuation_lock on OK (16.53 points, 0.03 m), drop/actuation_lock on OK (17.47 points, 0.03 m), recovery/pickup_locked on OK (19.99 points), each with the lock and the latch on, no refusal and no TAKEOVER; docs/results/2026-11-23-takeover-lock-watchdog.md. For the lead (Needs a person): the watchdog, the latch and the lock on the aircraft; the other missions in the sim with the watchdog before it is loaded",
       "blocked_reason": ""
     },
     {

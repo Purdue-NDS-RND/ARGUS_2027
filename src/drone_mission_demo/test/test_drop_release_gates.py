@@ -187,6 +187,8 @@ def test_a_real_release_commands_the_actuator_once_in_the_release_state_and_fini
     context.command_sprayer = command_sprayer
     statuses = context.run(mission, 1.0)
     assert context.sprayer_commands == [True] and states == [PackageDropState.DROP_PAYLOAD]
+    # The actuation lock (PLT-09) is asked first, from the release state, with the release height's own word.
+    assert context.actuation_permits == [("sprayer", "DROP_PAYLOAD", True)]
     assert "[package_drop] Closing sprayer for payload drop" in context.infos
     assert MissionStatus.SUCCESS in statuses and mission._state == PackageDropState.COMPLETE
     assert context.global_position_commands == []
@@ -433,3 +435,11 @@ def test_every_path_through_final_align_logs_as_rclpy_allows():
     text = "\n".join(context.logger.lines)
     for expected in ("waiting on speed", "climbing back", "no height above the ground", "cannot be sent yet", "looking for the target again", "the last timeout has passed"):
         assert expected in text, expected
+
+
+def test_the_2026_release_asks_the_actuation_lock_for_nothing():
+    """Flags off: the fixed column's release is 2026's, and the lock's permit is not in it (so a locked sequence needs the gates on)."""
+    context = Context()
+    mission = drop(context, features={}, state=PackageDropState.DROP_PAYLOAD, fake_drop=False, drop_hover_dwell_s=0.0)
+    context.run(mission, 1.0)
+    assert context.sprayer_commands == [True] and getattr(context, "actuation_permits", []) == []

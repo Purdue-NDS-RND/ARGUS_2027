@@ -152,6 +152,10 @@ class Context:
         self.modes.append(mode_name)
         self.world.landing = True
 
+    def permit_actuation(self, actuator, *, state, gates_hold, why=""):
+        self.actuation_permits = getattr(self, "actuation_permits", []) + [(actuator, state, gates_hold)]
+        return True
+
     def command_gripper(self, *, release, done_callback=None):
         self.gripper_calls.append((round(self.world.t, 2), release))
         # The world's own gripper, through the flight's command: closed on the handle or not, opened or refused.
@@ -201,6 +205,8 @@ def test_with_the_flag_on_the_mission_flies_the_recovery_through_the_context():
     assert flown.flight.transitions == world_tests.WALK and math.hypot(*world.bucket) < 0.35 and not world.attached
     # The gripper: closed once on the handle, opened once with the bucket standing, each answer taken with its attempt.
     assert [release for _t, release in context.gripper_calls] == [False, True] and world.opens[0][2] is True
+    # The actuation lock (PLT-09) is asked before each: the close from ENGAGE, the open from SET_DOWN.
+    assert context.actuation_permits == [("gripper", "ENGAGE", True), ("gripper", "SET_DOWN", True)]
     # GPS trusted: global setpoints on the way back, each with the yaw the mission began with; a landing at the end.
     assert len(context.global_sets) > 20 and {round(yaw) for *_rest, yaw in context.global_sets + [s[1:] for s in context.local_sets]} == {90}
     assert context.modes == ["LAND"] and context.errors == [] and context.cleared >= 2  # asked once: its mode was seen
@@ -368,3 +374,16 @@ def test_with_the_flag_off_the_abort_is_never_touched():
     flown, context = mission(features={}), Context(world)
     assert run(flown, context, seconds=1.0) == MissionStatus.SUCCESS
     assert context.abort_modes == []
+
+
+def test_the_actuation_lock_is_told_no_when_the_gripper_command_is_not_its_states_own():
+    """PLT-09: an open from ENGAGE, or a close from SET_DOWN, is no state's rule."""
+    world = world_tests.World()
+    flown, context = mission(), Context(world)
+    flown.on_enter(context)
+    rf = recovery_flight
+    for state, gripper, said in ((rf.ENGAGE, rf.CLOSE, True), (rf.SET_DOWN, rf.OPEN, True), (rf.ENGAGE, rf.OPEN, False), (rf.SET_DOWN, rf.CLOSE, False), (rf.RETURN, rf.OPEN, False)):
+        context.actuation_permits = []
+        flown.flight.state = state
+        flown._apply(context, rf.Command(rf.RUNNING, gripper=gripper, attempt=1))
+        assert context.actuation_permits == [("gripper", state, said)], (state, gripper)

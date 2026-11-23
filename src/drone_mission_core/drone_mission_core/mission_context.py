@@ -346,6 +346,7 @@ class MissionContext:
         altitude_m: float,
         done_callback: Callable[[Future[Any]], None] | None = None,
     ) -> Future[Any]:
+        self._mode_asked("GUIDED")  # the take-off service puts the vehicle in GUIDED before it arms
         request = CommandTOL.Request()
         request.altitude = float(altitude_m)
         future = self._node._takeoff_client.call_async(request)
@@ -373,6 +374,7 @@ class MissionContext:
         mode_name: str,
         done_callback: Callable[[Future[Any]], None] | None = None,
     ) -> Future[Any]:
+        self._mode_asked(mode_name)
         request = SetMode.Request()
         request.base_mode = 0
         request.custom_mode = mode_name
@@ -381,12 +383,48 @@ class MissionContext:
             future.add_done_callback(done_callback)
         return future
 
+    def _mode_asked(self, mode_name: str) -> None:
+        """Tell the takeover latch, when there is one, that this mode is autonomy's own (takeover.py)."""
+        latch = getattr(self._node, "_takeover", None)
+        if latch is not None:
+            latch.commanded(mode_name, self.now().nanoseconds * 1.0e-9)
+
+    def permit_actuation(self, actuator: str, *, state: Optional[str], gates_hold: Any, why: str = "") -> bool:
+        """A release state says it is about to command `actuator` ("gripper" or "sprayer") and whether its gates hold.
+
+        With the actuation_lock flag on, the command that follows on this
+        tick goes out only if this returned True (actuation_lock.py). With
+        the flag off there is no lock: this does nothing and returns True.
+        """
+        lock = getattr(self._node, "_actuation_lock", None)
+        if lock is None:
+            return True
+        return lock.permit(actuator, state, gates_hold, self.now().nanoseconds * 1.0e-9, why)
+
+    def _locked_out(self, actuator: str, done_callback: Callable[[Future[Any]], None] | None) -> Optional[Future[Any]]:
+        """None when the command may go out. With the lock on and no permit: the refusal, logged, as a future whose result is None."""
+        lock = getattr(self._node, "_actuation_lock", None)
+        if lock is None:
+            return None
+        allowed, why = lock.allows(actuator, self.now().nanoseconds * 1.0e-9)
+        if allowed:
+            return None
+        self._node.get_logger().error(f"Actuation lock: the {actuator} command was not sent: {why}")
+        refused: Future[Any] = Future()
+        refused.set_result(None)
+        if done_callback is not None:
+            refused.add_done_callback(done_callback)
+        return refused
+
     def command_gripper(
         self,
         *,
         release: bool,
         done_callback: Callable[[Future[Any]], None] | None = None,
     ) -> Future[Any]:
+        refused = self._locked_out("gripper", done_callback)
+        if refused is not None:
+            return refused
         request = CommandLong.Request()
         request.broadcast = False
         request.command = 211
@@ -404,6 +442,10 @@ class MissionContext:
         enable: bool,
         done_callback: Callable[[Future[Any]], None] | None = None,
     ) -> Future[Any]:
+        if enable:  # turning the drop servo off ends an actuation: never locked
+            refused = self._locked_out("sprayer", done_callback)
+            if refused is not None:
+                return refused
         request = CommandLong.Request()
         request.broadcast = False
         request.command = 216

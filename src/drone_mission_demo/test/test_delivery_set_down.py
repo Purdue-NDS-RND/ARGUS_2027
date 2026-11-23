@@ -238,6 +238,8 @@ def test_a_real_delivery_commands_the_gripper_once_in_the_release_state_and_wait
     context.command_gripper = command_gripper
     context.run(mission, 2.5)
     assert context.gripper_commands == [True] and states == [PackageDeliveryState.GROUND_DWELL]
+    # The actuation lock (PLT-09) is asked first, from the release state, with the set-down rule's own word.
+    assert context.actuation_permits == [("gripper", "GROUND_DWELL", True)]
     assert "[package_delivery] Releasing gripper payload" in context.infos
     assert mission._state == PackageDeliveryState.GROUND_DWELL and context.attitude_commands == []  # no answer yet: no climb
     context.gripper_answers = True

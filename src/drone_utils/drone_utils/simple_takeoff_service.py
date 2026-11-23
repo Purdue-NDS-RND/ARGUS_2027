@@ -23,6 +23,10 @@ Service Provided:
   drone_utils/takeoff (mavros_msgs/CommandTOL)
       request.altitude  – target altitude in metres (0 → uses default param)
       response.success  – True if sequence was accepted
+  drone_utils/cancel_takeoff (std_srvs/Trigger)
+      only with the node flag features.takeoff_cancel on (2027, PLT-09):
+      drops a take-off that was accepted and not yet sent. Called by the
+      mission executor's takeover latch, and by nothing else.
 
 Subscriptions:
   /mavros/state (mavros_msgs/State)
@@ -70,6 +74,7 @@ from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Imu, NavSatFix
 from mavros_msgs.msg import ExtendedState, State
+from std_srvs.srv import Trigger
 from mavros_msgs.srv import (
     CommandBool,
     CommandTOL,
@@ -174,6 +179,19 @@ class SimpleTakeoffService(Node):
             self._on_takeoff_service,
         )
 
+        # A way to drop a take-off that has been accepted and not yet sent, for the mission executor's takeover
+        # latch (PLT-09). Behind the node flag features.takeoff_cancel, default false: with it off the service
+        # does not exist and this node is 2026's.
+        self.declare_parameter("features.takeoff_cancel", False)
+        self._cancel_service = None
+        if self.get_parameter("features.takeoff_cancel").get_parameter_value().bool_value:
+            self._cancel_service = self.create_service(
+                Trigger,
+                "drone_utils/cancel_takeoff",
+                self._on_cancel_service,
+            )
+            self.get_logger().info("Takeoff cancel service ready on drone_utils/cancel_takeoff")
+
         rate = self.get_parameter("loop_rate_hz").get_parameter_value().double_value
         self._timer = self.create_timer(1.0 / max(rate, 1.0), self._on_timer)
 
@@ -266,6 +284,22 @@ class SimpleTakeoffService(Node):
         response.success = True
         response.result = 0
         self.get_logger().info(f"Takeoff sequence accepted (altitude={altitude:.1f}m)")
+        return response
+
+    def _on_cancel_service(self, _request, response):
+        """Drop a pending take-off: no more GUIDED, arm or take-off requests are sent for it.
+
+        The safety pilot has taken the vehicle (the executor's takeover
+        latch says so, PLT-09): this node must not ask for GUIDED again
+        over the pilot's mode, arm, or launch. A take-off already sent is
+        the flight controller's and is not undone here.
+        """
+        pending = self._pending_altitude_m is not None and not self._takeoff_sent
+        self._pending_altitude_m = None
+        response.success = True
+        response.message = "pending take-off cancelled" if pending else "no take-off was pending"
+        if pending:
+            self.get_logger().warn("Takeoff sequence cancelled before the take-off was sent")
         return response
 
     # ------------------------------------------------------------------

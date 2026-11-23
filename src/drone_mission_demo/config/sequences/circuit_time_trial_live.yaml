@@ -4,6 +4,7 @@ mission_sequence:
     use_frame_time_pose: false
     use_target_estimator: false # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
     enforce_safety_limits: false # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    takeover_latch: false        # A flight mode autonomy did not ask for stops the executor until it is re-armed by hand (takeover.py).
     waypoint_timeout_hold: false # A waypoint not reached in its time is given up; a waypoint with a hold is held (gps_route_2027.py).
     time_trial_auto: false # Fly the route as an uploaded AUTO mission, pass radius 2 m; GUIDED is the fallback (gps_route_2027.py).
     route_optimiser: false # Fly the waypoints in the shortest order. Only if the organisers allow it (gps_route.py).

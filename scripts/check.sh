@@ -120,6 +120,8 @@ run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_return
 run_test src/drone_mission_core src/drone_mission_core/test/test_recovery_flight.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_gps_route.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_step_probe.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_takeover.py
+run_test src/drone_mission_core src/drone_mission_core/test/test_actuation_lock.py
 run_test "" tools/test/test_cen_loop_sim.py
 run_test "" platform/jetson/test/test_setup.py
 run_test "" platform/jetson/test/test_services.py
@@ -153,6 +155,7 @@ else
     run_test "" src/drone_mission_core/test/test_executor_time_health.py
     run_test "" src/drone_mission_core/test/test_executor_pose_buffer.py
     run_test "" src/drone_mission_core/test/test_executor_abort_mode.py
+    run_test "" src/drone_mission_core/test/test_executor_takeover.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_projection_v2.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_frame_projection.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_assignment.py
@@ -195,6 +198,7 @@ else
     run_test "" sim/test/test_fence_upload.py
     run_test "" sim/test/test_fence_check.py
     run_test "" sim/test/test_failsafe_check.py
+    run_test "" sim/test/test_watchdog_check.py
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
     run_test "" sim/test/test_gates.py
@@ -222,6 +226,7 @@ else
     run_test "" sim/test/test_inject.py
     run_test "" sim/test/test_loc_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
+    run_test "" src/drone_utils/test/test_takeoff_cancel.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py
     run_test src/argus_camera src/argus_camera/test/test_capture_clock.py
     run_test src/argus_camera src/argus_camera/test/test_latency_probe.py

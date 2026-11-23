@@ -232,6 +232,17 @@ sitl_args=(
     --out udp:127.0.0.1:14551
     --mavproxy-args "--non-interactive --logfile=$LOG_DIR/mavlink.tlog"
 )
+# Lua scripts the scenario has the flight controller run (PLT-09's watchdog): SITL runs what is in its
+# scripts folder, so the folder is emptied at every start and filled only with what this run asks for.
+rm -rf -- "${SITL_DIR:?}/scripts"
+if [[ -n $RUN_DIR ]]; then
+    mapfile -t fc_scripts < <(python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1])).get("fc_scripts") or []), end="")' "$RUN_DIR/scenario.json")
+    if ((${#fc_scripts[@]})); then
+        mkdir -p "$SITL_DIR/scripts"
+        cp -- "${fc_scripts[@]}" "$SITL_DIR/scripts/"
+        echo "== Flight-controller scripts: ${fc_scripts[*]##*/}"
+    fi
+fi
 # A site run, and the first plain run after one, start from wiped storage
 # (sitl_storage.sh says why).
 wipe=$(sitl_wipe_needed "$SITL_DIR" "$SITE_FILE" "${WIPE_PARAMS:-0}")

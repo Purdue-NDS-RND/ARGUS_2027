@@ -33,6 +33,8 @@ from .recovery_flight import attach_home_height
 from .gps_route import attach_mission_upload
 from .survey_search import attach_localisation_control
 from .time_guard import attach_time_health
+from .takeover import attach_takeover, takeover_tick
+from .actuation_lock import attach_actuation_lock, lock_violations
 
 
 class MissionExecutorNode(Node):
@@ -168,6 +170,18 @@ class MissionExecutorNode(Node):
         self._time_health = attach_time_health(
             self, [mission.spec for mission in self._sequence]
         )
+        # None unless a mission has the takeover_latch flag on: then a flight
+        # mode autonomy did not ask for stops this executor until it is
+        # re-armed by hand (takeover.py).
+        self._takeover = attach_takeover(
+            self, [mission.spec for mission in self._sequence]
+        )
+        # None unless a mission has the actuation_lock flag on: then the
+        # gripper and the drop servo are commanded only from a release state
+        # whose gates hold (actuation_lock.py).
+        self._actuation_lock = attach_actuation_lock(
+            self, [mission.spec for mission in self._sequence]
+        )
         self._active_index = 0
         self._active_mission = None
         self._abort_requested = False
@@ -220,6 +234,15 @@ class MissionExecutorNode(Node):
                 "enforce_safety_limits is on and the sequence breaks a safety limit: "
                 + "; ".join(violations)
             )
+        # Empty unless the actuation_lock flag is on: then a mission that
+        # actuates must have its gated release path on, or its release would
+        # be refused in the air.
+        unlockable = lock_violations(specs)
+        if unlockable:
+            raise ValueError(
+                "actuation_lock is on and the sequence cannot be flown locked: "
+                + "; ".join(unlockable)
+            )
         missions = [create_mission(spec) for spec in specs]
         for mission in missions:
             self.get_logger().info(
@@ -246,6 +269,9 @@ class MissionExecutorNode(Node):
         self._image_size = (int(msg.point.x), int(msg.point.y))
 
     def _control_loop(self) -> None:
+        if self._takeover is not None and takeover_tick(self, self._takeover):
+            return  # somebody else has the vehicle: nothing is sent, ticked or asked for
+
         self._mission_context.publish_managed_setpoints()
 
         if self._abort_requested:

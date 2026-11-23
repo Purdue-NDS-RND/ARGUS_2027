@@ -14,7 +14,12 @@ vehicle arms, in sim time:
   - {at_s, kind: jam, for_s}                             jamming: position, velocity and satellites wander
   - {at_s, kind: dropout, for_s}                         no GPS at all
   - {at_s, kind: rangefinder, scale, for_s}              the rangefinder reads `scale` times the true range
+  - {at_s, kind: mode, mode}                             the flight mode is changed, as the safety pilot's switch would
   - {at_s, kind: clear}                                  everything back as it was
+
+(Nor is a mode change a GPS fault: it is how a flight with the takeover latch on is taken over at a set moment
+(PLT-09). It is sent from this tool's own MAVLink system, not the ground station's, so the ground-station
+audit does not count it as a person's input.)
 
 (The rangefinder's is not a GPS fault. It is here because this is the one
 tool that changes SITL's sensors at a scheduled time: a survey's height
@@ -55,8 +60,10 @@ KINDS = {
     "jam": {"for_s"},
     "dropout": {"for_s"},
     "rangefinder": {"scale", "for_s"},
+    "mode": {"mode", "for_s"},  # for_s is carried (as None) by a checked event; a mode is not undone after a time
     "clear": set(),
 }
+TAKEOVER_MODES = ("LOITER", "ALT_HOLD", "STABILIZE", "BRAKE", "LAND", "RTL", "GUIDED")  # what a mode event may ask for
 RANGEFINDER_SCALE = (0.1, 2.0)  # what a rangefinder fault's `scale` may be
 # What each fault is called in the two families of ArduPilot's SITL. {role: (4.6 name, later name)}.
 PARAMETER_NAMES = {
@@ -102,6 +109,10 @@ def check_events(events: list) -> List[dict]:
             scale = event.get("scale")
             if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not RANGEFINDER_SCALE[0] <= scale <= RANGEFINDER_SCALE[1]:
                 raise InjectError(f"gps_events[{index}] (rangefinder) needs a scale between {RANGEFINDER_SCALE[0]:g} and {RANGEFINDER_SCALE[1]:g}, got {scale!r}")
+        if event["kind"] == "mode" and event.get("mode") not in TAKEOVER_MODES:
+            raise InjectError(f"gps_events[{index}] (mode) needs a mode, one of: {', '.join(TAKEOVER_MODES)}; got {event.get('mode')!r}")
+        if event["kind"] == "mode" and for_s is not None:
+            raise InjectError(f"gps_events[{index}] (mode) takes no for_s: a mode is not changed back after a time; give a second mode event")
         checked.append({**event, "at_s": at_s, "for_s": for_s})
     return checked
 
@@ -149,6 +160,8 @@ def changes_for(event: dict, latitude_deg: float, defaults: Dict[str, float]) ->
         on = {"disable": 1.0}
     elif kind == "rangefinder":
         on = {"sonar_scale": defaults["sonar_scale"] / float(event["scale"])}
+    elif kind == "mode":
+        return {}, {}  # no parameter: the injector asks the flight controller for the mode itself
     else:  # clear
         return dict(defaults), {}
     return on, {role: defaults[role] for role in on}
@@ -356,6 +369,18 @@ def run(run_dir: Path, url: str = "udpin:127.0.0.1:14553") -> dict:
             confirmed = False
         return confirmed
 
+    def set_flight_mode(name: str) -> bool:
+        """Ask for a flight mode and wait up to 2 s to hear the flight controller in it."""
+        master.set_mode(name)
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            message = master.recv_match(type="HEARTBEAT", blocking=True, timeout=0.2)
+            if message is not None and (message.get_srcSystem(), message.get_srcComponent()) == (FCU_SYSTEM, FCU_COMPONENT):
+                on_heartbeat(message)
+                if mavutil.mode_string_v10(message) == name:
+                    return True
+        return False
+
     while not stopping.is_set():
         if time.monotonic() - asked_at > 2.0:  # the raw fix at 10 Hz on this link, and keep asking
             master.mav.command_long_send(
@@ -394,6 +419,9 @@ def run(run_dir: Path, url: str = "udpin:127.0.0.1:14553") -> dict:
         for values, about in schedule.due(now - armed_at):
             before = last_fix
             confirmed = set_parameters(values)
+            if about["event"] == "mode":
+                confirmed = set_flight_mode(str(about["mode"]))
+                print(f"gps events: flight mode {about['mode']} {'taken' if confirmed else 'NOT taken'} at {now - armed_at:.1f} s after arming", flush=True)
             record = {"t": round(clock["t"], 3), "since_arm_s": round(now - armed_at, 3), **about, "set": {names[role]: value for role, value in values.items()}, "confirmed": confirmed, "seen": None}
             if about["event"] == "glitch" and about["what"] == "on" and before is not None:
                 wanted_ne = (float(about.get("north_m", 0.0)), float(about.get("east_m", 0.0)))

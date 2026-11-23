@@ -40,6 +40,18 @@ The file marks these "to confirm"; they are the session's working values.
 
 The readiness video of the fence and the failsafes is OPS-02.
 
+## The companion watchdog (PLT-09)
+
+`scripts/argus_watchdog.lua` runs on the flight controller. With the vehicle flying in GUIDED, if the companion's setpoints stop for more than a second it switches to LOITER and says so ("ARGUS watchdog: setpoints stopped, now LOITER"). It is armed only after five setpoints have come in that stretch of flying, and starts counting again whenever the vehicle is not in GUIDED, is disarmed, is not flying, or is taking off: a take-off the flight controller flies itself, and the delivery's time on the ground, are left alone.
+
+It is not part of the baseline file. To load it: `SCR_ENABLE 1`, reboot, copy the script to `APM/scripts` on the SD card, reboot, and look for "ARGUS watchdog loaded" among the ground station's messages.
+
+Before it is loaded on the aircraft:
+
+- Fly every mission that will be flown with it in the sim first (`fc_scripts` in a scenario, as `sim/scenarios/delivery/watchdog.yaml` has it). A mission that goes quiet in the air in GUIDED for more than a second, after it has been sending setpoints, is taken for a dead companion: the vehicle goes to LOITER, and with the takeover latch on the executor then stays out. Only the 2026 delivery has been flown with it.
+- LOITER needs the safety pilot, with the throttle stick at its middle: in LOITER the stick is the climb rate (`PILOT_SPEED_UP 250`, `PILOT_SPEED_DN 0` in 2026's set), so a stick resting low brings the vehicle down at up to 2.5 m/s. The pilot's procedure during autonomous flight is mid-stick. Left alone at mid-stick the copter holds its place until its battery failsafe. That is the point (the pilot takes it from a known state), and it is why the baseline's battery and radio failsafes should be loaded with it.
+- On the bench, props off, armed in GUIDED: the script cannot be tripped on the ground (it acts only when flying). Its first real test is a hover with the safety pilot: start a mission, kill the executor (`Ctrl-C` on the launch), and see LOITER within two seconds.
+
 ## In the sim
 
 ```
@@ -47,6 +59,8 @@ sim/run_scenarios.sh hover/failsafe_battery          # low voltage -> RTL, criti
 sim/run_scenarios.sh hover/failsafe_radio            # receiver silent -> RTL
 sim/run_scenarios.sh hover/failsafe_ground_station   # no ground-station heartbeat -> RTL
 sim/run_scenarios.sh geofence/breach                 # the fence (SIM-02)
+sim/run_scenarios.sh hover/watchdog                  # the watchdog: setpoints stop -> LOITER in 1 to 2 s
+sim/run_scenarios.sh delivery/watchdog --variants off   # the 2026 delivery with the watchdog loaded: it must not act
 ```
 
 Each failsafe flight starts SITL on the baseline's values, is flown by `sim/failsafe_check.py`, and counts only if the mode the baseline asks for began in time with the gripper held. The EKF failsafe is not tripped in the sim: its action is 2026's and unchanged.

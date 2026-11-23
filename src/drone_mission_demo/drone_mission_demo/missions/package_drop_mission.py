@@ -366,6 +366,9 @@ class PackageDropMission(RedBullseyeMissionBase):
         context.logger.info(f"[{self.name}] Closing sprayer for payload drop")
         self._actuator_requested = True
         self._gated_command_sent = True
+        # For the actuation lock (PLT-09; a no-op without it): this is the release state, entered with the gates held,
+        # and the height is still one a release is allowed at.
+        context.permit_actuation("sprayer", state=self._state.name, gates_hold=self._final_align.release_allowed_now(context), why="the height is under the lowest release height or unknown")
         context.command_sprayer(
             enable=True,
             done_callback=self._on_sprayer_response,

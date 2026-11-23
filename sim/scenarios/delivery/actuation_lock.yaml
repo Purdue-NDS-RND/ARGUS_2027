@@ -1,0 +1,61 @@
+# The actuation lock in a flight (PLT-09): delivery/set_down with the flag actuation_lock on. The delivery's
+# release state asks the lock (GROUND_DWELL, with the set-down rule's word) and its one gripper command must
+# go out: the package is set down and let go as in delivery/set_down, and the log has no refusal.
+# The takeover latch is on as well, with nobody taking over: a healthy flight, through the set-down, the relaunch
+# and the return, must never be latched out (the log must not say TAKEOVER).
+# Flown with --variants on. Not in the nightly suite.
+description: The soft set-down of a real 0.5 kg package with the actuation lock and the takeover latch on - the release must go out once, and a healthy flight must not be latched out.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  delivery_soft_set_down: true
+  actuation_lock: true
+  takeover_latch: true
+node_flags:
+  simple_takeoff_service:
+    takeoff_cancel: true      # the latch flies nothing without the take-off node's cancel
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+config:
+  package_delivery:
+    fake_drop: false
+    airframe: sim_iris_parcel
+targets:
+  package_delivery: delivery_target
+payload: parcel
+bucket: pail
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.5
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+  - name: pail
+    kind: bucket
+    mass_kg: 1.5
+    at: {east_m: -8.0, north_m: 0.0}
+wind: {level: calm}
+expect_log:
+  - "Actuation lock on"
+  - "Releasing gripper payload"
+forbid_log:
+  - "Actuation lock: the gripper command was not sent"
+  - "TAKEOVER"
