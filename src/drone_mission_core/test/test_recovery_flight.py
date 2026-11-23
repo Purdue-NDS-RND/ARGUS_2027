@@ -2,6 +2,7 @@
 on the ground, a gripper that answers, a throttle that knows what hangs on the hook."""
 
 import copy
+import dataclasses
 import math
 import random
 import sys
@@ -467,3 +468,114 @@ def test_a_sweep_and_a_setting_the_mission_does_not_have_are_refused_when_the_pl
         rf.plan_from_config({**config, "engage": {"mode": "sweep"}}, {}, get_feature_flag)
     with pytest.raises(ValueError, match="handle_height_m"):
         rf.plan_from_config({**config, "handle_height_m": 0.3}, {}, get_feature_flag)  # (it is handle_up_m)
+
+
+# --- the abort's mode (the lead's rule of 23 November 2026, as built: recovery_return.py, "Abort") -----------------
+
+
+def abort_modes(flight, world, seconds=900.0, until=None):
+    """Fly, noting the abort mode in each state the flight passes through."""
+    seen = {}
+    for _ in range(int(seconds * 20)):
+        command = flight.update(world.readings())
+        seen.setdefault(flight.state, set()).add(flight.abort_mode())
+        world.apply(command)
+        if command.status != rf.RUNNING or (until is not None and until(flight, world)):
+            break
+    return seen, command
+
+
+def test_the_abort_is_rtl_until_the_gripper_closes_on_the_handle_and_a_landing_for_the_rest_of_the_mission():
+    world, flight = World(), rf.RecoveryFlight(plan())
+    assert flight.abort_mode() == "RTL" and not flight.gripper_has_closed
+    seen, last = abort_modes(flight, world)
+    assert last.status == rf.SUCCESS
+    for state in (rf.TRANSIT, rf.ACQUIRE, rf.APPROACH, rf.CENTRE, rf.CONE_DESCENT):  # (CHECKS is over within the first tick)
+        assert seen[state] == {"RTL"}, state
+    assert seen[rf.ENGAGE] == {"RTL", "LAND"}  # RTL on the way down the last of it, LAND from the close
+    # With the bucket on; then let go but not yet seen to be off; then standing at the takeoff point, where an RTL would come down.
+    for state in (rf.LIFT, rf.VERIFY_ATTACH, rf.CLIMB, rf.RETURN, rf.SET_DOWN, rf.CLEAR, rf.LANDING, rf.COMPLETE):
+        assert seen[state] == {"LAND"}, state
+    assert flight.abort_mode() == "LAND" and flight.gripper_has_closed
+
+
+def test_a_hook_the_attach_check_called_empty_is_still_landed_with():
+    # The throttle said nothing was taken; the gripper is still closed, and the check can be wrong.
+    world, flight = World(grab_misses=1), rf.RecoveryFlight(plan())
+    seen, _ = abort_modes(flight, world, until=lambda f, w: f.attempts == 2 and f.state == rf.CONE_DESCENT)
+    assert flight.attempts == 2 and seen[rf.CONE_DESCENT] == {"RTL", "LAND"}  # RTL on the first descent, LAND on the second
+    assert flight.abort_mode() == "LAND"
+
+
+def test_a_failure_before_any_close_aborts_by_rtl_and_every_failure_after_one_by_landing():
+    # Out of time before anything has been closed on: the executor's abort brings the vehicle home.
+    world, flight = World(bucket=(500.0, 500.0), pickup=(40.0, 30.0)), rf.RecoveryFlight(plan(time_budget_s=20.0))
+    assert fly(flight, world).status == rf.FAILURE and flight.state == rf.FAILED
+    assert flight.abort_mode() == "RTL" and not flight.gripper_has_closed
+    assert flight.update(world.readings()).status == rf.FAILURE and flight.abort_mode() == "RTL"  # and it stays so
+    # A gripper that will not open: landed with the bucket, failed, and still a landing whatever the executor asks next.
+    world, flight = World(open_result=4), rf.RecoveryFlight(plan())
+    assert fly(flight, world).status == rf.FAILURE and flight.state == rf.FAILED and flight.abort_mode() == "LAND"
+    # In the air with the bucket on and no way on (the carrying fault itself): LAND, never RTL.
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.CLIMB)
+    for _ in range(int(40.0 * 20)):
+        flight.update(world.readings())
+        world.t += 0.05
+        assert flight.abort_mode() == "LAND"
+    assert flight.state == rf.CARRYING_FAULT
+    # The bucket thought lost on the way (the throttle's word, with the gripper still closed).
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.RETURN and w.t - f._state_since_s > 2.0)
+    world.throttle_override = EMPTY
+    world.attached = False
+    assert fly(flight, world).status == rf.FAILURE and flight.abort_mode() == "LAND"
+
+
+def test_a_failure_after_the_release_lands_where_it_is_and_not_on_the_bucket_at_home():
+    """The spec audit's row: with the bucket set down at the takeoff point, an RTL would come down on it."""
+    world, flight = World(), rf.RecoveryFlight(plan(time_budget_s=10_000.0))
+    fly(flight, world, until=lambda f, w: f.state == rf.CLEAR)
+    assert flight.released and flight.abort_mode() == "LAND"
+    frozen = world.readings()
+    for _ in range(int(60.0 * 20)):  # CLEAR outstays its limit: the vehicle is held where it is
+        world.t += 0.05
+        command = flight.update(dataclasses.replace(frozen, now_s=world.t))
+        if command.status != rf.RUNNING:
+            break
+    assert flight.state in (rf.FAILED, rf.CARRYING_FAULT) and flight.abort_mode() == "LAND"
+
+
+def test_with_no_position_to_fly_home_on_the_abort_is_a_landing_whatever_is_on_the_hook():
+    """The flight-safety review's blocker: an RTL asked for without a position is refused and asked for again for ever."""
+    # No pose: the mission fails for want of a position, with nothing on the hook, and the abort is LAND.
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.APPROACH)
+    assert flight.abort_mode() == "RTL"
+    blind = dataclasses.replace(world.readings(), e=None, n=None, up=None, yaw_rad=None)
+    for _ in range(40):
+        world.t += 0.05
+        command = flight.update(dataclasses.replace(blind, now_s=world.t))
+        assert flight.abort_mode() == "LAND"  # from the first tick without one, before the mission gives up
+    assert command.status == rf.FAILURE and "no position" in command.reason and not flight.gripper_has_closed
+    assert flight.update(dataclasses.replace(world.readings(), now_s=world.t + 1.0)).status == rf.FAILURE and flight.abort_mode() == "LAND"  # kept from the tick it failed on
+    # No GPS fix: a pose, but nothing an RTL can be flown on. It is RTL again when the fix is.
+    world, flight = World(), rf.RecoveryFlight(plan())
+    fly(flight, world, until=lambda f, w: f.state == rf.APPROACH)
+    flight.update(dataclasses.replace(world.readings(), fix=None))
+    assert flight.abort_mode() == "LAND"
+    # ...and RTL again only when the fix has been back for two seconds: one that comes and goes does not flip it.
+    flips = []
+    for tick in range(80):
+        world.t += 0.05
+        dropped = tick < 20 and tick % 2 == 0  # the first second: every other fix is missing
+        flight.update(dataclasses.replace(world.readings(), now_s=world.t, fix=None if dropped else world.readings().fix))
+        flips.append(flight.abort_mode())
+    assert flips[:20] == ["LAND"] * 20 and flips.count("RTL") > 0 and flips[-1] == "RTL"
+    assert flips.index("RTL") == pytest.approx(19 + 40, abs=2)  # two seconds after the last missing fix
+    assert "LAND" not in flips[flips.index("RTL") :]
+    # GPS not trusted (the flag): never RTL, from before the first tick.
+    world, flight = World(pickup=(40.0, 30.0)), rf.RecoveryFlight(plan(gps_untrusted=True))
+    assert flight.abort_mode() == "LAND"
+    seen, last = abort_modes(flight, world)
+    assert last.status == rf.SUCCESS and set().union(*seen.values()) == {"LAND"}

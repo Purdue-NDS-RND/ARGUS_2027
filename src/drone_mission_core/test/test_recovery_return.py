@@ -312,5 +312,12 @@ def test_ten_thousand_random_set_downs_never_open_the_gripper_high_or_blind():
     assert opened > 50
 
 
-def test_recovery_aborts_by_landing_not_by_rtl():
-    assert rr.RECOVERY_ABORT_MODE == "LAND"
+def test_the_abort_is_rtl_only_with_a_hook_that_never_closed_and_a_position_to_fly_home_on():
+    """The lead's rule of 23 November 2026 (it replaces the spec's LAND for the whole sequence), with RTL asked for
+    only where it can be flown and where home is not where the bucket stands."""
+    assert (rr.ABORT_RTL, rr.ABORT_LAND) == ("RTL", "LAND")
+    assert rr.abort_mode(gripper_has_closed=False, rtl_can_be_flown=True) == "RTL"
+    assert rr.abort_mode(gripper_has_closed=True, rtl_can_be_flown=True) == "LAND"
+    assert rr.abort_mode(gripper_has_closed=False, rtl_can_be_flown=False) == "LAND"
+    assert rr.abort_mode(gripper_has_closed=True, rtl_can_be_flown=False) == "LAND"
+    assert not hasattr(rr, "RECOVERY_ABORT_MODE")

@@ -1,5 +1,5 @@
-# The sim's recovery flight (REC-2): the 2026 take-off service settings, the executor with recovery's abort mode
-# (REC-7) and the detectors the estimator listens to, the green X and bucket detector, and the sim's oracle
+# The sim's recovery flight (REC-2): the 2026 take-off service settings, the executor with 2026's abort mode
+# (RTL; the mission makes it LAND once its gripper has closed, REC-7) and the detectors the estimator listens to, the green X and bucket detector, and the sim's oracle
 # detector as a stand-in for a detector that sees the bucket all the way down. Every flag is false: as shipped,
 # neither detector node does anything.
 simple_takeoff_service:
@@ -21,7 +21,7 @@ simple_takeoff_service:
 mission_executor:
   ros__parameters:
     loop_rate_hz: 20.0
-    abort_rtl_mode: "LAND"           # recovery aborts by landing: an RTL refused for want of a position is asked for again for ever (REC-7)
+    abort_rtl_mode: "RTL"            # a failed recovery comes home; once its gripper has closed, or with no position, the mission makes the abort a landing (REC-7)
     estimator_detectors: ["recovery_cv", "sim_oracle"]  # whose detections the target estimator takes: the green X detector's, and the sim oracle's when a scenario runs it
 
 loc_node:  # The sim's oracle detector as the bucket's detector: a stand-in, sim only. Only started by a launch given loc_node:=true.

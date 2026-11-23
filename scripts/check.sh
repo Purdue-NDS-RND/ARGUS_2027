@@ -151,6 +151,7 @@ else
     run_test "" src/drone_mission_core/test/test_executor_feature_overrides.py
     run_test "" src/drone_mission_core/test/test_executor_time_health.py
     run_test "" src/drone_mission_core/test/test_executor_pose_buffer.py
+    run_test "" src/drone_mission_core/test/test_executor_abort_mode.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_projection_v2.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_frame_projection.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_assignment.py

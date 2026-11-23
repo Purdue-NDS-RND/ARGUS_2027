@@ -74,10 +74,25 @@ of the descent's throttle to be gone, and a 1 kg bucket coming off a 4 kg
 aircraft takes off about 11%. This one is scaled by the two hovers the
 attach check measured on the day.)
 
-**Abort.** Recovery's executor is given `abort_rtl_mode: LAND`
-(RECOVERY_ABORT_MODE; config/params/recovery_mission.yaml): an RTL that the
-flight controller refuses, as it does without a position, is asked for again
-for ever, and a landing needs no position.
+**Abort.** When a recovery sequence fails, the executor asks the flight
+controller for RTL or for LAND (`abort_mode`). The lead's rule of 23 November
+2026, which replaces the spec's `abort_rtl_mode: LAND` for the whole
+sequence, is RTL until the bucket is attached and LAND once it is. As built,
+RTL is asked for only where it is both safe and possible:
+
+- LAND from the first time the gripper is told to close, for the rest of the
+  mission. From then on the bucket is on the hook, or may be (a close that
+  took the handle and an attach check that said it had not), or stands at
+  the return point, which with `return_target: takeoff` is where an RTL
+  would come down.
+- LAND whenever the vehicle has no position an RTL could be flown on: no
+  pose, no GPS fix, or `recovery_gps_untrusted` on. An RTL the flight
+  controller refuses is asked for again for ever (2026's executor).
+- RTL otherwise: an empty hook that has never closed, and a position.
+
+The recovery params files keep 2026's `abort_rtl_mode: RTL`; the mission
+tells the executor when the abort is a landing
+(`MissionContext.set_abort_mode`).
 
 The standard library and this package's limits.
 """
@@ -95,7 +110,13 @@ from .safety_limits import capped_speed
 from .set_down import CONTACT_HOLD_S, MAX_TICK_GAP_S, SET_DOWN_RATE_MPS, SIGNAL_MAX_AGE_S
 from .target_access import DESCEND_MAX_AGE_S
 
-RECOVERY_ABORT_MODE = "LAND"
+ABORT_RTL, ABORT_LAND = "RTL", "LAND"
+
+
+def abort_mode(gripper_has_closed: bool, rtl_can_be_flown: bool) -> str:
+    """The mode a failed recovery sequence asks the flight controller for (see "Abort" above)."""
+    return ABORT_RTL if rtl_can_be_flown and not gripper_has_closed else ABORT_LAND
+
 
 # --- where to -----------------------------------------------------------------------------------
 

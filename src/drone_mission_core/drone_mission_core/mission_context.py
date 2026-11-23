@@ -37,6 +37,7 @@ from .target_access import (
 )
 
 ACTUATION_DELAY_NS = int(ACTUATION_DELAY_S * 1.0e9)
+ABORT_MODES_A_MISSION_MAY_NAME = ("LAND",)
 
 
 class MissionContext:
@@ -351,6 +352,21 @@ class MissionContext:
         if done_callback is not None:
             future.add_done_callback(done_callback)
         return future
+
+    def set_abort_mode(self, mode: Optional[str]) -> None:
+        """Name the mode the executor's abort asks for while this holds, in place of the `abort_rtl_mode` parameter.
+
+        Only "LAND" can be named (a mission with a load on its hook must not be flown home by an abort); None gives
+        the parameter back. Nothing is asked of the flight controller here: this only changes what a later failure
+        of the sequence would ask for.
+        """
+        if mode is not None and mode not in ABORT_MODES_A_MISSION_MAY_NAME:
+            raise ValueError(f"a mission may name {', '.join(ABORT_MODES_A_MISSION_MAY_NAME)} as the abort's mode, or None; got {mode!r}")
+        self._node._abort_mode_override = mode
+
+    def named_abort_mode(self) -> Optional[str]:
+        """The mode a mission has named for the abort, or None when the abort is the `abort_rtl_mode` parameter."""
+        return getattr(self._node, "_abort_mode_override", None)
 
     def request_mode_change(
         self,

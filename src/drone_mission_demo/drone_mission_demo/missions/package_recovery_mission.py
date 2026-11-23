@@ -26,6 +26,13 @@ hands the flight's `Command` back to the context.
   the gripper       `command_gripper`, whose answer comes back as the flight's
                     `Ack` with the attempt it was sent for
 
+The abort: each tick the mission tells the executor which mode a failure of
+the sequence asks for (`context.set_abort_mode`): RTL while the gripper has
+never closed and the vehicle has a position to fly home on, LAND from the
+first close for the rest of the mission and whenever there is no pose, no
+GPS fix or GPS is not trusted (recovery_return.py, "Abort"). It never gives
+a landing back when it leaves.
+
 The mission's other flags: `swing_shaping` (the way back walked over whole
 pendulum periods) and `recovery_gps_untrusted` (no global setpoint, ever; the
 pickup must then be given as `local`). The flags the spec names whose
@@ -137,12 +144,19 @@ class PackageRecoveryMission(BaseMission):
         self._boundary: Any = None  # the flight boundary in the local frame, once its corners can be placed
         self._said_state = ""
         self._last_log_s = -1.0e9
+        self._abort_mode: Optional[str] = None  # what the executor was last told
+        # A landing an earlier mission of the sequence left named (it failed with something on its hook) is not undone here.
+        self._abort_land_inherited = context.named_abort_mode() == self._rf.back.ABORT_LAND
+        if self._abort_land_inherited or self.flight.abort_mode() == self._rf.back.ABORT_LAND:
+            # Known before the first tick (GPS not trusted): named now, so that a failure on that tick is a landing too.
+            context.set_abort_mode(self._rf.back.ABORT_LAND)
+            self._abort_mode = self._rf.back.ABORT_LAND
         if self._boundary_latlon is None:
             context.logger.warn(f"[{self.name}] no flight_boundary is given: the pickup and the search are held only to 1000 m of the vehicle and to the flight controller's fence")
 
     def on_exit(self, context: Any) -> None:
         if self._enabled:
-            context.clear_all_setpoints()
+            context.clear_all_setpoints()  # (the abort's mode is left as it stands: a failure's abort comes after this)
 
     def update(self, context: Any) -> MissionStatus:
         if not self._enabled:
@@ -151,6 +165,12 @@ class PackageRecoveryMission(BaseMission):
         rf = self._rf
         readings = self._read(context)
         command = self.flight.update(readings)
+        abort_mode = rf.back.ABORT_LAND if self._abort_land_inherited else self.flight.abort_mode()
+        if abort_mode != self._abort_mode:
+            # RTL while the gripper has never closed and there is a position to fly home on; LAND otherwise.
+            context.set_abort_mode(rf.back.ABORT_LAND if abort_mode == rf.back.ABORT_LAND else None)
+            context.logger.info(f"[{self.name}] a failure of the sequence would now ask for {abort_mode}")
+            self._abort_mode = abort_mode
         if self.flight.state != self._said_state:
             context.logger.info(f"[{self.name}] State: {self._said_state or 'START'} -> {self.flight.state}" + (f" ({self.flight.reason})" if self.flight.reason else ""))
             self._said_state = self.flight.state
@@ -200,7 +220,7 @@ class PackageRecoveryMission(BaseMission):
         fix = context.global_gps
         if fix is not None and getattr(getattr(fix, "status", None), "status", 0) >= 0:  # sensor_msgs/NavSatStatus: -1 is no fix
             stamp = _stamp_s(fix)
-            if stamp is not None and 0.0 <= now_s - stamp <= FIX_MAX_AGE_S:
+            if stamp is not None and -0.1 <= now_s - stamp <= FIX_MAX_AGE_S:  # (a stamp a moment ahead of the clock is of this moment, as for the pose)
                 values["fix"] = (float(fix.latitude), float(fix.longitude))
         values["home_up_m"] = context.home_up_m()
         if self._placed is None and self._pickup_latlon is not None:

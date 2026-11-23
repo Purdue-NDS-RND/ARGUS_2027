@@ -173,6 +173,9 @@ class MissionExecutorNode(Node):
         self._abort_requested = False
         self._abort_mode_future = None
         self._abort_mode_requested = False
+        # None, as in 2026: the abort asks for the abort_rtl_mode parameter. A mission may name another mode
+        # for as long as it holds (MissionContext.set_abort_mode; the recovery mission, with the bucket on its hook).
+        self._abort_mode_override = None
         self._done_logged = False
 
         rate = self.get_parameter("loop_rate_hz").get_parameter_value().double_value
@@ -309,6 +312,8 @@ class MissionExecutorNode(Node):
             .get_parameter_value()
             .string_value
         )
+        if self._abort_mode_override is not None:
+            rtl_mode = self._abort_mode_override
 
         if self._mavros_state is not None and self._mavros_state.mode == rtl_mode:
             if not self._done_logged:

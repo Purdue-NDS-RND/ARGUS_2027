@@ -6,7 +6,7 @@
 # and the mechanism's own are the mechanical team's to give, and there is no live copy of this file until
 # they have.
 mission_sequence:
-  on_failure: abort_and_rtl                         # Abort the remaining sequence on failure (the recovery params make the abort a landing).
+  on_failure: abort_and_rtl                         # Abort the remaining sequence on failure: RTL, or a landing once the gripper has closed or with no position (the mission says which).
   features:                                         # Mission feature flags; a missing flag means false.
     use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
     use_target_estimator: false                     # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.

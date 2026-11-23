@@ -1,0 +1,40 @@
+# A carrying fault in the sim (REC-2, REC-7): the recovery of recovery/pickup_oracle, with the carry height set so
+# high (40 m) that the climb with the bucket on outstays its 30 s limit. That is a CARRYING_FAULT: nothing is let
+# go, the mission lands where it is with the bucket on the hook, and fails. The abort that follows the failure
+# must be a landing too (the mission named LAND when its gripper closed), never an RTL with the bucket on.
+# The judge scores the bucket far from its return point: the points are not what this flight is for; the three
+# log lines are, and that it ends down and disarmed at a landing's speed.
+# Not in the nightly suite or a gate: it is flown when the abort's rule changes.
+description: A recovery whose climb with the bucket outstays its limit - it must land with the bucket, and the abort must be LAND.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+config:
+  package_recovery:
+    carry_height_m: 40.0
+expect_log:
+  - "a failure of the sequence would now ask for LAND"
+  - "-> CARRYING_FAULT"
+  - "landed with the bucket on the hook"
+wind: {level: calm}

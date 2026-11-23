@@ -1,10 +1,11 @@
 # The parameters for a recovery flight (REC-7). The recovery mission's launch (REC-2) passes this file.
 #
-# It is config/params/mission_params.yaml with one value changed: abort_rtl_mode is LAND, not RTL. When a mission
-# fails, the executor asks the flight controller for this mode and keeps asking until it is taken. An RTL is
-# refused without a position, which is the very fault recovery has to survive (GPS not trusted), and a refused
-# request is asked again for ever. A landing needs no position, and the rules allow landing with the bucket.
-# The take-off service's block is 2026's, value for value (a test holds the two files together).
+# It is config/params/mission_params.yaml, value for value (a test holds the two files together), abort_rtl_mode
+# RTL among them: a failed recovery comes home, as every other mission does, unless the mission has told the
+# executor that the abort is a landing (recovery_return.py, "Abort"): from the first time its gripper closes, so
+# that a carrying fault lands with the bucket, which the rules allow, and whenever there is no position to fly
+# home on. (Until 23 November 2026 this file had abort_rtl_mode LAND for the whole sequence; the lead's rule
+# replaced it.)
 simple_takeoff_service:
   ros__parameters:
     default_takeoff_altitude_m: 20.0
@@ -24,4 +25,4 @@ simple_takeoff_service:
 mission_executor:
   ros__parameters:
     loop_rate_hz: 20.0
-    abort_rtl_mode: "LAND"
+    abort_rtl_mode: "RTL"

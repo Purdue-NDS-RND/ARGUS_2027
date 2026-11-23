@@ -40,7 +40,7 @@ def test_a_recovery_mission_scenario_turns_the_mission_and_its_one_detector_on(n
     assert abs(east - 12.0) < 0.02 and abs(north - 8.0) < 0.02 and truth["bucket"]["name"] == "bucket"
     # The hook and the bucket are the payload bridge's, and the vehicle is the recovery one.
     assert manifest["payload_bridge"]["bucket"] == "bucket" and manifest["payload_bridge"]["hook_offset_m"] == [0.0, 0.0, -0.55]
-    assert params["mission_executor"]["ros__parameters"]["abort_rtl_mode"] == "LAND"
+    assert params["mission_executor"]["ros__parameters"]["abort_rtl_mode"] == "RTL"  # the mission names LAND once its gripper has closed, or with no position
     # The checks that compare a bullseye's detections and track with the truth have nothing to compare here (the
     # first flight was failed by them, with the bucket set down 6 mm from the point): they are not run or asked for.
     import estimator_check

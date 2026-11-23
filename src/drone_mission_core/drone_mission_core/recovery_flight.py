@@ -51,8 +51,12 @@ and to the side:
 
   RETREAT        the mission is failing with the vehicle over the bucket and
                  nothing on the hook: up to CENTRE's height and `clear_aside_m`
-                 to the side first, so that the landing that follows a failure
-                 is beside the bucket and not on it.
+                 to the side first, so that whatever follows the failure (an
+                 RTL's climb, or a landing) does not begin over the bucket.
+
+What follows a failure is the executor's abort, and `abort_mode()` says which
+mode it asks for: RTL while the gripper has never closed and there is a
+position to fly home on, LAND otherwise (recovery_return.py, "Abort").
 
 Three attempts at the handle in all (`max_attempts`); then the mission
 fails. Before the gripper has been told to close the mission also fails when
@@ -135,6 +139,7 @@ ARRIVED_BACK_M = 0.3
 LOW_HEIGHT_MAX_AGE_S = 0.5  # below CENTRE the height is the rangefinder's, from a reading no older than this
 NO_POSITION_S = 1.0  # without a position for this long: the mission fails (or lands with the bucket)
 LAND_RETRY_S = 2.0  # a landing asked for and not yet seen is asked for again this often
+RTL_AGAIN_AFTER_S = 2.0  # a pose and a fix for this long before a failure's abort is RTL again
 CARRY_LAND_LIMIT_S = 120.0  # a carrying fault's landing not seen for this long: the mission fails, and the executor's abort takes over
 MAX_RETURN_LEGS = 5  # the way back is begun again (the goal or its frame changed) at most this often
 GEOFENCE_MARGIN_M = 5.0  # the pickup and the search stay this far inside the flight boundary, when one is given
@@ -256,6 +261,9 @@ class RecoveryFlight:
         self.transitions: List[str] = [CHECKS]
         self.global_setpoints = 0
         self.released = False
+        self.gripper_has_closed = False  # at any time in this mission: from then on a failure's abort is a landing
+        self._rtl_can_be_flown = not plan.gps_untrusted  # a pose and a GPS fix, in a mission that trusts GPS
+        self._position_missing_s: Optional[float] = None  # when a pose or a fix was last missing
         self._started_s: Optional[float] = None
         self._state_since_s = 0.0
         self._last_s: Optional[float] = None
@@ -305,6 +313,11 @@ class RecoveryFlight:
     def _fail(self, now: float, why: str) -> Command:
         self._to(FAILED, now, why)
         return Command(FAILURE, reason=why)
+
+    def abort_mode(self) -> str:
+        """What a failure of the sequence should ask the flight controller for now: RTL or LAND (recovery_return,
+        "Abort"). A mission that has failed keeps the answer of the tick it failed on."""
+        return back.abort_mode(self.gripper_has_closed, self._rtl_can_be_flown)
 
     def _fault(self, now: float, why: str) -> None:
         """With the bucket on the hook (or not known to be off it): nothing is let go; land with it."""
@@ -418,6 +431,13 @@ class RecoveryFlight:
             return Command(SUCCESS)
         if self.state == FAILED:
             return Command(FAILURE, reason=self.reason)
+        # RTL can be flown with a pose and a GPS fix, in a mission that trusts GPS. Lost on the tick either is
+        # missing; back only when both have been there for RTL_AGAIN_AFTER_S, so a fix that comes and goes does not
+        # flip the abort (and its log line) twenty times a second.
+        if self.plan.gps_untrusted or r.fix is None or None in (r.e, r.n, r.up):
+            self._position_missing_s, self._rtl_can_be_flown = now, False
+        elif self._position_missing_s is None or now - self._position_missing_s >= RTL_AGAIN_AFTER_S:
+            self._rtl_can_be_flown = True
         if r.e is None or r.n is None or r.up is None or r.yaw_rad is None:
             if self.state == CHECKS and now - self._started_s < CHECKS_S:
                 return Command(RUNNING, reason="waiting for a position")
@@ -643,6 +663,7 @@ class RecoveryFlight:
             return self._local(e, n, up - answer.rate_mps * dt)
         if answer.action == grip.CLOSE:
             self._closed_attempt = answer.attempt
+            self.gripper_has_closed = True
             command = self._local(e, n, up)
             return Command(RUNNING, LOCAL, command.e, command.n, command.up, gripper=CLOSE, attempt=answer.attempt)
         if answer.action == grip.REFUSED and not closed:

@@ -53,6 +53,7 @@ class Context:
         self.local_sets, self.global_sets, self.gripper_calls, self.modes, self.cleared = [], [], [], [], 0
         self.pending = []
         self.near_asked = []
+        self.abort_modes = []
 
     def _stamp(self, age_s=0.0):
         t = self.world.t - age_s
@@ -136,6 +137,16 @@ class Context:
     def clear_all_setpoints(self):
         self.cleared += 1
         self.command = recovery_flight.Command()
+
+    named = None  # what an earlier mission of the sequence left named for the abort
+
+    def named_abort_mode(self):
+        return self.named
+
+    def set_abort_mode(self, mode):
+        assert mode in (None, "LAND")  # what MissionContext.set_abort_mode takes
+        self.abort_modes.append((self.world.t, mode))
+        self.named = mode
 
     def request_mode_change(self, mode_name, done_callback=None):
         self.modes.append(mode_name)
@@ -270,3 +281,90 @@ def test_the_home_height_feed_pairs_the_height_above_home_with_the_local_height(
     assert feed.newest(5 * S + S // 2) == pytest.approx(0.19) and feed.newest(8 * S) is None  # two seconds old at most
     feed.add(9 * S, float("nan"), 3.0)
     assert feed.newest(9 * S) is None
+
+
+# --- the abort's mode (the lead's rule of 23 November 2026, as built: recovery_return.py, "Abort") ----------------
+
+
+def test_the_mission_tells_the_executor_rtl_until_its_gripper_closes_and_a_landing_from_then_on():
+    world = world_tests.World()
+    flown, context = mission(), Context(world)
+    assert run(flown, context) == MissionStatus.SUCCESS
+    # Told on the first tick (the executor's own, RTL), told LAND at the close, and never told anything again:
+    # not at the release, and not when the mission leaves with the bucket standing where an RTL would come down.
+    assert [mode for _t, mode in context.abort_modes] == [None, "LAND"]
+    assert abs(context.abort_modes[1][0] - context.gripper_calls[0][0]) < 0.01  # on the tick the close is commanded
+    assert sum("would now ask for LAND" in line for line in context.infos) == 1 and sum("would now ask for RTL" in line for line in context.infos) == 1
+
+
+def test_leaving_in_mid_carry_leaves_the_abort_a_landing():
+    """What the executor does when update() raises: on_exit, then the abort. The landing must still be named."""
+    world = world_tests.World()
+    flown, context = mission(), Context(world)
+    flown.on_enter(context)
+    while flown.flight.state != recovery_flight.RETURN:
+        assert context.tick(flown) == MissionStatus.RUNNING
+    flown.on_exit(context)
+    assert context.abort_modes[-1][1] == "LAND" and world.attached
+
+
+def test_a_mission_that_fails_with_the_bucket_on_leaves_the_abort_a_landing():
+    world = world_tests.World(open_result=4)
+    flown, context = mission(), Context(world)
+    assert run(flown, context) == MissionStatus.FAILURE and world.attached
+    assert [mode for _t, mode in context.abort_modes] == [None, "LAND"]
+
+
+def test_a_mission_that_fails_before_its_gripper_ever_closed_leaves_the_abort_the_executors_own():
+    world = world_tests.World(bucket=(500.0, 500.0), pickup=(40.0, 30.0))
+    flown, context = mission(time_budget_s=20.0), Context(world)
+    assert run(flown, context) == MissionStatus.FAILURE
+    assert [mode for _t, mode in context.abort_modes] == [None]
+
+
+def test_a_mission_that_fails_for_want_of_a_position_leaves_the_abort_a_landing():
+    """The flight-safety review's blocker: this failure used to hand the executor an RTL it could never fly."""
+    world = world_tests.World()
+    flown, context = mission(), Context(world)
+    flown.on_enter(context)
+    while flown.flight.state != recovery_flight.APPROACH:
+        assert context.tick(flown) == MissionStatus.RUNNING
+    context.connected = False  # no position counts while the flight controller is not connected
+    status = MissionStatus.RUNNING
+    for _ in range(100):
+        status = context.tick(flown)
+        if status != MissionStatus.RUNNING:
+            break
+    flown.on_exit(context)
+    assert status == MissionStatus.FAILURE and "no position" in context.errors[-1]
+    assert [mode for _t, mode in context.abort_modes] == [None, "LAND"] and context.gripper_calls == []
+
+
+def test_with_gps_not_trusted_the_abort_is_a_landing_from_before_the_first_tick():
+    world = world_tests.World()
+    flown, context = mission(features={**ON, "recovery_gps_untrusted": True}, pickup={"local": [40.0, 30.0]}), Context(world)
+    flown.on_enter(context)
+    assert [mode for _t, mode in context.abort_modes] == ["LAND"]  # named on entry: a failure on the first tick lands too
+    context.abort_modes.clear()
+    context.named = None
+    flown, context = mission(features={**ON, "recovery_gps_untrusted": True}, pickup={"local": [40.0, 30.0]}), Context(world_tests.World())
+    world = context.world
+    assert run(flown, context) == MissionStatus.SUCCESS
+    assert [mode for _t, mode in context.abort_modes] == ["LAND"]
+
+
+def test_a_landing_an_earlier_mission_left_named_is_not_undone():
+    world = world_tests.World()
+    flown, context = mission(), Context(world)
+    context.named = "LAND"  # an earlier recovery of the sequence failed with something on its hook
+    flown.on_enter(context)
+    for _ in range(200):
+        context.tick(flown)
+    assert [mode for _t, mode in context.abort_modes] == ["LAND"]  # told once, and never told None
+
+
+def test_with_the_flag_off_the_abort_is_never_touched():
+    world = world_tests.World()
+    flown, context = mission(features={}), Context(world)
+    assert run(flown, context, seconds=1.0) == MissionStatus.SUCCESS
+    assert context.abort_modes == []

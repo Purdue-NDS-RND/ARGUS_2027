@@ -49,3 +49,13 @@ The spec's four tests are in `test_recovery_flight.py`: the state walk, no desce
 
 - A pickup on a real detector (REC-1 below 3 m), a live sequence, REC-8's runs R1 to R6: "Needs a person".
 - The five flags with nothing behind them (REC-5, REC-6, REC-7b, the hook camera) are refused when on.
+
+## Change of 23 November 2026: the abort
+
+By the lead's note ("RTL until the bucket is attached, LAND once it is"), the mission now tells the executor which mode a failure of the sequence asks for, each tick: `flight.abort_mode()` (`drone_mission_core/recovery_flight.py`) is RTL while the gripper has never closed and the vehicle has a pose and a GPS fix in a mission that trusts GPS, and LAND otherwise; the mission passes a change on with `context.set_abort_mode`, never gives a landing back when it leaves, and does not undo one an earlier mission left. The mission's own carrying fault still lands itself; the named mode covers what the mission cannot (an exception, the 120 s limit on a landing not seen, and whatever the executor asks after the mission has failed).
+
+Tests: `test_recovery_flight.py` (the mode in every state, an attach check that said empty, each kind of failure, a failure after the release, no pose, no fix, GPS not trusted), `test_package_recovery_mission.py` (what the executor is told and when, leaving in mid-carry, an inherited landing), `test_executor_abort_mode.py` (the executor asks for the named mode, and for the parameter when none is named).
+
+Sim (`docs/results/2026-11-23-recovery-abort.md`): `recovery/pickup_detector` (an empty-hook failure) aborted by RTL and came home; the new `recovery/carrying_fault` landed with the bucket on the hook and the abort stayed LAND; `recovery/pickup_oracle` still brings the bucket back (19.99 points). None of the three has the executor itself asking for LAND in the air: that is unit-tested.
+
+Reviews. spec-auditor, round 1 (on the first build, which gave LAND back at the release): INCOMPLETE: an RTL after the release comes down on the bucket at the takeoff point; no flight showed either half; four comments still said the old thing. flight-guardian, round 1: BLOCKER: a failure for want of a position asked for RTL, which needs one, for ever. Both fixed by the rule as it stands. flight-guardian, round 2: CONCERNS, the blocker closed. Fixed after it, unit-tested, not reviewed again: LAND is named on entry when it is already known (GPS not trusted), and the abort goes back to RTL only after two seconds of pose and fix. Left as concerns, for the lead ("Needs a person"): a named LAND lasts for the rest of the sequence; a mission can now change what `abort_and_rtl` asks for (LAND only); an RTL refused in spite of a fix is still asked for again for ever (2026's executor).
