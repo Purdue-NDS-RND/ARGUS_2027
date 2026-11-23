@@ -1,0 +1,29 @@
+# PLT-13's waypoint mission in the sim: waypoint_navigation/site_circuit with the waypoint_timeout_hold flag on.
+# Every waypoint is held for 3 s inside the 2026 arrival radius (1 m, and 2 m of height) before the next is flown
+# to, where the 2026 sequence holds 0.5 s: the judge asks for 1 m in three dimensions, and the hold is what lets
+# the height settle too. A waypoint not reached in 90 s is given up. Variant "off" is the 2026 mission with
+# the same 3 s hold and no timeout.
+description: The waypoint circuit with a 3 s hold and a 90 s timeout at every waypoint (PLT-13), wind calm.
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 900
+sequence: waypoint_navigation_live.yaml
+params: mission_params.yaml
+flags:
+  waypoint_timeout_hold: true
+config:
+  waypoint_navigation:
+    hold_time_s: 3.0
+    waypoint_timeout_s: 90.0
+waypoints:
+  mission: waypoint_navigation
+  points:
+    - {name: wp1, east_m: 40.0, north_m: 20.0, height_m: 15.24}
+    - {name: wp2, east_m: 100.0, north_m: 40.0, height_m: 30.0}
+    - {name: wp3, east_m: 110.0, north_m: 120.0, height_m: 30.0}
+    - {name: wp4, east_m: 30.0, north_m: 150.0, height_m: 15.24}
+    - {name: wp5, east_m: -60.0, north_m: 140.0, height_m: 30.0}
+    - {name: wp6, east_m: -110.0, north_m: 60.0, height_m: 30.0}
+    - {name: wp7, east_m: -50.0, north_m: -20.0, height_m: 15.24}
+wind: {level: calm}

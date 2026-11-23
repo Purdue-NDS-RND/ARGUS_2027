@@ -105,6 +105,8 @@ class GpsWaypointMission(BaseMission):
             self._route_2027 = Route2027(self)
 
     def on_exit(self, context: MissionContext) -> None:
+        if getattr(self, "_route_2027", None) is not None:
+            self._route_2027.on_exit(context)  # an AUTO mission of ours does not fly on after its mission
         self._log_summary(context)
 
     def update(self, context: MissionContext) -> MissionStatus:

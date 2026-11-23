@@ -871,9 +871,9 @@
       "land": "L18",
       "proven_in": "Sim",
       "note": "Harness is on main (PR #10). Left: per-waypoint timeout and hold, AUTO upload, route optimiser and flying start behind flags. Fly it through sim/run_scenarios.sh, not the club sim",
-      "status": "DOING",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_gps_route.py -> 6 passed, test_gps_route_2027.py -> 21 passed; sim waypoint_navigation/circuit_hold OK (7 of 7 within 0.02 m), waypoint_navigation/circuit_timeout OK (a waypoint held by name, one given up at its timeout), time_trial/circuit_auto OK flown in AUTO in 62.96 s against 71.34 s for the 2026 GUIDED flight, time_trial/circuit_flying OK 63.51 s (flown before the reviews' fixes); docs/results/2026-11-23-gps-missions.md; strict check OK. Left: the lead to allow MAVROS's waypoint plugin on the aircraft (until then time_trial_auto flies GUIDED there); AUTO's fallbacks and the route optimiser not flown in the sim (unit-tested; the judge scores the given order); route_optimiser and flying_start only if the organisers allow them; WPNAV_RADIUS and the end-of-mission behaviour to check on the aircraft",
       "blocked_reason": ""
     },
     {

@@ -18,7 +18,17 @@
                           the flight controller makes no progress for `auto_stall_s` (20 s), the rest of the
                           route is flown in GUIDED, the 2026 way.
 
-The mission still succeeds when a waypoint was given up: the summary says which, and the rest were flown.
+The mission still succeeds when a waypoint was given up: the summary says which, and the rest were flown. A route
+on which no waypoint at all was reached fails.
+
+The mission never takes the vehicle back from somebody else. In AUTO, a mode that is neither AUTO nor GUIDED is the
+safety pilot's or a failsafe's: the mission then commands nothing and asks for no mode, and carries on only if
+AUTO or GUIDED comes back. It asks for GUIDED only out of the AUTO it asked for itself (at the route's end, when
+AUTO stalls, and when the mission is left while AUTO is still flying), three times at most.
+
+With a `flight_boundary` in the mission's config (latitude and longitude corners) the run-in point and a reordered
+route must stay 5 m inside it: a run-in point that would not is left out, and an order whose legs would not is not
+flown (the given order is). Without one the mission says so: only the flight controller's fence holds them.
 The optimiser and the flying start are for when the organisers allow them (FEATURES.md, open question 16).
 """
 
@@ -38,7 +48,10 @@ MAX_RUN_IN_M = 100.0
 AUTO_SERVICE_WAIT_S = 3.0  # how long the mission upload service is waited for
 AUTO_ANSWER_WAIT_S = 5.0  # and its answer, and the mode change
 DEFAULT_AUTO_STALL_S = 20.0
-WAIT, PREPARE, GUIDED_ROUTE, AUTO_UPLOAD, AUTO_MODE, AUTO_FLY, AUTO_END, DONE = "WAIT", "PREPARE", "GUIDED", "AUTO_UPLOAD", "AUTO_MODE", "AUTO_FLY", "AUTO_END", "DONE"
+GUIDED_ASKS = 3  # how often GUIDED is asked for out of our own AUTO before the mission fails
+GUIDED_ASK_EVERY_S = 2.0
+STALL_PROGRESS_M = 1.0  # AUTO is making progress while the vehicle gets this much nearer the waypoint within auto_stall_s
+WAIT, PREPARE, GUIDED_ROUTE, AUTO_UPLOAD, AUTO_MODE, AUTO_FLY, AUTO_PAUSED, AUTO_END, DONE = "WAIT", "PREPARE", "GUIDED", "AUTO_UPLOAD", "AUTO_MODE", "AUTO_FLY", "AUTO_PAUSED", "AUTO_END", "DONE"
 
 
 def flags_on(spec: Any) -> List[str]:
@@ -73,6 +86,12 @@ class Route2027:
             if self._run_in_m > MAX_RUN_IN_M:
                 raise ValueError(f"flying_start_run_in_m must be {MAX_RUN_IN_M:g} m or less, got {self._run_in_m:g}")
             self._auto_stall_s = _seconds(config.get("auto_stall_s", DEFAULT_AUTO_STALL_S), "auto_stall_s", minimum=1.0)
+            self._boundary = None
+            if config.get("flight_boundary") is not None:
+                corners = config["flight_boundary"]
+                if not isinstance(corners, (list, tuple)) or len(corners) < 3 or not all(isinstance(c, (list, tuple)) and len(c) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in c) for c in corners):
+                    raise ValueError("flight_boundary must be three or more [latitude, longitude] corners")
+                self._boundary = [(float(c[0]), float(c[1])) for c in corners]
         except ValueError as error:
             raise ValueError(f"mission '{mission.name}': {error}") from error
         self.state = WAIT
@@ -86,9 +105,13 @@ class Route2027:
         self._clock: Optional[gps_route.WaypointClock] = None
         self._since = None
         self._pending: Optional[str] = None  # "ok" or "refused", from a service answer
-        self._auto_seq = 0
         self._auto_progress_at = None
+        self._auto_nearest_m = math.inf
         self._mode_asked = False
+        self._auto_requested = False  # AUTO was asked for by this mission: only then does it ever ask for GUIDED back
+        self._guided_asks = 0
+        self._guided_asked_at = None
+        self._failed_reason = ""
 
     # --- helpers -------------------------------------------------------------------------
 
@@ -118,7 +141,12 @@ class Route2027:
         return gps_route.WaypointClock(timeout, hold)
 
     def _log(self, context: Any, text: str, warn: bool = False) -> None:
-        (context.logger.warn if warn else context.logger.info)(f"[{self.m.name}] {text}")
+        # Two calls, not one that picks its severity: rclpy lets a line of code log at one severity only, and raises
+        # at the first warning otherwise (the first flight with a timeout ended there).
+        if warn:
+            context.logger.warn(f"[{self.m.name}] {text}")
+        else:
+            context.logger.info(f"[{self.m.name}] {text}")
 
     def _to(self, context: Any, state: str) -> None:
         self._log(context, f"Route: {self.state} -> {state}")
@@ -141,7 +169,36 @@ class Route2027:
         self.index += 1
         self._clock = None
 
+    def _mode(self, context: Any) -> str:
+        return str(getattr(context.mavros_state, "mode", "") or "")
+
+    def _fail(self, context: Any, why: str) -> MissionStatus:
+        self.state, self._failed_reason = DONE, why
+        context.logger.error(f"[{self.m.name}] {why}")
+        self.m._log_summary(context)
+        return MissionStatus.FAILURE
+
+    def _take_guided_back(self, context: Any) -> Optional[MissionStatus]:
+        """Out of the AUTO this mission asked for: ask for GUIDED, again every GUIDED_ASK_EVERY_S, GUIDED_ASKS times at
+        most. None while asking; a failure when AUTO will not hand back."""
+        if self._guided_asked_at is not None and context.seconds_since(self._guided_asked_at) < GUIDED_ASK_EVERY_S:
+            return None
+        if self._guided_asks >= GUIDED_ASKS:
+            return self._fail(context, f"the flight controller stayed in AUTO after GUIDED was asked for {GUIDED_ASKS} times")
+        self._guided_asks += 1
+        self._guided_asked_at = context.now()
+        context.request_mode_change("GUIDED")
+        return None
+
+    def on_exit(self, context: Any) -> None:
+        """The mission is left (done, failed or cancelled): an AUTO mission of ours must not fly on by itself."""
+        if self._auto_requested and self._mode(context) == "AUTO":
+            self._log(context, "Left with the flight controller still in the AUTO it was asked for: asking for GUIDED", warn=True)
+            context.request_mode_change("GUIDED")
+
     def _finish(self, context: Any) -> MissionStatus:
+        if not self.reached:
+            return self._fail(context, f"no waypoint of the route was reached ({len(self.given_up)} given up)")
         self.state = DONE
         self._log(context, f"Route flown by {self.flown_by}: {len(self.reached)} of {len(self.order)} waypoints reached" + (f"; given up: {', '.join(self.given_up)}" if self.given_up else ""))
         self.m._log_summary(context)
@@ -150,8 +207,10 @@ class Route2027:
     # --- one tick ------------------------------------------------------------------------
 
     def update(self, context: Any) -> MissionStatus:
-        handler = {WAIT: self._wait, PREPARE: self._prepare, GUIDED_ROUTE: self._guided, AUTO_UPLOAD: self._auto_upload, AUTO_MODE: self._auto_mode, AUTO_FLY: self._auto_fly, AUTO_END: self._auto_end}.get(self.state)
-        return MissionStatus.SUCCESS if handler is None else handler(context)
+        handler = {WAIT: self._wait, PREPARE: self._prepare, GUIDED_ROUTE: self._guided, AUTO_UPLOAD: self._auto_upload, AUTO_MODE: self._auto_mode, AUTO_FLY: self._auto_fly, AUTO_PAUSED: self._auto_paused, AUTO_END: self._auto_end}.get(self.state)
+        if handler is None:
+            return MissionStatus.FAILURE if self._failed_reason else MissionStatus.SUCCESS
+        return handler(context)
 
     def _wait(self, context: Any) -> MissionStatus:
         if context.mavros_state is None or not context.mavros_state.connected or not self.m._gps_fix_valid(context) or context.local_pose is None:
@@ -161,22 +220,39 @@ class Route2027:
 
     def _prepare(self, context: Any) -> MissionStatus:
         points = [(waypoint.latitude, waypoint.longitude) for waypoint in self.m._waypoints]
-        if self.optimise:
+        if (self.optimise or self.flying) and self._boundary is None:
+            self._log(context, "no flight_boundary is given: the reordered route and the run-in point are held only by the flight controller's fence", warn=True)
+        if self.optimise and len(points) > gps_route.EXACT_UP_TO:
+            # (The search for more waypoints than this is not bounded to one tick of the executor.)
+            self._log(context, f"Route optimiser: {len(points)} waypoints is more than the {gps_route.EXACT_UP_TO} it orders in flight: the given order is flown", warn=True)
+        elif self.optimise:
             given = gps_route.route_length_m(points, self._here(context))
-            self.order = gps_route.optimise_order(points, self._here(context))
-            best = gps_route.route_length_m([points[i] for i in self.order], self._here(context))
-            self._log(context, f"Route optimiser: order {'-'.join(str(i + 1) for i in self.order)}, {best:.0f} m against {given:.0f} m as given")
+            order = gps_route.optimise_order(points, self._here(context))
+            best = gps_route.route_length_m([points[i] for i in order], self._here(context))
+            if gps_route.way_inside_boundary([self._here(context)] + [points[i] for i in order], self._boundary):
+                self.order = order
+                self._log(context, f"Route optimiser: order {'-'.join(str(i + 1) for i in self.order)}, {best:.0f} m against {given:.0f} m as given")
+            else:
+                self._log(context, "Route optimiser: the shortest order leaves the flight boundary: the given order is flown", warn=True)
         if self.flying and len(self.order) >= 2:
             first, second = self.m._waypoints[self.order[0]], self.m._waypoints[self.order[1]]
             latitude, longitude = gps_route.run_in_point((first.latitude, first.longitude), (second.latitude, second.longitude), self._run_in_m)
-            self.run_in = (latitude, longitude, first.altitude_m)
-            self._log(context, f"Flying start: a run-in point {self._run_in_m:g} m before {first.name}")
+            if gps_route.way_inside_boundary([self._here(context), (latitude, longitude), (first.latitude, first.longitude)], self._boundary):
+                self.run_in = (latitude, longitude, first.altitude_m)
+                self._log(context, f"Flying start: a run-in point {self._run_in_m:g} m before {first.name}")
+            else:
+                self._log(context, "Flying start: the run-in point, or the way to it, leaves the flight boundary: no run-in", warn=True)
         self._to(context, AUTO_UPLOAD if self.auto else GUIDED_ROUTE)
         return MissionStatus.RUNNING
 
     def _guided(self, context: Any) -> MissionStatus:
         if context.global_gps is None or context.local_pose is None:
             return MissionStatus.WAITING
+        if self._auto_requested and self._mode(context) == "AUTO":
+            # Our own AUTO is still (or, answered late, only now) the mode: nothing of the GUIDED route is flown, or
+            # counted, until GUIDED is back.
+            failed = self._take_guided_back(context)
+            return failed if failed is not None else MissionStatus.RUNNING
         if self.run_in is not None:
             self._go(context, *self.run_in)
             if self._inside(context, *self.run_in):
@@ -186,8 +262,15 @@ class Route2027:
             return self._finish(context)
         waypoint = self._waypoint()
         self._go(context, waypoint.latitude, waypoint.longitude, waypoint.altitude_m)
+        if self._mode(context) not in ("GUIDED", ""):
+            # Somebody else has the vehicle (the pilot's LOITER, a failsafe): the setpoint stands, as in 2026, and
+            # the waypoint's clock does not run. A waypoint is not given up for time the mission did not fly.
+            self._clock = None
+            return MissionStatus.RUNNING
         if self._clock is None:
             self._clock = self._new_clock()
+            if self.timeout_hold and (self._clock.timeout_s is not None or self._clock.hold_s > 0.0):
+                self._log(context, f"To {waypoint.name}: hold {self._clock.hold_s:g} s, " + ("no timeout" if self._clock.timeout_s is None else f"given up after {self._clock.timeout_s:g} s"))
         outcome = self._clock.update(context.now().nanoseconds * 1.0e-9, self._inside(context, waypoint.latitude, waypoint.longitude, waypoint.altitude_m))
         if outcome in (gps_route.REACHED, gps_route.TIMED_OUT):
             self._passed(context, timed_out=outcome == gps_route.TIMED_OUT)
@@ -234,13 +317,14 @@ class Route2027:
         if self._pending == "ok":
             self._to(context, AUTO_MODE)
             context.clear_global_position_setpoint()
+            self._auto_requested = True
             context.request_mode_change("AUTO", self._answer(AUTO_MODE))
         return MissionStatus.RUNNING
 
     def _auto_mode(self, context: Any) -> MissionStatus:
-        if getattr(context.mavros_state, "mode", "") == "AUTO":
+        if self._mode(context) == "AUTO":
             self.flown_by = "AUTO"
-            self._auto_progress_at = context.now()
+            self._auto_progress_at, self._auto_nearest_m = context.now(), math.inf
             self._to(context, AUTO_FLY)
             return MissionStatus.RUNNING
         if self._pending == "refused" or context.seconds_since(self._since) >= AUTO_ANSWER_WAIT_S:
@@ -251,39 +335,54 @@ class Route2027:
         """The flight controller flies the items; the mission counts the waypoints as they are passed."""
         offset = 1 + (1 if self.run_in is not None else 0)  # item 0 is home; a run-in point is item 1
         reached_seq = context.mission_reached_seq()
+        here = self._here(context)
         while self.index < len(self.order):
             waypoint = self._waypoint()
-            here = self._here(context)
-            near = here is not None and gps_route.distance_m(here, (waypoint.latitude, waypoint.longitude)) <= gps_route.AUTO_PASS_RADIUS_M
-            if (reached_seq is not None and reached_seq >= self.index + offset) or near:
+            away = math.inf if here is None else gps_route.distance_m(here, (waypoint.latitude, waypoint.longitude))
+            if (reached_seq is not None and reached_seq >= self.index + offset) or away <= gps_route.AUTO_PASS_RADIUS_M:
                 self._passed(context)
-                self._auto_progress_at = context.now()
+                self._auto_progress_at, self._auto_nearest_m = context.now(), math.inf
             else:
+                if away < self._auto_nearest_m - STALL_PROGRESS_M:  # nearer the waypoint: progress, however long the leg
+                    self._auto_progress_at, self._auto_nearest_m = context.now(), away
                 break
         if self.index >= len(self.order):
             self._to(context, AUTO_END)
-            context.request_mode_change("GUIDED", self._answer(AUTO_END))
             return MissionStatus.RUNNING
-        if getattr(context.mavros_state, "mode", "") != "AUTO":
-            return self._to_guided(context, f"the mode left AUTO for {getattr(context.mavros_state, 'mode', '?')}")
+        mode = self._mode(context)
+        if mode == "GUIDED":
+            self.run_in = None
+            return self._fall_back(context, "the mode is GUIDED again")
+        if mode != "AUTO":
+            # Not ours to undo: the safety pilot's switch, or a failsafe. Nothing is commanded and no mode asked for.
+            self._log(context, f"The mode is {mode or 'unknown'}, not the AUTO this mission asked for: taken by the pilot or a failsafe. The mission commands nothing", warn=True)
+            context.clear_global_position_setpoint()
+            self._to(context, AUTO_PAUSED)
+            return MissionStatus.RUNNING
         if context.seconds_since(self._auto_progress_at) >= self._auto_stall_s:
-            return self._to_guided(context, f"no waypoint passed in {self._auto_stall_s:g} s of AUTO")
+            self.run_in = None
+            return self._fall_back(context, f"no progress toward {self._waypoint().name} in {self._auto_stall_s:g} s of AUTO")
         return MissionStatus.RUNNING
 
-    def _to_guided(self, context: Any, why: str) -> MissionStatus:
-        """Out of AUTO in mid-route: back to GUIDED, and the waypoints still to come are flown the 2026 way."""
-        self.run_in = None
-        context.request_mode_change("GUIDED")
-        waypoint = self._waypoint()
-        self._go(context, waypoint.latitude, waypoint.longitude, waypoint.altitude_m)
-        return self._fall_back(context, why)
+    def _auto_paused(self, context: Any) -> MissionStatus:
+        """Somebody else has the vehicle. The mission waits, commanding nothing, for AUTO or GUIDED to come back."""
+        mode = self._mode(context)
+        if mode == "AUTO":
+            self._auto_progress_at, self._auto_nearest_m = context.now(), math.inf
+            self._to(context, AUTO_FLY)
+        elif mode == "GUIDED":
+            self.run_in = None
+            return self._fall_back(context, "the mode is GUIDED again")
+        return MissionStatus.RUNNING
 
     def _auto_end(self, context: Any) -> MissionStatus:
-        last = self.m._waypoints[self.order[-1]]
-        self._go(context, last.latitude, last.longitude, last.altitude_m)  # held at the last waypoint once GUIDED has it
-        if getattr(context.mavros_state, "mode", "") == "GUIDED":
-            return self._finish(context)
-        if context.seconds_since(self._since) >= AUTO_ANSWER_WAIT_S:
-            context.request_mode_change("GUIDED", self._answer(AUTO_END))  # asked again: the next mission needs GUIDED
-            self._since = context.now()
-        return MissionStatus.RUNNING
+        mode = self._mode(context)
+        if mode == "AUTO":
+            failed = self._take_guided_back(context)  # the route is flown: our AUTO is handed back, asked for three times at most
+            return failed if failed is not None else MissionStatus.RUNNING
+        if mode == "GUIDED":
+            last = self.m._waypoints[self.order[-1]]
+            self._go(context, last.latitude, last.longitude, last.altitude_m)  # held at the last waypoint
+        else:
+            self._log(context, f"The route is flown and the mode is {mode or 'unknown'}, not ours: no mode is asked for", warn=True)
+        return self._finish(context)

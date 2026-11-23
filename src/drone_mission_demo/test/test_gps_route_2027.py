@@ -220,7 +220,7 @@ def test_when_auto_cannot_be_flown_the_route_is_flown_in_guided(fault, reason):
 def test_auto_that_stops_making_progress_is_taken_back_and_the_rest_flown_in_guided():
     flown, route, context = started(("time_trial_auto",), Context(auto_stalls_after=2), mode="circuit_time_trial", auto_stall_s=5.0)
     assert fly(route, context) == MissionStatus.SUCCESS and route.reached == ["wp1", "wp2", "wp3", "wp4"]
-    assert "no waypoint passed in 5 s of AUTO" in route.fallback_reason and context.modes[:2] == ["AUTO", "GUIDED"] and context.mavros_state.mode == "GUIDED"
+    assert "no progress toward wp3 in 5 s of AUTO" in route.fallback_reason and context.modes[:2] == ["AUTO", "GUIDED"] and context.mavros_state.mode == "GUIDED"
     assert [point[1:] for point in context.setpoints if point[1:] in ((60.0, 0.0), (0.0, 0.0))]  # wp3 and wp4 by our own setpoints
 
 
@@ -263,3 +263,147 @@ def test_the_live_sequences_declare_the_four_flags_false_and_carry_their_setting
         assert all(sequence["features"][flag] is False for flag in route_module.FLAGS), name
         config = next(item["config"] for item in sequence["missions"] if item["type"] == "gps_waypoint")
         assert (config["waypoint_timeout_s"], config["waypoint_timeouts_s"], config["waypoint_holds_s"], config["flying_start_run_in_m"], config["auto_stall_s"]) == (None, {}, {}, 30.0, 20.0)
+
+
+# --- the flight-safety review's cases ------------------------------------------------------------
+
+
+def test_a_mode_taken_by_the_pilot_or_a_failsafe_during_auto_is_not_taken_back():
+    """The review's blocker: any mode but AUTO was answered with a GUIDED request, and the route resumed."""
+    flown, route, context = started(("time_trial_auto",), mode="circuit_time_trial")
+    for _ in range(int(60 * 20)):
+        context.tick(route.update)
+        if route.state == route_module.AUTO_FLY and len(route.reached) == 1:
+            break
+    asked = list(context.modes)
+    context.mavros_state.mode = "RTL"  # a failsafe, or the safety pilot
+    for _ in range(int(30 * 20)):
+        assert context.tick(route.update) == MissionStatus.RUNNING
+    assert context.modes == asked and route.state == route_module.AUTO_PAUSED and context.setpoint is None  # nothing asked for, nothing commanded
+    assert any("taken by the pilot or a failsafe" in line for line in context.warnings)
+    # Handed back in GUIDED: the rest of the route is flown, with no mode asked for.
+    context.mavros_state.mode = "GUIDED"
+    assert fly(route, context) == MissionStatus.SUCCESS and context.modes == asked and route.reached == ["wp1", "wp2", "wp3", "wp4"]
+    # At the route's end, a mode that is not ours is left alone too.
+    flown, route, context = started(("time_trial_auto",), mode="circuit_time_trial")
+    for _ in range(int(120 * 20)):
+        context.tick(route.update)
+        if len(route.reached) == 4:
+            break
+    context.mavros_state.mode = "LOITER"
+    asked = list(context.modes)
+    assert fly(route, context, seconds=10.0) == MissionStatus.SUCCESS and context.modes == asked
+
+
+def test_guided_is_asked_for_only_out_of_our_own_auto_and_three_times_at_most():
+    class Sticky(Context):
+        def request_mode_change(self, mode_name, done_callback=None):
+            self.modes.append(mode_name)
+            if mode_name == "AUTO":
+                self.mavros_state.mode = "AUTO"  # and it never leaves AUTO again, whatever is asked
+            if done_callback is not None:
+                self.pending.append((done_callback, SimpleNamespace(mode_sent=True)))
+
+    flown, route, context = started(("time_trial_auto",), Sticky(), mode="circuit_time_trial")
+    assert fly(route, context) == MissionStatus.FAILURE and context.modes == ["AUTO", "GUIDED", "GUIDED", "GUIDED"]
+    assert "stayed in AUTO after GUIDED was asked for 3 times" in context.warnings[-1]
+    # Left in mid-AUTO (a failure elsewhere, a cancel): the AUTO mission is not left flying by itself.
+    flown, context = mission(("time_trial_auto",), mode="circuit_time_trial"), Context()
+    flown.on_enter(context)
+    for _ in range(int(20 * 20)):
+        context.tick(flown.update)
+        if flown._route_2027.state == route_module.AUTO_FLY:
+            break
+    flown.on_exit(context)
+    assert context.modes == ["AUTO", "GUIDED"]
+    # With the flags off the mission's exit asks for nothing.
+    plain, context = mission(), Context()
+    plain.on_enter(context)
+    plain.on_exit(context)
+    assert context.modes == []
+
+
+def test_auto_on_a_long_leg_is_not_called_stalled_while_the_waypoint_comes_nearer():
+    far = [("wp1", 0.0, 60.0), ("wp2", 600.0, 60.0)]  # a 600 m leg: a minute at the test vehicle's 10 m/s
+    flown, route, context = started(("time_trial_auto",), mode="circuit_time_trial", points=far, auto_stall_s=5.0)
+    assert fly(route, context) == MissionStatus.SUCCESS and route.flown_by == "AUTO" and route.fallback_reason == ""
+
+
+def test_a_route_on_which_nothing_was_reached_fails():
+    everywhere = [(east, north) for _name, east, north in SQUARE]
+    flown, route, context = started(("waypoint_timeout_hold",), Context(blocked=everywhere), waypoint_timeout_s=5.0)
+    assert fly(route, context) == MissionStatus.FAILURE and route.reached == [] and len(route.given_up) == 4
+    assert "no waypoint of the route was reached" in context.warnings[-1] and route.update(context) == MissionStatus.FAILURE
+
+
+def test_the_run_in_point_and_a_reordered_route_stay_inside_the_flight_boundary():
+    tight = [list(at(east, north)) for east, north in ((-40.0, -20.0), (80.0, -20.0), (80.0, 80.0), (-10.0, 80.0), (-10.0, 20.0), (-40.0, 20.0))]  # the run-in point (-30, 60) is outside
+    flown, route, context = started(("flying_start",), mode="circuit_time_trial", flight_boundary=tight)
+    assert fly(route, context) == MissionStatus.SUCCESS and route.run_in is None and context.setpoints[0][1:] == (0.0, 60.0)
+    assert any("leaves the flight boundary: no run-in" in line for line in context.warnings)
+    roomy = [list(at(east, north)) for east, north in ((-60.0, -40.0), (100.0, -40.0), (100.0, 100.0), (-60.0, 100.0))]
+    flown, route, context = started(("flying_start",), mode="circuit_time_trial", flight_boundary=roomy)
+    assert fly(route, context) == MissionStatus.SUCCESS and context.setpoints[0][1:] == (-30.0, 60.0) and not context.warnings
+    # No boundary given: the mission says what then holds the run-in point.
+    flown, route, context = started(("flying_start",), mode="circuit_time_trial")
+    fly(route, context)
+    assert any("no flight_boundary is given" in line for line in context.warnings)
+    with pytest.raises(ValueError, match="flight_boundary"):
+        started(("flying_start",), flight_boundary=[[1.0, 2.0]])
+
+
+def test_every_path_logs_as_rclpy_allows():
+    """Found in the sim: a helper that chose info or warn at one call site ended the mission at its first warning."""
+    from test_drop_release_gates import OneSeverityPerLine
+
+    def strict(context):
+        context.logger = OneSeverityPerLine()
+        return context
+
+    cases = [
+        (("waypoint_timeout_hold",), strict(Context(blocked=[(60.0, 60.0)])), {"waypoint_timeout_s": 8.0, "waypoint_holds_s": {"wp1": 1.0}}),
+        (("time_trial_auto", "flying_start", "route_optimiser"), strict(Context()), {"mode": "circuit_time_trial"}),
+        (("time_trial_auto",), strict(Context(service=False)), {"mode": "circuit_time_trial"}),
+        (("time_trial_auto",), strict(Context(auto_stalls_after=1)), {"mode": "circuit_time_trial", "auto_stall_s": 3.0}),
+        (("waypoint_timeout_hold",), strict(Context(blocked=[(east, north) for _n, east, north in SQUARE])), {"waypoint_timeout_s": 3.0}),
+    ]
+    for flags, context, config in cases:
+        flown = mission(flags, **config)
+        status = run_mission(flown, context)
+        flown.on_exit(context)
+        assert status in (MissionStatus.SUCCESS, MissionStatus.FAILURE) and context.logger.lines, flags
+    # A pilot's mode during AUTO: the warning and the waiting log on their own lines too.
+    flown, context = mission(("time_trial_auto",), mode="circuit_time_trial"), strict(Context())
+    flown.on_enter(context)
+    for _ in range(int(20 * 20)):
+        context.tick(flown.update)
+        if flown._route_2027.state == route_module.AUTO_FLY:
+            break
+    context.mavros_state.mode = "LOITER"
+    for _ in range(40):
+        context.tick(flown.update)
+    assert flown._route_2027.state == route_module.AUTO_PAUSED
+
+
+def test_a_waypoint_is_not_given_up_for_time_somebody_else_had_the_vehicle():
+    """The review, round two: in the pilot's LOITER the waypoints timed out one by one and the sequence went on to RTL."""
+    flown, route, context = started(("waypoint_timeout_hold",), waypoint_timeout_s=10.0)
+    for _ in range(int(3 * 20)):
+        context.tick(route.update)
+    context.mavros_state.mode = "LOITER"
+    held = list(context.pos)
+    context._toward = lambda goal, dt, speed=10.0: 99.0  # the vehicle does not follow our setpoint: it is the pilot's
+    for _ in range(int(60 * 20)):
+        assert context.tick(route.update) == MissionStatus.RUNNING
+    assert route.given_up == [] and context.pos == held
+    # Handed back: the waypoint's time starts again, and the route is flown.
+    del context._toward
+    context.mavros_state.mode = "GUIDED"
+    assert fly(route, context) == MissionStatus.SUCCESS and route.given_up == [] and len(route.reached) == 4
+
+
+def test_more_waypoints_than_are_ordered_in_a_tick_are_flown_as_given():
+    many = [(f"p{i}", 10.0 * i, 0.0 if i % 2 else 40.0) for i in range(gps_route.EXACT_UP_TO + 1)]
+    flown, route, context = started(("route_optimiser",), points=many)
+    assert fly(route, context) == MissionStatus.SUCCESS and route.order == list(range(len(many)))
+    assert any("the given order is flown" in line for line in context.warnings)

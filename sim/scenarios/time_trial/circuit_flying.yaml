@@ -1,0 +1,24 @@
+# time_trial/circuit_auto with the flying_start flag on as well: a run-in point 30 m before the first waypoint, on
+# the line of the first leg, is the AUTO mission's first item, so the vehicle passes the first waypoint, where
+# the clock starts, already at speed and on the leg's heading. For when the organisers allow it.
+description: The AUTO time trial with a flying start - a run-in point 30 m before the first waypoint (PLT-13).
+mission: time_trial
+site: apollo_xi
+seed: 1
+timeout_s: 900
+sequence: circuit_time_trial_live.yaml
+params: mission_params.yaml
+flags:
+  time_trial_auto: true
+  flying_start: true
+waypoints:
+  mission: circuit_time_trial
+  points:
+    - {name: wp1, east_m: 40.0, north_m: 20.0, height_m: 15.24}
+    - {name: wp2, east_m: 100.0, north_m: 40.0, height_m: 30.0}
+    - {name: wp3, east_m: 110.0, north_m: 120.0, height_m: 30.0}
+    - {name: wp4, east_m: 30.0, north_m: 150.0, height_m: 15.24}
+    - {name: wp5, east_m: -60.0, north_m: 140.0, height_m: 30.0}
+    - {name: wp6, east_m: -110.0, north_m: 60.0, height_m: 30.0}
+    - {name: wp7, east_m: -50.0, north_m: -20.0, height_m: 15.24}
+wind: {level: calm}

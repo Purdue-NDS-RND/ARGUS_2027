@@ -1,0 +1,32 @@
+# What the waypoint_timeout_hold flag adds that the 2026 mission does not have, in one flight of the site circuit:
+# wp2 is held for 6 s by name (every other waypoint has the sequence's 0.5 s), and wp4, 85 m from wp3, is given
+# 3 s, which it cannot be reached in: it is given up and the mission flies on to wp5. The judge then counts six
+# waypoints of seven; the log lines the flight is checked for are the hold and the giving up.
+description: The waypoint circuit with one waypoint held by name and one given up at its timeout (PLT-13).
+mission: waypoint_navigation
+site: apollo_xi
+seed: 1
+timeout_s: 900
+sequence: waypoint_navigation_live.yaml
+params: mission_params.yaml
+flags:
+  waypoint_timeout_hold: true
+config:
+  waypoint_navigation:
+    waypoint_holds_s: {wp2: 6.0}
+    waypoint_timeouts_s: {wp4: 3.0}
+waypoints:
+  mission: waypoint_navigation
+  points:
+    - {name: wp1, east_m: 40.0, north_m: 20.0, height_m: 15.24}
+    - {name: wp2, east_m: 100.0, north_m: 40.0, height_m: 30.0}
+    - {name: wp3, east_m: 110.0, north_m: 120.0, height_m: 30.0}
+    - {name: wp4, east_m: 30.0, north_m: 150.0, height_m: 15.24}
+    - {name: wp5, east_m: -60.0, north_m: 140.0, height_m: 30.0}
+    - {name: wp6, east_m: -110.0, north_m: 60.0, height_m: 30.0}
+    - {name: wp7, east_m: -50.0, north_m: -20.0, height_m: 15.24}
+expect_log:
+  - "To wp2: hold 6 s, no timeout"
+  - "(wp4) not reached in its time: given up"
+  - "6 of 7 waypoints reached; given up: wp4"
+wind: {level: calm}

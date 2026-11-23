@@ -18,14 +18,15 @@ them (FEATURES.md, open question 16).
 
 from __future__ import annotations
 
-import itertools
 import math
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 EARTH_RADIUS_M = 6_371_000.0  # as the 2026 mission's haversine
 AUTO_PASS_RADIUS_M = 2.0
-EXACT_UP_TO = 9  # waypoints: every order is tried up to this many; beyond it, nearest neighbour and 2-opt
+EXACT_UP_TO = 8  # waypoints: the shortest order is found exactly up to this many; beyond it, nearest neighbour and 2-opt
+GEOFENCE_MARGIN_M = 5.0  # a run-in point or a reordered leg stays this far inside the flight boundary, when one is given
+LEG_CHECK_STEP_M = 5.0
 MAV_CMD_NAV_WAYPOINT = 16
 MAV_FRAME_GLOBAL_RELATIVE_ALT = 3
 
@@ -54,9 +55,11 @@ def route_length_m(points: Sequence[LatLon], start: Optional[LatLon] = None) -> 
 def optimise_order(points: Sequence[LatLon], start: Optional[LatLon] = None) -> List[int]:
     """The order (indices into `points`) of the shortest way through every point, from `start` when there is one.
 
-    Every order is tried for up to EXACT_UP_TO points (a course has seven). More than that: nearest neighbour, then
-    2-opt until no swap shortens it. Of two orders of one length the earlier in index order is kept, so the same
-    course always gives the same route.
+    Exact for up to EXACT_UP_TO points (a course has seven), by dynamic programming over the sets of points visited:
+    a few thousand steps for seven points and some sixteen thousand for eight, milliseconds, where trying every order
+    took seconds at nine. More than that: nearest neighbour, then 2-opt until no swap shortens it, which is not
+    bounded to a tick: the mission (gps_route_2027) flies the given order beyond EXACT_UP_TO and does not call this
+    in flight. The same course always gives the same route.
     """
     count = len(points)
     for point in list(points) + ([start] if start is not None else []):
@@ -69,12 +72,35 @@ def optimise_order(points: Sequence[LatLon], start: Optional[LatLon] = None) -> 
         return route_length_m([points[i] for i in order], start)
 
     if count <= EXACT_UP_TO:
-        best, best_length = None, math.inf
-        for order in itertools.permutations(range(count)):
-            total = length(order)
-            if total < best_length - 1.0e-9:
-                best, best_length = order, total
-        return list(best)
+        between = [[distance_m(points[i], points[j]) for j in range(count)] for i in range(count)]
+        first = [0.0 if start is None else distance_m(start, points[i]) for i in range(count)]
+        # best[visited][last]: the shortest way that visits the set `visited` and ends at `last`, and the point before it.
+        best = [[(math.inf, -1)] * count for _ in range(1 << count)]
+        for i in range(count):
+            best[1 << i][i] = (first[i], -1)
+        for visited in range(1, 1 << count):
+            for last in range(count):
+                so_far = best[visited][last][0]
+                if so_far == math.inf or not visited & (1 << last):
+                    continue
+                for nxt in range(count):
+                    if visited & (1 << nxt):
+                        continue
+                    total = so_far + between[last][nxt]
+                    if total < best[visited | (1 << nxt)][nxt][0] - 1.0e-9:
+                        best[visited | (1 << nxt)][nxt] = (total, last)
+        everything = (1 << count) - 1
+        shortest = min(best[everything][i][0] for i in range(count))
+        candidates = []
+        for end in range(count):
+            if best[everything][end][0] > shortest + 1.0e-6:
+                continue
+            order, visited, last = [], everything, end
+            while last != -1:
+                order.append(last)
+                visited, last = visited & ~(1 << last), best[visited][last][1]
+            candidates.append(order[::-1])
+        return min(candidates)  # of orders of one length (a way and its reverse, from no start), the earlier in index order
     left = set(range(count))
     here = start
     order: List[int] = []
@@ -105,6 +131,39 @@ def run_in_point(first: LatLon, second: LatLon, run_in_m: float) -> LatLon:
     north = (second[0] - first[0]) / leg  # degrees of latitude per metre of leg
     east = (second[1] - first[1]) / leg
     return first[0] - north * run_in_m, first[1] - east * run_in_m
+
+
+def inside_boundary(point: LatLon, boundary: Optional[Sequence[LatLon]], margin_m: float = GEOFENCE_MARGIN_M) -> bool:
+    """Whether a place is `margin_m` inside the flight boundary (latitude and longitude corners). True with none given."""
+    if not boundary:
+        return True
+    lat0, lon0 = boundary[0]
+    scale = math.cos(math.radians(lat0))
+
+    def local(p: LatLon) -> Tuple[float, float]:
+        return (math.radians(p[1] - lon0) * EARTH_RADIUS_M * scale, math.radians(p[0] - lat0) * EARTH_RADIUS_M)
+
+    x, y = local(point)
+    corners = [local(corner) for corner in boundary]
+    inside, nearest = False, math.inf
+    for (ax, ay), (bx, by) in zip(corners, corners[1:] + corners[:1]):
+        if (ay > y) != (by > y) and x < ax + (bx - ax) * (y - ay) / (by - ay):
+            inside = not inside
+        length2 = (bx - ax) ** 2 + (by - ay) ** 2
+        share = 0.0 if length2 <= 0.0 else max(0.0, min(1.0, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / length2))
+        nearest = min(nearest, math.hypot(x - (ax + share * (bx - ax)), y - (ay + share * (by - ay))))
+    return inside and nearest >= margin_m
+
+
+def way_inside_boundary(points: Sequence[LatLon], boundary: Optional[Sequence[LatLon]], margin_m: float = GEOFENCE_MARGIN_M) -> bool:
+    """Whether the straight legs through the points, in order, stay inside the flight boundary (checked every 5 m)."""
+    if not boundary:
+        return True
+    for a, b in zip(points, points[1:]):
+        steps = max(1, int(distance_m(a, b) / LEG_CHECK_STEP_M))
+        if not all(inside_boundary((a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps), boundary, margin_m) for k in range(steps + 1)):
+            return False
+    return True
 
 
 class WaypointClock:

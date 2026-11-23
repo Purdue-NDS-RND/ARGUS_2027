@@ -112,3 +112,22 @@ def test_the_upload_sends_the_items_and_keeps_the_newest_item_reached():
     upload.push(gr.auto_items(at(0, 0), [(*at(0, 100), 15.0)]), answered.append)
     assert sent == [[0.0, 15.0]] and len(answered) == 1 and upload.reached_seq is None  # a new mission starts from nothing reached
     assert (gr.AUTO_FLAG, gr.MISSION_PUSH_SERVICE, gr.MISSION_REACHED_TOPIC) == ("time_trial_auto", "/mavros/mission/push", "/mavros/mission/reached")
+
+
+def test_the_exact_search_fits_in_a_tick_and_the_boundary_holds_a_way():
+    """The flight-safety review: trying every order of nine waypoints took seconds inside one 50 ms tick."""
+    import time
+
+    rng = random.Random(9)
+    most = [at(rng.uniform(0, 500), rng.uniform(0, 500)) for _ in range(gr.EXACT_UP_TO)]
+    took = []
+    for points in (most, most[:7]):
+        began = time.perf_counter()
+        order = gr.optimise_order(points, start=at(0, 0))
+        took.append(time.perf_counter() - began)
+        assert sorted(order) == list(range(len(points)))
+    assert gr.EXACT_UP_TO == 8 and took[0] < 0.05 and took[1] < 0.05, took  # inside one 50 ms tick (about 10 ms and 4 ms here)
+    field = [at(0, 0), at(100, 0), at(100, 100), at(0, 100)]
+    assert gr.inside_boundary(at(50, 50), field) and not gr.inside_boundary(at(2, 50), field) and not gr.inside_boundary(at(150, 50), field)
+    assert gr.inside_boundary(at(150, 50), None) and gr.way_inside_boundary([at(10, 10), at(90, 90)], field)
+    assert not gr.way_inside_boundary([at(10, 10), at(50, 120), at(90, 10)], field)
