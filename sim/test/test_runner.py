@@ -800,3 +800,30 @@ def test_a_run_whose_log_lacks_a_line_the_scenario_expects_is_a_fail(tmp_path):
     assert absent["status"] == "FAIL" and absent["expect_log"]["missing"] == wanted
     plain = result.run_result(make_run(tmp_path / "d", score=SCORE))
     assert plain["status"] == "OK" and plain["expect_log"] is None and "Lines expected" not in result.render_report(plain)
+
+
+# --- a flight flown by the failsafe check (PLT-08): its verdict is part of the run's ------------------------
+
+
+HOVER_SCORE = {**SCORE, "mission": "hover", "points": 1.0, "details": {"passed": True, "max_drift_m": 15.2, "held_s": 60.0}}
+FAILSAFE_MANIFEST = {"mission": "hover", "name": "failsafe_radio", "driver": {"tool": "failsafe_check", "command": ["python3", "sim/failsafe_check.py"]}}
+
+
+@pytest.mark.parametrize(
+    "report, status, word",
+    [
+        ({"failsafe": "radio", "passed": True, "problem": "", "steps": [{"name": "radio lost", "passed": True, "delay_s": 1.4}]}, "OK", ""),
+        ({"failsafe": "radio", "passed": False, "problem": "radio lost: the mode stayed GUIDED for 5 s: the failsafe did not act", "steps": []}, "FAIL", "did not act"),
+        (None, "INVALID", "failsafe_check.json"),
+    ],
+)
+def test_a_failsafe_flight_counts_only_with_its_check_passed(report, status, word, tmp_path):
+    run = make_run(tmp_path, score=HOVER_SCORE, manifest=FAILSAFE_MANIFEST)
+    if report is not None:
+        (run / "failsafe_check.json").write_text(json.dumps(report))
+    summary = result.run_result(run)
+    assert summary["status"] == status and word in (summary.get("reason") or "")
+    assert summary["failsafe_check"] == report
+    # A flight not flown by the check is not asked for one.
+    plain = result.run_result(make_run(tmp_path / "plain", score=SCORE))
+    assert plain["status"] == "OK" and plain["failsafe_check"] is None

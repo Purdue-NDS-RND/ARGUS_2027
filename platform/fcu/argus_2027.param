@@ -1,0 +1,80 @@
+# ARGUS 2027: the flight controller's baseline (PLT-08).
+#
+# What the aircraft's flight controller is set to for 2027, as changes to how it flew in June 2026
+# (platform/fcu/comp_2026.param, read out of that flight's own log). ArduCopter 4.6 on the Pixhawk 6C.
+# One "NAME,VALUE" a line. Nothing loads this file by itself: a person loads it on the bench
+# (platform/fcu/README.md), and nothing in the sim uses it unless a scenario asks for it.
+#
+#   python3 tools/fc_param_check.py platform/fcu/argus_2027.param --rules baseline
+#   python3 tools/fc_param_check.py platform/fcu/argus_2027.param --diff platform/fcu/comp_2026.param
+#   python3 tools/fc_param_check.py <dump from the aircraft> --rules baseline --profile platform/fcu/argus_2027.param
+#
+# In 2026 the fence was off, no failsafe but the EKF's acted, and the gripper was disabled.
+# Values marked "to confirm" are the session's working values: the lead confirms or corrects them before
+# the file is loaded (docs/build/PROGRESS.md, "Needs a person", PLT-08).
+
+# --- The fence: on, the site's polygon and a ceiling (FENCE_TYPE bits 0 and 2), a breach answered by RTL
+# (or a landing where RTL is not possible). The polygon itself is uploaded from the site file by
+# sim/fence_upload.py, which sets these four again from that file; FENCE_ENABLE goes on last.
+# 2026: FENCE_ENABLE 0. FENCE_ALT_MAX is the site file's max_altitude_agl_m (a test holds the two together).
+FENCE_ENABLE,1
+FENCE_TYPE,5
+FENCE_ACTION,1
+FENCE_ALT_MAX,120
+FENCE_MARGIN,2
+
+# --- Battery failsafe. The 2026 logs show a 6S pack (25.6 V full, 22.4 V the lowest seen in flight) while
+# BATT_LOW_VOLT was ArduPilot's default 10.5 with no action: it could never have acted.
+# Low: 3.5 V a cell for 10 s, return home. Critical: 3.3 V a cell, land where it is. To confirm against
+# the pack that will fly, and BATT_CAPACITY (still the default 3300) with it.
+BATT_LOW_VOLT,21
+BATT_CRT_VOLT,19.8
+BATT_LOW_TIMER,10
+BATT_FS_LOW_ACT,2
+BATT_FS_CRT_ACT,1
+
+# --- Radio loss: return home, in every mode (2026: FS_THR_ENABLE 0, nothing). FS_THR_VALUE is 2026's;
+# the receiver must be set to drop the throttle channel below it, or to stop sending, when it loses the link.
+FS_THR_ENABLE,1
+FS_THR_VALUE,975
+
+# --- Ground-station loss: return home after 5 s without the ground station's heartbeat (2026: 0, nothing).
+# The companion computer is not the ground station (MAVROS is not system 255), so losing the telemetry
+# radio brings the aircraft home even while the mission is running. To confirm against the competition's
+# rule on lost links.
+FS_GCS_ENABLE,1
+FS_GCS_TIMEOUT,5
+
+# --- EKF failsafe: land (2026's value, kept). Reviewed against recovery's source switching (REC-6): when
+# this failsafe trips, the position is what has been lost, so RTL could not be flown and a landing is what
+# is wanted, with or without the bucket (recovery's own abort is a landing then too). What no flight has
+# shown yet is whether the mission's switch of source set gets in before the variance reaches
+# FS_EKF_THRESH (0.8, as in 2026): REC-6 owes that flight, and the threshold is its to revisit.
+FS_EKF_ACTION,1
+FS_EKF_THRESH,0.8
+
+# --- A failsafe must never drop the payload: FS_OPTIONS bit 5 (release gripper) clear. 16 is bit 4 alone
+# (carry on in pilot modes on a ground-station failsafe), as in 2026.
+FS_OPTIONS,16
+
+# --- The gripper: enabled, a servo gripper on a spare output (2026: GRIP_ENABLE 0; outputs 5 to 8 unassigned).
+# Output 7 and the PWMs are the sim's working set (docs/fc/recovery.parm has the same): the mechanical
+# team's numbers replace them.
+GRIP_ENABLE,1
+GRIP_TYPE,1
+SERVO7_FUNCTION,28
+GRIP_GRAB,1900
+GRIP_RELEASE,1100
+GRIP_NEUTRAL,1500
+
+# --- The rangefinder, looking down (CEN-03): a Benewake TFmini on a serial port (2026: none fitted).
+# Which port it is wired to, and that port's SERIALn_PROTOCOL 9 and SERIALn_BAUD 115, are the aircraft's to set.
+RNGFND1_TYPE,20
+RNGFND1_ORIENT,25
+RNGFND1_MIN_CM,30
+RNGFND1_MAX_CM,1200
+
+# --- The EKF never changes its source set by itself (2026: 1), and there is one GPS (2026: GPS2_TYPE 2
+# with no second receiver fitted).
+EK3_SRC_OPTIONS,0
+GPS2_TYPE,0

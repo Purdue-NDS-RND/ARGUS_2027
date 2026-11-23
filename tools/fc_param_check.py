@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Check a flight-controller parameter file against what the recovery mission needs (REC-9). No ROS.
+"""Check a flight-controller parameter file against what the recovery mission needs (REC-9), or against the
+2027 baseline (PLT-08). No ROS.
 
   python3 tools/fc_param_check.py docs/fc/recovery.parm
   python3 tools/fc_param_check.py aircraft_dump.param --profile docs/fc/recovery.parm
+  python3 tools/fc_param_check.py platform/fcu/argus_2027.param --rules baseline
+  python3 tools/fc_param_check.py platform/fcu/argus_2027.param --diff platform/fcu/comp_2026.param
+  python3 tools/fc_param_check.py aircraft_dump.param --rules baseline --profile platform/fcu/argus_2027.param
 
 The first form checks the committed profile. The second is for the bench: a
 dump of the aircraft's own parameters is held to the same rules, every
@@ -26,6 +30,23 @@ The rules, each from the spec's list:
   fence               enabled, with the polygon, and an action that acts
   radio_switches      no RCn_OPTION is the gripper (19) or the EKF source set (90)
 
+`--rules baseline` holds a file to the baseline's rules instead (the spec's
+list for PLT-08):
+
+  fence               as above, and with the ceiling: FENCE_TYPE bit 0 and a
+                      FENCE_ALT_MAX above zero
+  battery_failsafe    a low voltage and a critical voltage below it, each
+                      with an action
+  rc_failsafe         FS_THR_ENABLE not 0: losing the radio does something
+  gcs_failsafe        FS_GCS_ENABLE not 0: losing the ground station does
+  ekf_failsafe        FS_EKF_ACTION not 0
+  failsafe, gripper, rangefinder, ekf_source_options, second_gps,
+  radio_switches      as above
+
+`--diff OTHER` lists every parameter of the file that OTHER has with another
+value, or does not have: what loading the file onto OTHER would change. It
+is information and does not change the exit code.
+
 Exit code 0 when everything holds, 1 when a rule or a profile value does not,
 2 when a file cannot be read.
 """
@@ -47,6 +68,7 @@ RANGEFINDER_DOWN = 25  # RNGFNDn_ORIENT
 SRC_NONE, SRC_OPTICAL_FLOW = 0, 5
 FLOW_TYPE_MAVLINK = 5  # the flow comes from the companion as OPTICAL_FLOW; any other type and the flight controller ignores it
 FENCE_POLYGON_BIT = 2
+FENCE_CEILING_BIT = 0
 _NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _SERVO, _RC = re.compile(r"^SERVO(\d+)_FUNCTION$"), re.compile(r"^RC(\d+)_OPTION$")
 
@@ -157,6 +179,35 @@ def _fence(params) -> Optional[str]:
     return None
 
 
+def _fence_with_ceiling(params) -> Optional[str]:
+    problem = _fence(params)
+    if problem:
+        return problem
+    if not _whole(params, "FENCE_TYPE") & (1 << FENCE_CEILING_BIT):
+        return f"FENCE_TYPE is {params['FENCE_TYPE']:g}: the maximum height (bit {FENCE_CEILING_BIT}) is not in it"
+    if not params.get("FENCE_ALT_MAX", 0.0) > 0.0:
+        return f"FENCE_ALT_MAX is {params.get('FENCE_ALT_MAX', 'not set')}: the fence has no ceiling"
+    return None
+
+
+def _battery_failsafe(params) -> Optional[str]:
+    low, critical = params.get("BATT_LOW_VOLT", 0.0), params.get("BATT_CRT_VOLT", 0.0)
+    if not low > 0.0 or not params.get("BATT_FS_LOW_ACT"):
+        return f"BATT_LOW_VOLT is {params.get('BATT_LOW_VOLT', 'not set')} and BATT_FS_LOW_ACT {params.get('BATT_FS_LOW_ACT', 'not set')}: a low battery does nothing"
+    if not critical > 0.0 or not params.get("BATT_FS_CRT_ACT"):
+        return f"BATT_CRT_VOLT is {params.get('BATT_CRT_VOLT', 'not set')} and BATT_FS_CRT_ACT {params.get('BATT_FS_CRT_ACT', 'not set')}: a critical battery does nothing"
+    if critical >= low:
+        return f"BATT_CRT_VOLT ({critical:g}) is not below BATT_LOW_VOLT ({low:g})"
+    return None
+
+
+def _acts(name: str, what: str) -> Callable[[Dict[str, float]], Optional[str]]:
+    def rule(params) -> Optional[str]:
+        return None if params.get(name) else f"{name} is {params.get(name, 'not set')}: {what} does nothing"
+
+    return rule
+
+
 def _radio_switches(params) -> Optional[str]:
     names = {RC_OPTION_GRIPPER: "gripper", RC_OPTION_EKF_SOURCE: "EKF source set"}
     mapped = [f"{name} is {int(value)} ({names[int(value)]})" for name, value in sorted(params.items()) if _RC.match(name) and value in names]
@@ -175,10 +226,26 @@ RULES: List[tuple] = [
 ]
 
 
-def check(params: Dict[str, float]) -> List[Result]:
-    """Every rule's verdict on a set of parameters."""
+BASELINE_RULES: List[tuple] = [
+    ("fence", _fence_with_ceiling),
+    ("battery_failsafe", _battery_failsafe),
+    ("rc_failsafe", _acts("FS_THR_ENABLE", "losing the radio")),
+    ("gcs_failsafe", _acts("FS_GCS_ENABLE", "losing the ground station")),
+    ("ekf_failsafe", _acts("FS_EKF_ACTION", "an EKF failure")),
+    ("failsafe", _failsafe),
+    ("gripper", _gripper),
+    ("rangefinder", _rangefinder),
+    ("ekf_source_options", _ekf_source_options),
+    ("second_gps", _second_gps),
+    ("radio_switches", _radio_switches),
+]
+RULE_SETS = {"recovery": RULES, "baseline": BASELINE_RULES}
+
+
+def check(params: Dict[str, float], rules: Optional[List[tuple]] = None) -> List[Result]:
+    """Every rule's verdict on a set of parameters (the recovery rules unless another set is given)."""
     results = []
-    for name, rule in RULES:
+    for name, rule in RULES if rules is None else rules:
         problem: Optional[str] = rule(params)
         results.append(Result(name, problem is None, problem or "holds"))
     return results
@@ -195,18 +262,37 @@ def against_profile(params: Dict[str, float], profile: Dict[str, float]) -> List
     return problems
 
 
+def changes(params: Dict[str, float], other: Dict[str, float]) -> List[str]:
+    """What loading `params` onto a flight controller set as `other` would change, a line a parameter."""
+    lines = []
+    for name in sorted(params):
+        if name not in other:
+            lines.append(f"{name}: not in the other file -> {params[name]:g}")
+        elif abs(params[name] - other[name]) > 1.0e-6:
+            lines.append(f"{name}: {other[name]:g} -> {params[name]:g}")
+    return lines
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check a flight-controller parameter file against the recovery mission's needs.")
-    parser.add_argument("file", type=Path, help="a parameter file: the profile, or a dump from the aircraft")
+    parser = argparse.ArgumentParser(description="Check a flight-controller parameter file against the recovery mission's needs, or the 2027 baseline's.")
+    parser.add_argument("file", type=Path, help="a parameter file: a profile, or a dump from the aircraft")
     parser.add_argument("--profile", type=Path, help="also require every value of this profile to be in the file")
+    parser.add_argument("--rules", choices=sorted(RULE_SETS), default="recovery", help="which rules the file is held to (default: recovery's)")
+    parser.add_argument("--diff", type=Path, help="also list what the file changes in this other parameter file")
     args = parser.parse_args(argv)
     try:
         params = read_params(args.file)
         profile = read_params(args.profile) if args.profile else {}
+        other = read_params(args.diff) if args.diff else None
     except (OSError, ValueError) as error:
         print(f"fc_param_check: {error}", file=sys.stderr)
         return 2
-    results = check(params)
+    if other is not None:
+        changed = changes(params, other)
+        for line in changed:
+            print(f"diff {line}")
+        print(f"diff: {len(changed)} of {len(params)} parameters differ from {args.diff}")
+    results = check(params, RULE_SETS[args.rules])
     for result in results:
         print(f"{'ok  ' if result.passed else 'FAIL'} {result.rule}: {result.found}")
     differences = against_profile(params, profile)

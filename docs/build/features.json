@@ -935,9 +935,9 @@
       "land": "L20",
       "proven_in": "Sim, Field",
       "note": "Read the 2026 values from the dataflash logs in the repo; mav.parm is not needed to start",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "python3 tools/fc_param_check.py platform/fcu/argus_2027.param --rules baseline -> PASS (29 parameters, 11 rules); pytest test_fc_param_check 52, test_dataflash_params 9, test_failsafe_check 15 passed; CHECK_STRICT=1 scripts/check.sh -> OK. Sim, SITL on the baseline's values: hover/failsafe_radio OK (RTL 1.0 s after the receiver went silent), hover/failsafe_ground_station OK (RTL 4.7 s after its heartbeat stopped counting), hover/failsafe_battery OK (low -> RTL in 10.3 s, critical -> LAND in 10.2 s), the gripper's output at its grab value throughout; docs/results/2026-11-23-fc-baseline-failsafes.md. The fence's flight is SIM-02's geofence/breach. Left for the lead (Field, Needs a person): confirm five working values, load the file on the aircraft, upload the fence from a verified site file, try each failsafe with the safety pilot; mav.parm from the 2026 team; the EKF failsafe is set by parameter only",
       "blocked_reason": ""
     },
     {

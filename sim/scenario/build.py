@@ -280,6 +280,7 @@ _SUN_DIRECTION = re.compile(r'(<light type="directional" name="sun">.*?<directio
 # the Gazebo backend (it takes ranges Gazebo would have to send) and fails the pre-arm check: tried under SIM-05.
 SITL_BASE_PARAMS = {"SIM_TERRAIN": 0}
 RECOVERY_PARM = SIM_DIR / "params" / "recovery.parm"
+FC_BASELINE = REPO / "platform" / "fcu" / "argus_2027.param"  # the 2027 flight-controller baseline (PLT-08)
 
 
 def read_parm(path: Path) -> dict:
@@ -457,6 +458,9 @@ def _driver(scenario: Scenario, site_path: Path, run_dir: Path) -> dict | None:
     command = ["env", "-u", "PYTHONNOUSERSITE", "python3", str(SIM_DIR / f"{tool}.py"), "--site", str(site_path)]
     if tool == "hover":
         command += ["--height", str(float(settings.get("height_m", 10.0))), "--hold", str(float(settings.get("hold_s", 40.0)))]
+    elif tool == "failsafe_check":
+        # The baseline it holds the autopilot to is the committed file; the scenario's sitl_params start SITL on it.
+        command += ["--failsafe", str(settings["failsafe"]), "--params", str(FC_BASELINE), "--height", str(float(settings.get("height_m", 10.0)))]
     elif tool == "recovery_check":
         # It flies beside the payload bridge, which has the tools port: sim/container/start.sh gives it this one.
         command += ["--run-dir", str(run_dir), "--height", str(float(settings.get("height_m", 5.0))), "--lift", str(float(settings.get("lift_m", 3.0)))]

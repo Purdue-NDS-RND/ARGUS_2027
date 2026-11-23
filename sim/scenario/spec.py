@@ -32,9 +32,12 @@ DDS_PROFILES = ("large_frames",)
 DRIVERS = {
     "fence_check": {"speed_mps", "height_m"},
     "hover": {"height_m", "hold_s"},
+    # PLT-08: trip one of the baseline's failsafes and measure the answer (sim/failsafe_check.py).
+    "failsafe_check": {"failsafe", "height_m"},
     # REC-8's check of the recovery sim itself: grab the bucket, lift it, bring it back.
     "recovery_check": {"height_m", "lift_m", "carry_speed_mps", "shaped", "attach_check", "return_frame", "return_target", "set_down_rule"},  # REC-4: shaping, attach check. REC-7: the way back's frame, the set-down by rule
 }
+FAILSAFES = ("battery", "radio", "ground_station")  # what failsafe_check can trip (sim/failsafe_check.py WATCHED)
 DRIVER_PORT = 14554  # a driver that flies beside the payload bridge has a MAVLink port of its own: the bridge has the tools port
 
 OBJECT_KINDS = {
@@ -218,6 +221,8 @@ def parse_scenario(data, path: Path) -> Scenario:
     else:
         if not isinstance(driver, dict) or driver.get("tool") not in DRIVERS:
             raise BuildError(f"{where}: driver needs a tool, one of: {', '.join(DRIVERS)}")
+        if driver["tool"] == "failsafe_check" and driver.get("failsafe") not in FAILSAFES:
+            raise BuildError(f"{where}: driver failsafe_check needs a failsafe, one of: {', '.join(FAILSAFES)}")
         extra = sorted(str(key) for key in set(driver) - {"tool"} - DRIVERS[driver["tool"]])
         if extra:
             raise BuildError(f"{where}: driver {driver['tool']} has unknown setting(s) {', '.join(extra)}")

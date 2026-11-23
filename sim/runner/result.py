@@ -127,6 +127,7 @@ def run_result(run_dir: Path) -> dict:
         "expect_log": None,
         "loc_check": None,
         "recovery_cv_check": None,
+        "failsafe_check": None,
         "flight_s": None,
         "notes": [],
         "fence_breaches": [],
@@ -279,6 +280,14 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the run had the recovery detector on but left no check of it (recovery_cv_check.json)")
         elif result["status"] == "OK" and not result["recovery_cv_check"]["passed"]:
             result.update(status="FAIL", reason="the recovery detector missed a pass line: " + "; ".join(result["recovery_cv_check"].get("problems") or ["no reason given"]))
+    if (manifest.get("driver") or {}).get("tool") == "failsafe_check":
+        # Flown by the failsafe check (PLT-08): the hover judge only says the vehicle stayed near; the check says
+        # whether the failsafe acted, in time, into the right mode, with the gripper held.
+        result["failsafe_check"] = _read_json(run_dir / "failsafe_check.json")
+        if result["status"] == "OK" and result["failsafe_check"] is None:
+            result.update(status="INVALID", reason="the flight was flown by the failsafe check but left no report (failsafe_check.json)")
+        elif result["status"] == "OK" and not result["failsafe_check"].get("passed"):
+            result.update(status="FAIL", reason="the failsafe check failed: " + (result["failsafe_check"].get("problem") or "no reason given"))
     wanted = [str(line) for line in manifest.get("expect_log") or []]
     if wanted:
         # A flight can pass its judge without doing what the scenario is there to show (a height guard that never

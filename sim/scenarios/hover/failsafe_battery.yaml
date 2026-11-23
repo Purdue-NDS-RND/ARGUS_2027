@@ -1,0 +1,41 @@
+# The flight-controller baseline's battery failsafe in the sim (PLT-08). SITL starts on the baseline's values;
+# sim/failsafe_check.py takes off, flies 15 m away, closes the gripper, and puts the simulated battery just under
+# BATT_LOW_VOLT: RTL must begin within the 10 s timer and 5 s more. Then just under BATT_CRT_VOLT: LAND must
+# begin. The gripper's output must not go to its release value (FS_OPTIONS bit 5 clear).
+# The hover judge only says the vehicle stayed near; the run counts with the check's own verdict (failsafe_check.json).
+# Not in the nightly suite: flown when the baseline changes.
+description: The 2027 baseline's battery failsafe - low voltage must bring the vehicle home, critical must land it, the gripper held.
+mission: hover
+site: apollo_xi
+seed: 1
+timeout_s: 600
+driver:
+  tool: failsafe_check
+  failsafe: battery
+  height_m: 10.0
+sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param), value for value: a test holds the two together
+  SIM_BATT_VOLTAGE: 25.0      # a 6S pack, charged: SITL's own 12.6 V would trip the battery failsafe on the ground
+  BATT_LOW_VOLT: 21.0
+  BATT_CRT_VOLT: 19.8
+  BATT_LOW_TIMER: 10.0
+  BATT_FS_LOW_ACT: 2.0
+  BATT_FS_CRT_ACT: 1.0
+  FS_THR_ENABLE: 1.0
+  FS_THR_VALUE: 975.0
+  FS_GCS_ENABLE: 1.0
+  FS_GCS_TIMEOUT: 5.0
+  FS_EKF_ACTION: 1.0
+  FS_EKF_THRESH: 0.8
+  FS_OPTIONS: 16.0
+  GRIP_ENABLE: 1.0
+  GRIP_TYPE: 1.0
+  SERVO7_FUNCTION: 28.0
+  GRIP_GRAB: 1900.0
+  GRIP_RELEASE: 1100.0
+  GRIP_NEUTRAL: 1500.0
+  EK3_SRC_OPTIONS: 0.0
+  GPS2_TYPE: 0.0
+wind: {level: calm}
+judge:
+  max_drift_m: 25.0           # the check flies 15 m from the takeoff point before it trips the failsafe
+  min_hold_s: 10.0

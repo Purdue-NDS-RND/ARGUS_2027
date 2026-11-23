@@ -773,3 +773,54 @@ def test_a_recovery_scenario_can_have_gps_faults_and_refused_grabs_for_the_runs_
     no_bucket.write_text((SCENARIOS / "hover" / "wind_5.yaml").read_text() + "grab_refusals: 1\n")
     with pytest.raises(BuildError, match="grab_refusals needs a `bucket:`"):
         build_run(no_bucket, tmp_path / "nb", variant="on")
+
+
+# --- the failsafe checks of the flight-controller baseline (PLT-08) ----------------------------------------
+
+
+FAILSAFES = {"battery": "failsafe_battery.yaml", "radio": "failsafe_radio.yaml", "ground_station": "failsafe_ground_station.yaml"}
+REPO = SIM.parent
+BASELINE_FILE = REPO / "platform" / "fcu" / "argus_2027.param"
+
+
+def baseline_params():
+    sys.path.insert(0, str(REPO / "tools"))
+    from fc_param_check import read_params
+
+    return read_params(BASELINE_FILE)
+
+
+@pytest.mark.parametrize("failsafe, file", sorted(FAILSAFES.items()))
+def test_a_failsafe_scenario_starts_sitl_on_the_baseline_and_is_flown_by_the_failsafe_check(failsafe, file, tmp_path):
+    run = build_run(SCENARIOS / "hover" / file, tmp_path / "run")
+    manifest = read(run, "scenario.json")
+    command = manifest["driver"]["command"]
+    assert manifest["driver"]["tool"] == "failsafe_check" and command[4] == str(SIM / "failsafe_check.py")
+    assert command[command.index("--failsafe") + 1] == failsafe
+    assert command[command.index("--params") + 1] == str(BASELINE_FILE)
+    assert command[command.index("--out") + 1] == str(run / "failsafe_check.json")
+    # SITL starts with the baseline's own values: every parameter of the baseline that SITL can take.
+    sitl = {line.split()[0]: float(line.split()[1]) for line in (run / "sitl.parm").read_text().splitlines()}
+    baseline = baseline_params()
+    not_for_sitl = {name for name in baseline if name.startswith(("FENCE_", "RNGFND1_"))}  # the site's upload sets the fence; SITL's rangefinder is its own
+    assert not_for_sitl == {"FENCE_ENABLE", "FENCE_TYPE", "FENCE_ACTION", "FENCE_ALT_MAX", "FENCE_MARGIN", "RNGFND1_TYPE", "RNGFND1_ORIENT", "RNGFND1_MIN_CM", "RNGFND1_MAX_CM"}
+    for name in sorted(set(baseline) - not_for_sitl):
+        assert sitl.get(name) == baseline[name], f"{file}: sitl_params has {name} {sitl.get(name)}, the baseline has {baseline[name]}"
+    # A battery above the low line from the start: SITL's own 12.6 V would trip the failsafe on the ground.
+    assert sitl["SIM_BATT_VOLTAGE"] > baseline["BATT_LOW_VOLT"] + 2.0
+
+
+def test_the_baselines_ceiling_is_the_site_files():
+    site = site_file.load_site(SIM / "sites" / "apollo_xi.yaml")
+    plan = site_file.fence_plan(site)
+    baseline = baseline_params()
+    for name in ("FENCE_TYPE", "FENCE_ACTION", "FENCE_ALT_MAX", "FENCE_MARGIN"):
+        assert plan.params[name] == baseline[name], name
+
+
+def test_a_failsafe_check_needs_a_failsafe_it_knows(tmp_path):
+    base = SCENARIOS / "hover" / "failsafe_radio.yaml"
+    with pytest.raises(BuildError, match="failsafe"):
+        build_run(scenario_file(tmp_path, base=base, driver={"tool": "failsafe_check", "failsafe": "ekf"}), tmp_path / "run")
+    with pytest.raises(BuildError, match="failsafe"):
+        build_run(scenario_file(tmp_path, base=base, driver={"tool": "failsafe_check"}), tmp_path / "run2")
