@@ -1644,8 +1644,8 @@
         "REC-2",
         "REC-8"
       ],
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-22-gate-G5.md"
     },
     "G6": {
       "title": "GPS missions",
