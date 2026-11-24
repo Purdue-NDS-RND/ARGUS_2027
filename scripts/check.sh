@@ -191,6 +191,7 @@ else
     run_test "" tools/test/test_field_setup.py
     run_test "" tools/test/test_readiness_kit.py
     run_test "" tools/test/test_post_flight.py
+    run_test "" tools/test/test_release_confirm.py
     run_test "" tools/test/test_score_model.py
     run_test "" tools/test/test_freeze_check.py
     run_test "" tools/test/test_sim_sequence_copies.py

@@ -1,0 +1,64 @@
+# CEN-14, the control: the drop of drop/attempt_release with nothing carried.
+# The drop servo is commanded and moves, and nothing leaves: the report must
+# say RELEASE NOT CONFIRMED.
+# Flown as an attempt (PLT-12): the GO command records the bag, the flight
+# controller's log is pulled after the landing, the bundle is made, and
+# tools/post_flight.py writes its report into it. sim/attempt_check.py then
+# holds the report's release confirmation against what the sim's payload
+# bridge did: CONFIRMED when the payload was let go, and never CONFIRMED when
+# nothing left the vehicle.
+#
+# Flown with --variants on (sim time, no flag on). Not in the nightly suite.
+description: 2026 drop moving its drop servo with nothing carried, flown as an attempt - the report must say RELEASE NOT CONFIRMED.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+config:
+  package_drop:
+    fake_drop: false
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: calm}
+sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param), value for value: a test holds the two together
+  SIM_BATT_VOLTAGE: 25.0      # a 6S pack, charged
+  BATT_LOW_VOLT: 21.0
+  BATT_CRT_VOLT: 19.8
+  BATT_LOW_TIMER: 10.0
+  BATT_FS_LOW_ACT: 2.0
+  BATT_FS_CRT_ACT: 1.0
+  FS_THR_ENABLE: 1.0
+  FS_THR_VALUE: 975.0
+  FS_GCS_ENABLE: 1.0
+  FS_GCS_TIMEOUT: 5.0
+  FS_EKF_ACTION: 1.0
+  FS_EKF_THRESH: 0.8
+  FS_OPTIONS: 16.0
+  GRIP_ENABLE: 1.0
+  GRIP_TYPE: 1.0
+  SERVO7_FUNCTION: 28.0
+  GRIP_GRAB: 1900.0
+  GRIP_RELEASE: 1100.0
+  GRIP_NEUTRAL: 1500.0
+  EK3_SRC_OPTIONS: 0.0
+  GPS2_TYPE: 0.0
+  SPRAY_ENABLE: 1.0           # the 2026 drop servo, as sim/payload_bridge.py sets it: here nothing is carried, so no bridge sets it
+  SPRAY_SPEED_MIN: 0.0
+  SPRAY_PUMP_MIN: 100.0
+  SERVO8_FUNCTION: 22.0
+preflight:
+  expect: GO
+  cameras:
+    /camera/image: 15         # the sim's delivery camera: it renders at 20 to 26 Hz on a laptop
+  go:
+    profile: comp_2026
+    detector: target_cv
+    attempt: empty              # the attempt's slot: the bundle is <run folder>/attempts/<date>_empty_drop

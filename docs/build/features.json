@@ -1156,9 +1156,9 @@
       "land": "CEN-14",
       "proven_in": "Sim, Field",
       "note": "",
-      "status": "DOING",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK for this feature's tree (tools/test/test_release_confirm.py 10 passed, sim/test/test_attempt_check.py 22 passed); sim: drop/attempt_release OK CONFIRMED, drop/attempt_release_empty OK NOT CONFIRMED, delivery/attempt_release OK CONFIRMED (second flight), delivery/attempt_release_empty OK NOT CONFIRMED; docs/results/2026-11-23-release-confirmation.md. Left: the camera's frame difference (not built, Decisions), the rangefinder evidence in flight, the thresholds with a dummy payload on the aircraft (lead, mechanical team)",
       "blocked_reason": ""
     },
     {

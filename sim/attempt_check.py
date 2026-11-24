@@ -112,6 +112,34 @@ def readiness_verdict(folder: Path) -> dict:
     return {"ready": ready, "problems": [] if ready else [f"the readiness kit says NOT READY: {line}" for line in lines] or ["the readiness kit says NOT READY"]}
 
 
+def release_truth(run_dir: Path) -> bool:
+    """Whether the sim's payload bridge let a carried payload go in this flight. No bridge: nothing was carried, so nothing left."""
+    events = run_dir / "payload_bridge.jsonl"
+    if not events.is_file():
+        return False
+    return any(json.loads(line).get("event") == "payload_released" for line in events.read_text().splitlines() if line.strip())
+
+
+def release_verdict(folder: Path, left: bool) -> dict:
+    """tools/post_flight.py on an attempt's bundle (CEN-14): its report written into it, and the release confirmation held against the sim's truth."""
+    import post_flight
+
+    try:
+        text, data = post_flight.make_report(folder, set(post_flight.COMPANION))
+    except post_flight.ReportError as problem:
+        return {"verdict": None, "left": left, "problems": [f"the post-flight report could not be written: {problem}"]}
+    found = data["audit"]["release_confirmation"]
+    (folder / "report.md").write_text(text, encoding="utf-8")
+    (folder / "report.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    (folder / "release_confirmation.json").write_text(json.dumps(found, indent=2) + "\n", encoding="utf-8")
+    problems = []
+    if left and found["verdict"] != "CONFIRMED":
+        problems.append(f"the sim let the payload go, and the report says RELEASE {found['verdict']}" + (": " + "; ".join(found.get("missing") or []) if found.get("missing") else ""))
+    if not left and found["verdict"] == "CONFIRMED":
+        problems.append(f"nothing left the vehicle in the sim, and the report says RELEASE CONFIRMED (by {', '.join(found.get('left_by') or [])})")
+    return {"verdict": found["verdict"], "left": left, "left_by": found.get("left_by"), "lines": found.get("lines"), "problems": problems}
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
@@ -149,7 +177,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         readiness = readiness_verdict(folder)
         verdict["problems"] += readiness["problems"]
         verdict["passed"] = verdict["passed"] and readiness["ready"]
-    report.update(passed=verdict["passed"] and not report["problems"], problems=report["problems"] + verdict["problems"], attempt=str(folder), bundle_exit_code=code, readiness=readiness,
+    release = None
+    if attempt["mission"] in ("drop", "delivery") and manifest is not None and pulled is not None:
+        # The release confirmation (CEN-14): the report a person runs on the bundle is written here, and what it says
+        # of the release must be what the sim's payload bridge did.
+        release = release_verdict(folder, release_truth(run_dir))
+        verdict["problems"] += release["problems"]
+        verdict["passed"] = verdict["passed"] and not release["problems"]
+        print(f"release: the sim {'let the payload go' if release['left'] else 'let nothing go'}; the report says {release['verdict']}", flush=True)
+    report.update(passed=verdict["passed"] and not report["problems"], problems=report["problems"] + verdict["problems"], attempt=str(folder), bundle_exit_code=code, readiness=readiness, release=release,
                   dataflash_bytes=None if pulled is None else pulled.stat().st_size, bag_messages=sum(counts.values()), bag_topics=len(counts),
                   bag_storage=None if manifest is None else ((manifest.get("parts") or {}).get("bag") or {}).get("storage"), warnings=[] if manifest is None else manifest.get("warnings"))  # fmt: skip
     (run_dir / "attempt_check.json").write_text(json.dumps(report, indent=2) + "\n")

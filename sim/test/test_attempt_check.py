@@ -168,3 +168,60 @@ def test_the_readiness_kits_verdict_is_part_of_a_fence_demonstrations_pass(tmp_p
     assert verdict["ready"] is False and len(verdict["problems"]) == 1 and verdict["problems"][0].startswith("the readiness kit says NOT READY: the log has no fence breach")
     assert attempt_check.readiness_verdict(tmp_path / "nowhere")["problems"][0].startswith("the readiness kit could not read the bundle")
     assert 'attempt["mission"] == "geofence"' in (SIM / "attempt_check.py").read_text()
+
+
+# --- CEN-14: the report's release confirmation, held against what the sim's payload bridge did
+
+
+def _report(verdict, **more):
+    found = {"verdict": verdict, "left_by": [], "missing": [], "lines": ["command: ..."], **more}
+    return "# Post-flight report\n", {"audit": {"clean": True, "release_confirmation": found}}
+
+
+def test_the_sims_truth_about_a_release_is_the_payload_bridges_own_event(tmp_path):
+    assert attempt_check.release_truth(tmp_path) is False  # no bridge ran: nothing was carried
+    (tmp_path / "payload_bridge.jsonl").write_text(json.dumps({"t": 96.5, "event": "servo", "pwm": 1900}) + "\n")
+    assert attempt_check.release_truth(tmp_path) is False  # carried, and never let go
+    (tmp_path / "payload_bridge.jsonl").write_text(json.dumps({"t": 96.5, "event": "servo"}) + "\n" + json.dumps({"t": 96.9, "event": "payload_released", "pwm": 1900}) + "\n")
+    assert attempt_check.release_truth(tmp_path) is True
+    import payload_bridge
+
+    assert '"payload_released"' in Path(payload_bridge.__file__).read_text()  # the event's name is the bridge's
+
+
+@pytest.mark.parametrize(
+    "left, verdict, more, problem",
+    [
+        (True, "CONFIRMED", {"left_by": ["step"]}, None),
+        (False, "NOT CONFIRMED", {"missing": ["nothing shows the payload leaving"]}, None),
+        (False, "NO RELEASE", {}, None),  # a fake drop: nothing commanded, nothing left
+        (True, "NOT CONFIRMED", {"missing": ["nothing shows the payload leaving"]}, "the sim let the payload go, and the report says RELEASE NOT CONFIRMED: nothing shows the payload leaving"),
+        (True, "NO RELEASE", {}, "the sim let the payload go, and the report says RELEASE NO RELEASE"),
+        (False, "CONFIRMED", {"left_by": ["flight"]}, "nothing left the vehicle in the sim, and the report says RELEASE CONFIRMED (by flight)"),
+    ],
+)
+def test_the_reports_release_confirmation_must_be_what_the_sim_did(tmp_path, monkeypatch, left, verdict, more, problem):
+    import post_flight
+
+    monkeypatch.setattr(post_flight, "make_report", lambda folder, companion: _report(verdict, **more))
+    found = attempt_check.release_verdict(tmp_path, left)
+    assert found["verdict"] == verdict and found["left"] is left and found["problems"] == ([problem] if problem else [])
+    # The report is written into the bundle, as a person running the tool would leave it.
+    assert (tmp_path / "report.md").is_file() and json.loads((tmp_path / "release_confirmation.json").read_text())["verdict"] == verdict
+    assert json.loads((tmp_path / "report.json").read_text())["audit"]["release_confirmation"]["verdict"] == verdict
+
+
+def test_a_bundle_the_report_cannot_read_fails_the_release_check(tmp_path):
+    found = attempt_check.release_verdict(tmp_path, True)  # no manifest: not a bundle
+    assert found["verdict"] is None and "the post-flight report could not be written" in found["problems"][0]
+
+
+@pytest.mark.parametrize("name, carried", [("delivery/attempt_release", True), ("delivery/attempt_release_empty", False), ("drop/attempt_release", True), ("drop/attempt_release_empty", False)])
+def test_the_release_scenarios_fly_a_real_release_as_an_attempt_with_no_flag_on(tmp_path, name, carried):
+    run = build_run(SIM / "scenarios" / f"{name}.yaml", tmp_path / "run", variant="on")
+    scenario = json.loads((tmp_path / "run" / "scenario.json").read_text())
+    assert scenario["attempt"]["mission"] == name.split("/")[0] and scenario["attempt"]["slot"] == ("release" if carried else "empty")
+    assert (scenario.get("payload_bridge") is not None) is carried and Path(scenario["go"]["profile"]).stem == "comp_2026"
+    sequence = (tmp_path / "run" / "sequence.yaml").read_text()
+    assert "fake_drop: false" in sequence and ": true" not in sequence.split("missions:")[0]  # the release is real, and no flag is on
+    assert run is not None

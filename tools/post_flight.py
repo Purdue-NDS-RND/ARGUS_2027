@@ -66,6 +66,7 @@ for path in (ROOT / "tools", ROOT / "sim"):
         sys.path.insert(0, str(path))
 
 import dataflash_params  # noqa: E402
+import release_confirm  # noqa: E402
 
 COMPANION = ((1, 191),)  # MAVROS as this stack runs it: system 1, component 191 (seen in the sim's logs)
 EARTH_RADIUS_M = 6378137.0
@@ -116,6 +117,8 @@ class FlightLog:
     arming: List[Tuple[float, int, int]] = field(default_factory=list)  # (s, armed 1 or 0, method)
     battery: List[Tuple[float, float]] = field(default_factory=list)  # (s, volts)
     polygon: List[Tuple[float, float]] = field(default_factory=list)  # the inclusion fence, (latitude, longitude)
+    outputs: List[Tuple[float, Tuple[int, ...]]] = field(default_factory=list)  # (s, servo outputs 1 to 14, PWM)
+    tuning: List[Tuple[float, float, float, float]] = field(default_factory=list)  # (s, throttle 0 to 1, climb asked for m/s, climb m/s)
 
 
 def read_flight(path) -> FlightLog:
@@ -126,7 +129,7 @@ def read_flight(path) -> FlightLog:
         raise ReportError(str(problem)) from problem
     log.params, log.firmware = parameters.values, parameters.firmware
     seen: Dict[str, float] = {}
-    for name, row in dataflash_params.messages(path, ("POS", "MODE", "ERR", "MSG", "MAVC", "RCIN", "RCI2", "ARM", "BAT", "FNCE", "RFND", "PARM")):
+    for name, row in dataflash_params.messages(path, ("POS", "MODE", "ERR", "MSG", "MAVC", "RCIN", "RCI2", "ARM", "BAT", "FNCE", "RFND", "PARM", "RCOU", "CTUN")):
         t = float(row.get("TimeUS", 0)) * 1.0e-6
         if name == "PARM":
             parameter, value = dataflash_params._text(row["Name"]), float(row["Value"])
@@ -140,6 +143,12 @@ def read_flight(path) -> FlightLog:
             if int(row.get("Instance", 0)) == 0:
                 log.rangefinder.append((t, float(row["Dist"]) * 0.01, int(row.get("Stat", 0))))  # the log holds centimetres
             continue
+        if name == "RCOU" and "C1" in row:
+            log.outputs.append((t, tuple(int(row.get(f"C{n}", 0)) for n in range(1, 15))))
+            continue
+        if name == "CTUN" and "ThO" in row:
+            log.tuning.append((t, float(row["ThO"]), float(row.get("DCRt", 0)) * 0.01, float(row.get("CRt", 0)) * 0.01))  # the log holds cm/s
+            continue
         if name == "POS" and "Lat" in row:
             log.positions.append((t, row["Lat"] * 1.0e-7, row["Lng"] * 1.0e-7, float(row.get("RelHomeAlt", 0.0))))
         elif name == "MODE" and "ModeNum" in row:
@@ -150,7 +159,7 @@ def read_flight(path) -> FlightLog:
             log.texts.append((t, dataflash_params._text(row["Message"])))
         elif name == "MAVC" and "Cmd" in row:
             log.commands.append({"t": t, "system": int(row.get("SS", 0)), "component": int(row.get("SC", 0)), "command": int(row["Cmd"]), "p1": float(row.get("P1", 0.0)), "p2": float(row.get("P2", 0.0)),
-                                 "result": int(row.get("Res", 0))})  # fmt: skip
+                                 "result": int(row.get("Res", -1))})  # fmt: skip  (-1: a log whose MAVC has no result column acknowledges nothing)
         elif name == "RCIN" and "C1" in row:
             log.sticks.append((t, tuple(int(row.get(f"C{n}", 0)) for n in range(1, 9))))
         elif name == "RCI2" and int(row.get("OMask", 0)):
@@ -206,6 +215,11 @@ def first_release(log: FlightLog) -> Optional[Dict[str, Any]]:
         if (command["command"] == 211 and command["p2"] == 0.0) or (command["command"] == 216 and command["p1"] == 1.0) or command["command"] == 183:
             return command
     return None
+
+
+def release_confirmation(log: FlightLog) -> Dict[str, Any]:
+    """CEN-14: was the first release acknowledged, did its output move, did the payload leave (tools/release_confirm.py)."""
+    return release_confirm.confirm(first_release(log), log.outputs, log.tuning, log.rangefinder, log.params)
 
 
 def rangefinder_at(log: FlightLog, when: float) -> Optional[float]:
@@ -468,6 +482,13 @@ def report_text(manifest: Dict[str, Any], log: FlightLog, checked: Dict[str, Any
             height = f"{details['release_height_m']:.2f} m above home by the flight controller's position" if details.get("release_height_m") is not None else "height not known"
             seen = "no good rangefinder reading at that moment" if release["rangefinder_m"] is None else f"{release['rangefinder_m']:.2f} m by the rangefinder"
             out.append(f"- released by {release['command']} at {release['t'] - t0:.1f} s, {height}; {seen} (6 ft is {SIX_FEET_M} m).")
+    confirmation = checked.get("release_confirmation") or {"verdict": "NO RELEASE"}
+    out += ["", "## Release confirmation", ""]
+    if confirmation["verdict"] == "NO RELEASE":
+        out.append("No release command in the flight: nothing to confirm.")
+    else:
+        why = "" if confirmation["verdict"] == "CONFIRMED" else ": " + "; ".join(confirmation["missing"])
+        out += [f"**RELEASE {confirmation['verdict']}**{why}. At {confirmation['t'] - t0:.1f} s, from the flight controller's log:", ""] + [f"- {line}" for line in confirmation["lines"]]
     return "\n".join(out) + "\n"
 
 
@@ -490,6 +511,7 @@ def make_report(folder: Path, companion: Set[Tuple[int, int]]) -> Tuple[str, Dic
         raise ReportError(f"{folder} has no dataflash log: the report and the audit are read from it")
     log = read_flight(logs[-1])
     checked = audit(log, companion, expected_modes_of(folder))
+    checked["release_confirmation"] = release_confirmation(log)
     scored = estimate(folder, str(manifest.get("mission")), log, checked)
     data = {"attempt": manifest.get("attempt"), "mission": manifest.get("mission"), "log": logs[-1].name, "numbers": numbers(log), "audit": checked,
             "estimate": {**{key: value for key, value in scored.items() if key != "score"},
@@ -514,8 +536,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     folder = Path(args.bundle)
     (folder / "report.md").write_text(text, encoding="utf-8")
     (folder / "report.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    (folder / "release_confirmation.json").write_text(json.dumps(data["audit"]["release_confirmation"], indent=2) + "\n", encoding="utf-8")
     print(text, end="")
-    print(f"\nwrote {folder / 'report.md'} and report.json")
+    print(f"\nwrote {folder / 'report.md'}, report.json and release_confirmation.json")
+    print(f"RELEASE {data['audit']['release_confirmation']['verdict']}" if data["audit"]["release_confirmation"]["verdict"] != "NO RELEASE" else "no release in the flight")
     print("NO HUMAN INPUT FOUND" if data["audit"]["clean"] else f"HUMAN INPUT: {len(data['audit']['findings'])} finding(s)")
     return 0 if data["audit"]["clean"] else 1
 
