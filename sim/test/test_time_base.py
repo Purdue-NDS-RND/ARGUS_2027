@@ -144,7 +144,8 @@ def launch_sim_time_problems(source: str, name: str = "<launch>") -> list:
 
 
 def test_thirteen_launch_files_start_the_executor():
-    assert len(LAUNCH_FILES) == 14  # the survey's own launch is the thirteenth (LOC-5), the recovery's sim launch the fourteenth (REC-2)
+    # the survey's own launch is the thirteenth (LOC-5), the recovery's sim launch the fourteenth (REC-2), the bringup the fifteenth (PLT-07)
+    assert len(LAUNCH_FILES) == 15
 
 
 @pytest.mark.parametrize("path", LAUNCH_FILES, ids=lambda p: p.name)

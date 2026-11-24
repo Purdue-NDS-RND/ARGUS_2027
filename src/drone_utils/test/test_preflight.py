@@ -391,3 +391,14 @@ def test_an_empty_baseline_holds_nothing_and_says_so(tmp_path):
     args = node.build_parser().parse_args(["--baseline", str(empty), "--param-dump", str(dump)])
     snapshot = node.fill_offline(good(params_problems=None, params_source=None, baseline_sha256=None), args)
     assert "params" in [c.name for c in pf.run_checks(snapshot) if not c.go]
+
+
+def test_a_pymavlink_that_is_not_installed_is_looked_for_in_the_users_packages_and_then_said(monkeypatch):
+    """The sim's image hides the user's packages from ROS; pymavlink is installed there (PLT-07 runs the command inside it)."""
+    import site
+
+    monkeypatch.setitem(sys.modules, "pymavlink", None)  # an import of it now fails, wherever it is
+    monkeypatch.setattr(sys, "path", [item for item in sys.path if item != site.getusersitepackages()])
+    with pytest.raises(ImportError):
+        node._mavutil()
+    assert sys.path[-1] == site.getusersitepackages()  # looked for there, after everything else

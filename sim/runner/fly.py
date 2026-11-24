@@ -32,7 +32,7 @@ sys.path.insert(0, str(SIM_DIR))
 from runner import events  # noqa: E402
 from runner.helpers import ListCapture, SideTools, stop_group  # noqa: E402
 from runner.trace import TraceWriter, yaw_of_quaternion  # noqa: E402
-from runner.watch import DONE, EndWatch  # noqa: E402
+from runner.watch import DONE, EndWatch, NotStartedWatch  # noqa: E402
 
 # Tools a scenario may need, started with the run folder as their argument
 # and stopped when the flight ends. Wind and GPS events arrive with SIM-03
@@ -211,6 +211,8 @@ def fly(run_dir: Path) -> dict:
 
     if manifest.get("driver"):
         command = list(manifest["driver"]["command"])  # a tool flies the vehicle itself
+    elif manifest.get("go"):
+        command = list(manifest["go"]["command"])  # the GO command: the preflight, then the bringup launch (PLT-07)
     else:
         launch = manifest["launch"]
         command = ["ros2", "launch", launch["package"], launch["file"], *[f"{key}:={value}" for key, value in launch["arguments"].items()]]
@@ -222,9 +224,13 @@ def fly(run_dir: Path) -> dict:
         mission = subprocess.Popen(command, stdout=launch_log, stderr=subprocess.STDOUT, start_new_session=True)
         outcome = None
         try:
+            not_started = NotStartedWatch(recorder.now) if manifest.get("go") else None
             while outcome is None:
                 rclpy.spin_once(node, timeout_sec=0.05)
                 outcome = watch.check()
+                if outcome is None and not_started is not None:
+                    # The GO command ended and the vehicle never armed: a NO-GO, which starts nothing.
+                    outcome = not_started.check(command_ended=mission.poll() is not None, ever_armed=watch.tracker.arm_time is not None)
                 if judges_list.poll(flying=watch.tracker.armed):
                     recorder.event("list_written")
         except KeyboardInterrupt:
@@ -238,6 +244,10 @@ def fly(run_dir: Path) -> dict:
     if bridge_log.is_file():
         for t, item in events.from_bridge_log(bridge_log.read_text().splitlines(), release_times):
             writer.event(t, item.pop("event"), **item)
+    if manifest.get("go"):
+        import preflight_check  # sim/preflight_check.py: the GO command's own preflight, from its log
+
+        preflight_check.check_log(manifest, run_dir)
     t_end = recorder.now()
     recorder.event("end", outcome=outcome)
     writer.close()

@@ -149,6 +149,7 @@ else
     run_test src/drone_target_cv src/drone_target_cv/test/test_recovery_cv_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_bringup.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_flag_rules.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_safety_limits.py
     run_test "" src/drone_mission_core/test/test_executor_feature_overrides.py
@@ -180,6 +181,7 @@ else
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_projection.py
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
+    run_test "" tools/test/test_go.py
     run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_height_log.py
     run_test "" tools/test/test_ring_fit_try.py

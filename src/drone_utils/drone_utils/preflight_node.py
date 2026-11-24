@@ -96,9 +96,25 @@ def clock_verdict(tool: Optional[str], source: Optional[str]):
     return asked.returncode == 0, line.replace("CLOCK OK: ", "").replace("CLOCK NOT OK: ", "")
 
 
+def _mavutil():
+    """pymavlink's mavutil. ImportError when it is not installed."""
+    try:
+        from pymavlink import mavutil
+    except ImportError:
+        # pymavlink installed for the user, in an environment that hides the user's packages (the sim's image sets
+        # PYTHONNOUSERSITE for ROS): look there too, after everything else, and for nothing but this.
+        import site
+
+        user_site = site.getusersitepackages()
+        if user_site not in sys.path:
+            sys.path.append(user_site)
+        from pymavlink import mavutil
+    return mavutil
+
+
 def params_from_fc(url: str, names: List[str], timeout_s: float = 10.0) -> Dict[str, Optional[float]]:
     """The named parameters, read from the flight controller over MAVLink. A name it did not answer for is None."""
-    from pymavlink import mavutil
+    mavutil = _mavutil()
 
     master = mavutil.mavlink_connection(url, source_system=247, source_component=195)
     if master.wait_heartbeat(timeout=timeout_s) is None:

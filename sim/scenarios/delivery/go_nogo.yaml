@@ -1,0 +1,31 @@
+# PLT-07: the GO command on an aircraft that is not ready (SITL as the sim
+# always had it: no baseline, a 12.6 V battery). The preflight must say
+# NO-GO for exactly those two, the command must end with NO-GO and exit
+# code 1, and nothing may be started: the vehicle is watched for 10 s after
+# the command ends and must not have armed.
+#
+# Flown with --variants on. Not in the nightly suite.
+description: The GO command on SITL's own parameters and battery - NO-GO, nothing is started, the vehicle never arms.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}
+preflight:
+  expect: NO-GO
+  failed: [params, battery]   # SITL's own parameters and its 12.6 V battery
+  cameras:
+    /camera/image: 15
+  go:
+    profile: comp_2026
+    detector: target_cv

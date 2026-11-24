@@ -54,6 +54,12 @@ def declared_flags(sequence: str) -> dict:
 
 def overrides_for(profile: Path, sequence: str | None = None) -> str:
     enabled = load_profile(profile)
+    # A profile with node flags cannot be flown through feature_overrides alone: the node flags would be dropped,
+    # and the mission flags would fly without them. Such a profile is started with tools/go.py (PLT-07).
+    import yaml
+
+    if (yaml.safe_load(Path(profile).read_text(encoding="utf-8")) or {}).get("nodes"):
+        raise FeatureFlagError(f"{profile}: this profile has node flags (nodes:), which feature_overrides cannot carry: start the flight with tools/go.py")
     if sequence is not None:
         resolve_features(declared_flags(sequence), enabled)
     return ",".join(enabled)

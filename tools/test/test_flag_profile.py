@@ -89,3 +89,11 @@ def test_list_shows_the_shipped_profiles():
     done = run("--list")
     assert done.returncode == 0, done.stderr
     assert "profiles/comp_2026.yaml: no flags" in done.stdout
+
+
+def test_a_profile_with_node_flags_is_refused_because_feature_overrides_would_drop_them(tmp_path):
+    """PLT-07: such a profile is flown through tools/go.py; here its mission flags would fly without its node flags."""
+    done = run(ROOT / "profiles" / "delivery_estimator.yaml")
+    assert done.returncode == 2 and done.stdout == "PROFILE_ERROR\n" and "tools/go.py" in done.stderr
+    # A start: block alone drops no flag, and an empty nodes: block is no node flags.
+    assert run(profile(tmp_path, "enable: [use_frame_time_pose]\nstart: {detector: target_cv}\nnodes: {}\n")).stdout == "use_frame_time_pose\n"

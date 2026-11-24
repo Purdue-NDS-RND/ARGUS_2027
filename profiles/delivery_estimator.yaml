@@ -1,0 +1,13 @@
+# The 2026 delivery with the frame-time pose and the target estimator on
+# (FND-05, FND-06), and the detector stamping from the image on the detection
+# contract (FND-01, FND-02). Flown in the sim through `tools/go.py`
+# (sim/scenarios/delivery/go_estimator.yaml). It is a worked example of a
+# profile with node flags; which flags the competition flies is the lead's.
+description: The 2026 delivery with the frame-time pose and the target estimator on.
+enable:
+  - use_frame_time_pose
+  - use_target_estimator
+nodes:
+  target_cv: [stamp_from_image, detection_contract]
+start:
+  detector: target_cv

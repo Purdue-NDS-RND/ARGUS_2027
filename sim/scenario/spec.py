@@ -122,7 +122,7 @@ class Scenario:
     expect_log: list  # text the mission's log must contain when the flight is flown with the scenario's flags on
     forbid_log: list  # text it must not contain then
     fc_scripts: list  # Lua scripts the flight controller runs (repo paths), in both variants: SITL loads them at start
-    preflight: dict  # {} or {"expect": "GO"|"NO-GO", "failed": [...], "cameras": {topic: Hz}}: the preflight is run before the flight and must say this
+    preflight: dict  # {} or {"expect": "GO"|"NO-GO", "failed": [...], "cameras": {topic: Hz}}: the preflight is run before the flight and must say this; with "go", the GO command starts the flight
     wind: dict
     gps_events: list
     sun: dict | None  # None: the base world's light, as in the 2026 sim
@@ -148,6 +148,8 @@ def _mapping(data: dict, key: str, where: str) -> dict:
 
 
 PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")  # drone_utils/preflight.py CHECKS
+GO_DETECTORS = ("none", "target_cv")
+PROFILES = Path(__file__).resolve().parents[2] / "profiles"
 PREFLIGHT_PORT = 14555  # a MAVLink output of its own, for the preflight's reading of the flight controller's parameters
 
 
@@ -156,7 +158,7 @@ def _preflight(data: dict, where: str) -> dict:
     wanted = _mapping(data, "preflight", where)
     if not wanted:
         return {}
-    extra = sorted(set(wanted) - {"expect", "failed", "cameras"})
+    extra = sorted(set(wanted) - {"expect", "failed", "cameras", "go"})
     if extra:
         raise BuildError(f"{where}: preflight has unknown setting(s) {', '.join(map(str, extra))}")
     if wanted.get("expect") not in ("GO", "NO-GO"):
@@ -167,7 +169,17 @@ def _preflight(data: dict, where: str) -> dict:
     cameras = wanted.get("cameras") or {}
     if not isinstance(cameras, dict) or not all(isinstance(topic, str) and topic.startswith("/") and isinstance(hz, (int, float)) and not isinstance(hz, bool) and hz > 0 for topic, hz in cameras.items()):
         raise BuildError(f"{where}: preflight.cameras maps an image topic to the rate it must have, in Hz")
-    return {"expect": wanted["expect"], "failed": list(failed), "cameras": {topic: float(hz) for topic, hz in cameras.items()}}
+    checked = {"expect": wanted["expect"], "failed": list(failed), "cameras": {topic: float(hz) for topic, hz in cameras.items()}}
+    if "go" in wanted:
+        # The flight is started by the GO command (tools/go.py, PLT-07), which runs the preflight itself and
+        # launches only on GO: {profile: <a committed profile's name>, detector: none | target_cv}.
+        go = wanted["go"]
+        if not isinstance(go, dict) or set(go) - {"profile", "detector"} or not isinstance(go.get("profile"), str) or go.get("detector", "none") not in GO_DETECTORS:
+            raise BuildError(f"{where}: preflight.go has profile (a name under profiles/) and detector ({' or '.join(GO_DETECTORS)})")
+        if not (PROFILES / f"{go['profile']}.yaml").is_file():
+            raise BuildError(f"{where}: preflight.go.profile names '{go['profile']}', and there is no profiles/{go['profile']}.yaml")
+        checked["go"] = {"profile": go["profile"], "detector": go.get("detector", "none")}
+    return checked
 
 
 def _check_object(item, index: int, where: str) -> dict:

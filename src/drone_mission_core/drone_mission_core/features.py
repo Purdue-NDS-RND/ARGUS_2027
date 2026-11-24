@@ -170,9 +170,11 @@ def load_profile(path) -> Dict[str, bool]:
         raise FeatureFlagError(f"{path}: {error}") from error
     if not isinstance(data, dict):
         raise FeatureFlagError(f"{path}: a profile is a mapping with an 'enable' list")
-    unknown = sorted(str(key) for key in set(data) - {"description", "enable"})
+    # `nodes` (node flags) and `start` (what the bringup launch starts) are the bringup's (PLT-07,
+    # drone_mission_core/bringup.py), which reads and checks them; here they are only allowed.
+    unknown = sorted(str(key) for key in set(data) - {"description", "enable", "nodes", "start"})
     if unknown:
-        raise FeatureFlagError(f"{path}: unknown key(s) {', '.join(unknown)} (a profile has description and enable)")
+        raise FeatureFlagError(f"{path}: unknown key(s) {', '.join(unknown)} (a profile has description, enable, nodes and start)")
     names = data.get("enable") or []
     if not isinstance(names, list):
         raise FeatureFlagError(f"{path}: 'enable' must be a list of flag names")

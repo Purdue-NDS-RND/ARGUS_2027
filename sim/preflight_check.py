@@ -74,6 +74,24 @@ def arguments(manifest: dict, run_dir: Path) -> List[str]:
     return args
 
 
+def check_log(manifest: dict, run_dir: Path) -> dict:
+    """A flight started by the GO command (PLT-07): the preflight it ran, from its own log, against what the scenario expects.
+
+    Writes preflight_check.json as the side tool does. The record is the last line of the run's preflight.jsonl.
+    """
+    record = None
+    try:
+        lines = [line for line in (run_dir / "preflight.jsonl").read_text().splitlines() if line.strip()]
+        record = json.loads(lines[-1]) if lines else None
+    except (OSError, json.JSONDecodeError):
+        record = None
+    report = compare(manifest["preflight"], record)
+    if record is None:
+        report["problem"] = "the GO command's preflight left no record (preflight.jsonl)"
+    (run_dir / "preflight_check.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
 def wanted(manifest: dict) -> bool:
     return bool(manifest.get("preflight"))
 

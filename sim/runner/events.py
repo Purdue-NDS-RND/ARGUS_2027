@@ -211,8 +211,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("truth_poses")  # true poses go out on /sim/truth/poses
     if ((manifest.get("node_flags") or {}).get("loc_node") or {}).get("loc_node") is True and manifest.get("mission") != "recovery":
         needed.add("loc_check")  # the localisation pipeline's rate, its start and stop, and what it reports
-    if manifest.get("preflight"):
-        needed.add("preflight")  # the preflight is run before the flight and held to what the scenario expects of it
+    if manifest.get("preflight") and not manifest.get("go"):
+        needed.add("preflight")  # the preflight is run beside the flight and held to what the scenario expects of it (the GO command runs its own)
     if ((manifest.get("node_flags") or {}).get("recovery_cv") or {}).get("recovery_cv") is True:
         needed.add("recovery_cv_check")  # the green X and bucket detector's pixels against the truth
     return needed

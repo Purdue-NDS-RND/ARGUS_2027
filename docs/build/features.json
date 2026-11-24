@@ -987,9 +987,9 @@
       "land": "L21",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_go.py 30, test_bringup.py 29, test_preflight_check.py 23 passed); sim/run_scenarios.sh delivery/go --variants on -> OK, GO, 16.21 points (baseline's); delivery/go_estimator -> OK, flags from the profile reach executor and target_cv; delivery/go_nogo -> OK, NO-GO, exit 1, never armed; docs/results/2026-11-23-go-launcher.md. Left: go on the aircraft's bench with a real grabber, and profiles for the competition's missions (lead)",
       "blocked_reason": ""
     },
     {

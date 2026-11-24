@@ -1,0 +1,53 @@
+# PLT-07: the 2026 delivery started by the GO command (tools/go.py) with the
+# 2026 profile: the preflight on the flight-controller baseline must say GO,
+# the bringup launch must then fly the delivery with every flag off, and the
+# score must be the baseline's.
+#
+# On sim time (variant "on", as delivery/preflight: on wall time the time sync
+# wanders on a laptop). No flag is on in either variant. Flown with
+# --variants on. Not in the nightly suite.
+description: 2026 delivery started by the GO command with the comp_2026 profile - the preflight says GO, the bringup launch flies it with every flag off, and it must score as the baseline does.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+targets:
+  package_delivery: delivery_target     # the mission is given this object's coordinates
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}   # where the 2026 sim baseline had it
+wind: {level: calm}
+sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param), value for value: a test holds the two together
+  SIM_BATT_VOLTAGE: 25.0      # a 6S pack, charged
+  BATT_LOW_VOLT: 21.0
+  BATT_CRT_VOLT: 19.8
+  BATT_LOW_TIMER: 10.0
+  BATT_FS_LOW_ACT: 2.0
+  BATT_FS_CRT_ACT: 1.0
+  FS_THR_ENABLE: 1.0
+  FS_THR_VALUE: 975.0
+  FS_GCS_ENABLE: 1.0
+  FS_GCS_TIMEOUT: 5.0
+  FS_EKF_ACTION: 1.0
+  FS_EKF_THRESH: 0.8
+  FS_OPTIONS: 16.0
+  GRIP_ENABLE: 1.0
+  GRIP_TYPE: 1.0
+  SERVO7_FUNCTION: 28.0
+  GRIP_GRAB: 1900.0
+  GRIP_RELEASE: 1100.0
+  GRIP_NEUTRAL: 1500.0
+  EK3_SRC_OPTIONS: 0.0
+  GPS2_TYPE: 0.0
+preflight:
+  expect: GO
+  cameras:
+    /camera/image: 15         # the sim's delivery camera: it renders at 20 to 26 Hz on a laptop
+  go:
+    profile: comp_2026
+    detector: target_cv

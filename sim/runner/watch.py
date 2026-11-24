@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gps"))
 from flight_log import LANDED_ON_GROUND, FlightTracker  # noqa: E402  (sim/gps: armed, then disarmed on the ground for 3 s)
 
 DONE, TIMEOUT, NEVER_ARMED = "DONE", "TIMEOUT", "NEVER_ARMED"
+NOT_STARTED = "NOT_STARTED"  # a flight the GO command did not start (PLT-07): its preflight said NO-GO
 ON_GROUND_HEIGHT_M = 0.3  # true height above where the vehicle started, below which it is down
 
 
@@ -62,3 +63,26 @@ class EndWatch:
         if elapsed > self.timeout_s:
             return TIMEOUT
         return None
+
+
+class NotStartedWatch:
+    """A flight started by the GO command (tools/go.py) that the command did not start.
+
+    The command ends without the vehicle ever arming: a NO-GO, which starts nothing. The vehicle is watched for
+    `watch_s` more sim seconds, so that "nothing" is seen and not assumed; a vehicle that arms in that time is
+    a flight after all, and the end watch's to judge.
+    """
+
+    def __init__(self, clock: Callable[[], float], watch_s: float = 10.0) -> None:
+        self.clock = clock
+        self.watch_s = watch_s
+        self.ended_at: float | None = None
+
+    def check(self, command_ended: bool, ever_armed: bool) -> str | None:
+        if ever_armed or not command_ended:
+            self.ended_at = None
+            return None
+        now = self.clock()
+        if self.ended_at is None:
+            self.ended_at = now
+        return NOT_STARTED if now - self.ended_at >= self.watch_s else None

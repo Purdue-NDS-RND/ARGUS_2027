@@ -216,6 +216,14 @@ def run_result(run_dir: Path) -> dict:
         result.update(status="INVALID", reason=flight.get("reason", "the scenario could not be flown as written"))
     elif outcome == "NEVER_ARMED":
         result.update(status="NEVER_ARMED", reason="the vehicle did not arm")
+    elif outcome == "NOT_STARTED":
+        # The GO command (PLT-07) ended without starting a flight. That is the right end of a scenario whose
+        # preflight must say NO-GO, and of no other: the vehicle was watched and did not arm.
+        expected = (manifest.get("preflight") or {}).get("expect")
+        if expected == "NO-GO" and flight.get("launch_exit_code") == 1:
+            result.update(status="OK", reason="")
+        else:
+            result.update(status="FAIL", reason=f"the GO command started no flight (exit code {flight.get('launch_exit_code')}) where the scenario expects {expected}")
     elif score is None:
         result["reason"] = "the flight ran but was not scored"
     elif outcome == "TIMEOUT":

@@ -445,6 +445,42 @@ def build_params(scenario: Scenario, shipped: dict, flags_on: bool) -> dict:
     return params
 
 
+def _go(scenario: Scenario, preflight: dict, flags_on: bool, sim_time: bool, sequence, params, run_dir: Path) -> dict:
+    """A flight started by the GO command (PLT-07): its command, and the run's files with every flag back to false.
+
+    The flags reach the flight as they will on the aircraft, through a committed profile, and not through the
+    run's sequence and params files. The profile must turn on what the scenario says is on, no more and no
+    less: the judge and the side tools go by the scenario. Variant off flies `comp_2026`.
+    """
+    if sequence is None or params is None:
+        raise BuildError(f"{scenario.path}: preflight.go needs a flight with a sequence and a params file")
+    name = scenario.preflight["go"]["profile"] if flags_on else "comp_2026"
+    profile = REPO / "profiles" / f"{name}.yaml"
+    listed = _load_yaml(profile, "profile") or {}
+    wanted_flags = sorted(flag for flag, value in scenario.flags.items() if value is True) if flags_on else []
+    wanted_nodes = {node: sorted(flag for flag, value in (flags or {}).items() if value is True) for node, flags in scenario.node_flags.items()} if flags_on else {}
+    wanted_nodes = {node: flags for node, flags in wanted_nodes.items() if flags}
+    have_nodes = {node: sorted(flags) for node, flags in (listed.get("nodes") or {}).items() if flags}
+    if sorted(listed.get("enable") or []) != wanted_flags or have_nodes != wanted_nodes:
+        raise BuildError(f"{scenario.path}: profile '{name}' does not turn on exactly the scenario's flags and node flags (the scenario's are what the run is judged by)")
+    root = sequence.get("mission_sequence", sequence)
+    for flag in scenario.flags:
+        root["features"][flag] = False
+    for node, flags in scenario.node_flags.items():
+        for flag in flags or {}:
+            params[node]["ros__parameters"]["features"][flag] = False
+    command = ["python3", str(REPO / "tools" / "go.py"), "--profile", str(profile), "--sequence", str(run_dir / "sequence.yaml"), "--params", str(run_dir / "params.yaml"),
+               "--detector", scenario.preflight["go"]["detector"], "--baseline", preflight["baseline"], "--fc-url", f"udpin:127.0.0.1:{preflight['port']}",
+               "--log-dir", str(run_dir), "--min-free-gb", "1"]  # fmt: skip
+    for topic, hz in sorted(preflight["cameras"].items()):
+        command += ["--camera", f"{topic}={hz:g}"]
+    if not preflight["cameras"]:
+        command.append("--no-camera")
+    if sim_time:
+        command.append("--sim")
+    return {"command": command, "profile": str(profile)}
+
+
 # --- the run folder ------------------------------------------------------------------
 
 
@@ -606,9 +642,12 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
         fc_scripts.append(str(script))
     scripting = {"SCR_ENABLE": 1.0} if fc_scripts else {}
     # The preflight before the flight (PLT-10): the baseline SITL can be held to, and the flags as a profile.
-    preflight = None
+    preflight, go = None, None
     if scenario.preflight:
         preflight = {**scenario.preflight, "baseline": str(run_dir / "fc_baseline.param"), "profile": str(run_dir / "profile.yaml"), "port": PREFLIGHT_PORT}
+    if scenario.preflight.get("go"):
+        go = _go(scenario, preflight, flags_on, sim_time, sequence, params, run_dir)
+        preflight["profile"] = go["profile"]
     manifest = {
         "name": scenario.name,
         "mission": scenario.mission,
@@ -630,6 +669,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             "file": launch,
             "arguments": launch_arguments,
         },
+        "go": go,  # the GO command that starts this flight in place of the launch (PLT-07), or None
         "driver": _driver(scenario, site_path, run_dir),
         "vehicle": {
             "model": profile["model"],
