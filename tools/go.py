@@ -139,7 +139,10 @@ def plan(args, share: Optional[Path] = None) -> Plan:
         if "features" in params_data:
             raise GoError(f"{params} has `features:` at its top level: no node of the launch would start")
         made = bringup.load_bringup(profile, params_data, log_session=not args.no_session_log, camera=args.start_camera, detector=args.detector)
-        sequence_data = yaml.safe_load(sequence.read_text(encoding="utf-8")) or {}
+        sequence_text = sequence.read_text(encoding="utf-8")
+        if not args.sim and any(line.startswith("# NOT VERIFIED") for line in sequence_text.splitlines()[:8]):
+            raise GoError(f"{sequence} was generated from a day file that is not verified (tools/field_setup.py): for the sim only (--sim), not for the aircraft")
+        sequence_data = yaml.safe_load(sequence_text) or {}
         problems = bringup.flight_problems(sequence_data, made.feature_overrides, made.node_flags, made.nodes, made.detector)
         if problems:
             raise GoError(f"{sequence.name} with {profile.name}: " + "; ".join(problems) + " (--detector target_cv, or a profile whose start: names it, starts the detector)")

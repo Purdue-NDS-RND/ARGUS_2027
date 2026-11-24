@@ -59,3 +59,6 @@ sim/.ws/
 
 # One folder per competition attempt (tools/bundle_attempt.py): bags, flight logs and frames, never committed.
 attempts/
+
+# What tools/field_setup.py writes from a day file (field/<name>.yaml): rebuilt from it, never edited.
+field/*/

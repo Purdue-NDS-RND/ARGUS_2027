@@ -1022,9 +1022,9 @@
       "land": "L22",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; tools/test/test_field_setup.py 37 passed; python3 tools/field_setup.py field/example_day.yaml --check -> OK, and 15 files written from it, the site file loading with sim/site_file.py; docs/build/notes/OPS-01.md",
       "blocked_reason": ""
     },
     {

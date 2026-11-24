@@ -1,0 +1,80 @@
+# A field day's coordinates: the one file they are typed in (OPS-01).
+#
+#   python3 tools/field_setup.py field/example_day.yaml --check     # check them
+#   python3 tools/field_setup.py field/example_day.yaml             # and write field/example_day/
+#
+# NOT VERIFIED. This example is the placeholder Apollo XI site of
+# sim/sites/apollo_xi.yaml (a test holds the two together) with placeholder
+# targets and waypoints laid out in metres around it. For a real day: copy
+# this file, type every value from the organisers' sheet, have a second
+# person read them back against the sheet and the map, and only then set
+# `verified: true`. Decimal degrees, WGS 84.
+name: example_day
+date: 2027-06-04
+verified: false
+
+# The site: what sim/site_file.py takes, without its name and verified.
+site:
+  # World origin and SITL home. The vehicle spawns here.
+  origin:
+    latitude_deg: 34.1750000
+    longitude_deg: -118.4825000
+  # Ground height above mean sea level at the origin. The sim turns SITL's
+  # terrain database off for a site run, so a wrong value cannot make the SITL
+  # rangefinder read above the ground (it once read 18.5 m on the ground).
+  terrain_elevation_m: 215.0
+
+  runway:
+    centre:
+      latitude_deg: 34.1750000
+      longitude_deg: -118.4825000
+    heading_deg: 90.0        # compass heading of the runway's long axis
+    length_m: 150.0
+    width_m: 12.0
+
+  takeoff_point:             # "close to the centre of the runway" (organiser question 14)
+    latitude_deg: 34.1750000
+    longitude_deg: -118.4825000
+  compass_rose:              # placeholder: 20 m east of the takeoff point
+    latitude_deg: 34.1750000
+    longitude_deg: -118.4822828
+
+  # The flight boundary, which is the geofence polygon. Placeholder: 300 m east
+  # to west, from 60 m south to 180 m north of the origin.
+  flight_boundary:
+    - {latitude_deg: 34.1744610, longitude_deg: -118.4841287}
+    - {latitude_deg: 34.1744610, longitude_deg: -118.4808713}
+    - {latitude_deg: 34.1766170, longitude_deg: -118.4808713}
+    - {latitude_deg: 34.1766170, longitude_deg: -118.4841287}
+  max_altitude_agl_m: 120.0
+
+  # Placeholder survey area for localisation: 70 m square, north-east of the runway.
+  survey_area:
+    - {latitude_deg: 34.1755390, longitude_deg: -118.4820656}
+    - {latitude_deg: 34.1755390, longitude_deg: -118.4813056}
+    - {latitude_deg: 34.1761678, longitude_deg: -118.4813056}
+    - {latitude_deg: 34.1761678, longitude_deg: -118.4820656}
+
+  fence:
+    action: 1                # ArduPilot FENCE_ACTION: 1 = RTL, or land if RTL is not possible
+    margin_m: 2.0            # ArduPilot FENCE_MARGIN
+
+# Where each mission's target is said to be.
+targets:
+  drop: {latitude_deg: 34.1755390, longitude_deg: -118.4820657}              # placeholder: 40 m east, 60 m north of the origin
+  delivery: {latitude_deg: 34.1757187, longitude_deg: -118.4831515}          # placeholder: 60 m west, 80 m north
+  recovery_pickup: {latitude_deg: 34.1752695, longitude_deg: -118.4815228}   # placeholder: 90 m east, 30 m north
+
+# Where the recovery takes the bucket: takeoff or compass_rose (the rules allow either). Leave the line out to
+# keep what the sequence file says.
+recovery_return: takeoff
+
+# The waypoint mission's and the time trial's route, in the order given. Heights above the ground, in feet.
+waypoints:
+  - {name: wp1, latitude_deg: 34.1751797, longitude_deg: -118.4835859, altitude_agl_ft: 50}
+  - {name: wp2, latitude_deg: 34.1760780, longitude_deg: -118.4838030, altitude_agl_ft: 150}
+  - {name: wp3, latitude_deg: 34.1764373, longitude_deg: -118.4827172, altitude_agl_ft: 100}
+  - {name: wp4, latitude_deg: 34.1760780, longitude_deg: -118.4818485, altitude_agl_ft: 50}
+  - {name: wp5, latitude_deg: 34.1763475, longitude_deg: -118.4810884, altitude_agl_ft: 100}
+  - {name: wp6, latitude_deg: 34.1753593, longitude_deg: -118.4810885, altitude_agl_ft: 100}
+  - {name: wp7, latitude_deg: 34.1747305, longitude_deg: -118.4821742, altitude_agl_ft: 50}
