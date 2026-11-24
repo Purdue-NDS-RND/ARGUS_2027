@@ -1,0 +1,76 @@
+# Inputs of the scoring model (OPS-04): tools/score_model.py reads this file.
+#
+# Every probability here is an estimate. The ones marked "sim" are read off the sim's gate results under
+# docs/results/ (a stand-in detector, placeholder site, no real wind); the ones marked "assumption" are the
+# session's guesses, to be replaced by field results as they come. Change a number here, run the tool again,
+# and the plan it prints is the plan for those numbers. Points and penalties are the judges' (sim/judge/score.py,
+# FEATURES.md SIM-08): a test holds the two together.
+slots: 3                  # organiser question 2: assumed three
+best_of: 4                # the rules: the best four missions count
+autonomy_bonus: 0.25      # on localisation, drop, delivery and recovery, with no human input
+second_attempt: replaces  # organiser question 21, assumed answer: a second attempt at a mission replaces the first (or: best)
+p_no_human_input: 0.90    # assumption: one flight in ten needs the safety pilot, and loses its bonus
+p_flight_lost: 0.03       # assumption: a flight that ends the day (a crash): every later slot is lost
+p_abort_ends_flight: 0.5  # assumption: half the failed missions end in RTL, so the mission after it in the same flight is not flown
+
+missions:
+  waypoint_navigation:
+    kind: count           # points for each of `items` passed
+    items: 7
+    points_each: 1.0
+    p_each: 0.95          # sim: G6 passes 7 of 7 at 1.0 m in every flight; 0.95 leaves room for the real GPS
+    p_flown: 0.95         # assumption: the mission starts and is not abandoned
+    bonus: false
+  time_trial:
+    kind: range           # all waypoints in order, then points by rank between the slowest's and the fastest's
+    points_slowest: 8.0
+    points_fastest: 12.0
+    rank_low: 0.2         # assumption: where the team's time falls between slowest (0) and fastest (1): somewhere
+    rank_high: 0.8        # in this band, evenly
+    p_flown: 0.90         # sim: G6, 7 of 7 within 4 m in AUTO in every flight
+    bonus: false
+  localisation:
+    kind: list            # one point for each marker right; one listed wrong costs 0.5 (the judge's 1.0 for both ID and place wrong is not modelled apart)
+    items: 10
+    points_each: 1.0
+    p_each: 0.80          # sim: G4, 24 of 30 markers listed with the right ID (oracle detector, template digits)
+    p_wrong: 0.10         # assumption: of the markers not right, the share that are listed wrong (the rest are missing)
+    wrong_penalty: 0.5
+    p_flown: 0.90         # assumption
+    bonus: true
+  drop:
+    kind: distance        # max_points less the miss in metres, less a penalty
+    max_points: 14.0
+    points_per_metre: 1.0
+    miss_median_m: 0.3    # sim: G1 holds within 0.1 to 0.3 m over the target; 2026 field drops were of this order
+    miss_p95_m: 1.5       # assumption: the real payload's fall and wind
+    p_penalty: 0.05       # assumption: a release or a descent below 6 ft
+    penalty: 6.0
+    p_flown: 0.80         # assumption: the target is found and the gates open
+    bonus: true
+  delivery:
+    kind: distance
+    max_points: 13.0
+    points_per_metre: 1.0
+    miss_median_m: 0.1    # sim: G3, the package 0.03 to 0.04 m from the target
+    miss_p95_m: 0.6       # assumption
+    p_penalty: 0.05       # assumption: a release above 6 ft scores nothing: modelled as a penalty of the whole score
+    penalty: 13.0
+    p_flown: 0.80         # assumption
+    bonus: true
+  recovery:
+    kind: distance
+    max_points: 16.0
+    points_per_metre: 1.0
+    miss_median_m: 0.2    # sim: G5, the bucket within centimetres of the return point on the oracle detector
+    miss_p95_m: 1.0       # assumption
+    p_penalty: 0.05       # assumption
+    penalty: 16.0
+    p_flown: 0.60         # assumption: the sim's G5 passes 10 of 10, but on a stand-in detector and a hook that is not built
+    bonus: true
+
+# The two plans the spec keeps ready (decision 23, organiser question 1). A plan is a list of slots, each the
+# missions of its one flight, in the order flown.
+plans:
+  one_mission_a_flight: [[recovery], [drop], [delivery]]
+  combined: [[localisation, drop], [time_trial, delivery], [recovery]]

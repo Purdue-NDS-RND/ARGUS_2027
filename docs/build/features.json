@@ -1075,9 +1075,9 @@
       "land": "L23",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; tools/test/test_score_model.py 23 passed; python3 tools/score_model.py -> one a flight 34.7, combined 48.7, best plan found 50.4 (20000 draws, seed 1); docs/results/2026-11-23-score-model.md",
       "blocked_reason": ""
     },
     {
