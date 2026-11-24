@@ -1058,9 +1058,9 @@
       "land": "L22",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; tools/test/test_post_flight.py 23 passed; python3 tools/post_flight.py on two real sim attempt bundles -> NO HUMAN INPUT FOUND, and the geofence judge fed from the flight controller's log gives 1.88 m held for 37.1 s where the sim's truth gave 1.87 m for 37.2 s; docs/build/notes/OPS-03.md",
       "blocked_reason": ""
     },
     {

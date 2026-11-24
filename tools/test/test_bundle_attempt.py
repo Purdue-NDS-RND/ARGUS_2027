@@ -259,3 +259,19 @@ def test_the_commit_is_read_from_the_checkouts_files_when_git_cannot_be_asked(tm
     state = ba.git_state(tmp_path / "nowhere")
     assert state["hash"] is None and state["dirty"] is None
     assert ba.git_state()["hash"] == ba.head_from_files(ba.ROOT)[0]  # the two ways agree on this checkout
+
+
+def test_the_route_a_sequence_flies_goes_in_with_the_config(tmp_path, flight):
+    """OPS-03: the post-flight report scores a waypoint flight against the route that was flown."""
+    (tmp_path / "waypoints").mkdir()
+    (tmp_path / "waypoints" / "competition_waypoints.yaml").write_text("waypoints:\n  - {name: wp1, latitude: 35.0, longitude: -118.0, altitude_agl_ft: 50}\n")
+    (tmp_path / "sequences").mkdir()
+    sequence = tmp_path / "sequences" / "waypoint_navigation_live.yaml"
+    sequence.write_text("mission_sequence:\n  features: {}\n  missions:\n    - type: gps_waypoint\n      config:\n        waypoint_file: ../waypoints/competition_waypoints.yaml\n")
+    manifest = bundled(tmp_path, flight, mission="waypoint_navigation", sequence=sequence)
+    folder = tmp_path / "attempts" / "2027-05-21_2_waypoint_navigation"
+    assert yaml.safe_load((folder / "config" / "waypoints.yaml").read_text())["waypoints"][0]["name"] == "wp1"
+    assert "config/waypoints.yaml" in [item["file"] for item in manifest["parts"]["config"]["files"]] and ba.verify(folder) == []
+    assert ba.waypoint_file_of(flight["sequence"]) is None  # a sequence with no route
+    sequence.write_text(sequence.read_text().replace("competition_waypoints.yaml", "gone.yaml"))
+    assert ba.waypoint_file_of(sequence) is None

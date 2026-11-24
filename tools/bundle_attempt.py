@@ -22,7 +22,8 @@ What goes in, and where:
   dataflash/        the flight controller's log of the flight, pulled after landing (tools/dataflash_pull.py)
   frames/<name>/    the frame logs (argus_camera's frame log: JPEG files and index.jsonl)
   session/          the session logger's folder (command rows and image snapshots), when it was running
-  config/           the sequence, the params file, the profile and the flight-controller baseline, as flown
+  config/           the sequence (and the route file it names), the params file, the profile and the
+                    flight-controller baseline, as flown
   preflight.jsonl   the preflight's records of the flight (who overrode what)
   judges_list.csv   the judges' list, when the mission wrote one
 
@@ -188,6 +189,35 @@ def profile_summary(path: Optional[Path], name: Optional[str] = None) -> Optiona
             "sha256": sha256_of(path)}  # fmt: skip
 
 
+def waypoint_file_of(sequence: Path) -> Optional[Path]:
+    """The route file a sequence names (its first `waypoint_file`, relative to the sequence), when it is there."""
+    import yaml
+
+    def find(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("waypoint_file"), str):
+                return node["waypoint_file"]
+            for value in node.values():
+                found = find(value)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for value in node:
+                found = find(value)
+                if found:
+                    return found
+        return None
+
+    try:
+        named = find(yaml.safe_load(sequence.read_text(encoding="utf-8")))
+    except (OSError, yaml.YAMLError):
+        return None
+    if not named:
+        return None
+    path = (sequence.parent / named).resolve()
+    return path if path.is_file() else None
+
+
 def _put(source: Path, target: Path, move: bool) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if move:
@@ -268,6 +298,11 @@ def bundle(name: str, out_dir: Path, mission: str, bag: Optional[Path] = None, d
     for source, target in config:
         if source is not None and Path(source).is_file():
             _put(Path(source), folder / "config" / target, False)  # config is always copied: the files are the repo's
+    # A sequence that flies a route reads it from a file of its own (waypoint_file, beside the sequence): the route
+    # that was flown goes in with the config, for the post-flight report's score estimate (OPS-03).
+    route = waypoint_file_of(Path(sequence)) if sequence is not None and Path(sequence).is_file() else None
+    if route is not None:
+        _put(route, folder / "config" / "waypoints.yaml", False)
     if (folder / "config").is_dir():
         parts["config"] = {"files": describe(folder / "config", folder)}
     if absent:

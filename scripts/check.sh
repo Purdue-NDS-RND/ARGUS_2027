@@ -188,6 +188,7 @@ else
     run_test "" tools/test/test_bundle_attempt.py
     run_test "" tools/test/test_field_setup.py
     run_test "" tools/test/test_readiness_kit.py
+    run_test "" tools/test/test_post_flight.py
     run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_height_log.py
     run_test "" tools/test/test_ring_fit_try.py
