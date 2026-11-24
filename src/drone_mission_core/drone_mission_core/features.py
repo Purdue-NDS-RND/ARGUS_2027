@@ -52,6 +52,8 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     "package_recovery": ("use_target_estimator", "use_height_estimator"),
     # Its swing shaping (REC-4) and its GPS-untrusted mode (REC-7) are the recovery mission's own.
     "swing_shaping": ("package_recovery",),
+    # The GPS health monitor and the source-set switch (REC-6) are the recovery mission's.
+    "ekf_source_switching": ("package_recovery",),
     "recovery_gps_untrusted": ("package_recovery",),
     # The height estimator (CEN-03) corrects each rangefinder reading with the
     # tilt the vehicle had at that moment, from the pose history (FND-04).

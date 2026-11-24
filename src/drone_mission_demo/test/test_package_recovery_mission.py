@@ -387,3 +387,169 @@ def test_the_actuation_lock_is_told_no_when_the_gripper_command_is_not_its_state
         flown.flight.state = state
         flown._apply(context, rf.Command(rf.RUNNING, gripper=gripper, attempt=1))
         assert context.actuation_permits == [("gripper", state, said)], (state, gripper)
+
+
+# --- REC-6: the GPS health monitor's word and the flight controller's source set ----------------------------
+
+SOURCE_ON = {**ON, "ekf_source_switching": True}
+
+
+class WatchedContext(Context):
+    """The context with a GPS health monitor whose rating the test sets, and a flight controller that answers source-set commands."""
+
+    def __init__(self, world, untrusted_from_s=None, back_at_s=None, answers=True, fed=True):
+        super().__init__(world)
+        self.untrusted_from_s, self.back_at_s, self.answers, self.fed = untrusted_from_s, back_at_s, answers, fed
+        self.source_commands = []
+        self.static_targets = []
+
+    def gps_health(self):
+        from drone_mission_core import gps_health
+
+        t = self.world.t
+        if self.untrusted_from_s is not None and t >= self.untrusted_from_s and (self.back_at_s is None or t < self.back_at_s):
+            return gps_health.Rating(gps_health.UNTRUSTED, ("the GPS position moved 5.0 m beyond what was flown in 1 s (by vision)",), self.untrusted_from_s, 0.0, self.untrusted_from_s)
+        return gps_health.Rating(gps_health.TRUSTED, (), 0.0, 12.0)
+
+    def no_gps_source_fed(self):
+        return self.fed
+
+    def note_static_target(self, east_m, north_m):
+        self.static_targets.append((round(self.world.t, 2), east_m, north_m))
+
+    def command_ekf_source_set(self, source_set, done_callback=None):
+        self.source_commands.append((round(self.world.t, 2), source_set))
+        if self.answers:
+            self.pending.append((self.world.t + 0.1, done_callback, True))
+
+
+def test_the_source_flag_is_the_recovery_missions_and_ships_off():
+    from drone_mission_core import gps_health
+    from drone_mission_core.features import FLAG_REQUIRES
+    from drone_mission_demo.missions import package_recovery_mission
+
+    assert package_recovery_mission.SOURCE_FLAG == gps_health.FLAG and FLAG_REQUIRES[gps_health.FLAG] == ("package_recovery",)
+    assert LOADED["features"]["ekf_source_switching"] is False and gps_health.FLAG not in recovery_flight.UNBUILT_FLAGS
+
+
+def test_with_gps_trusted_throughout_the_flag_changes_nothing_that_is_flown():
+    plain_world, watched_world = world_tests.World(), world_tests.World()
+    plain, plain_context = mission(), Context(plain_world)
+    watched, watched_context = mission(features=SOURCE_ON), WatchedContext(watched_world)
+    assert run(plain, plain_context) == run(watched, watched_context) == MissionStatus.SUCCESS
+    # One command, at the start: the flight controller is made sure to be on set 1, whatever an earlier run left it on.
+    assert [source_set for _t, source_set in watched_context.source_commands] == [1] and "source set 1 acknowledged by the flight controller" in " | ".join(watched_context.infos)
+    # The same setpoints, two ticks later: the watched mission holds until the flight controller has answered for set 1.
+    assert "holding until the flight controller answers for source set 1" in " | ".join(watched_context.infos)
+    assert len(watched_context.global_sets) == len(plain_context.global_sets) > 0
+    assert all(one == pytest.approx(other, abs=1e-6) for one, other in zip(watched_context.global_sets, plain_context.global_sets))
+    # (the local setpoints are a tick's worth more or fewer: the world's clock stands two ticks later under the same flight)
+    assert abs(len(watched_context.local_sets) - len(plain_context.local_sets)) <= 2
+    assert watched_context.local_sets[0] == pytest.approx(plain_context.local_sets[0], abs=1e-6) and watched_context.local_sets[-1] == pytest.approx(plain_context.local_sets[-1], abs=0.05)
+    assert any("GPS TRUSTED" in line for line in watched_context.infos)
+    # The monitor is told where the bucket stands while it stands (the approach and the descent), and to forget it once it is on the hook.
+    told = [item for item in watched_context.static_targets if item[1] is not None]
+    assert len(told) > 50 and all(math.hypot(east - 40.0, north - 30.0) < 1.0 for _t, east, north in told) and watched_context.static_targets[-1][1] is None
+    # With the flag off the monitor is never asked: a context without one flies the mission (the plain context has no gps_health at all).
+    assert not hasattr(plain_context, "gps_health")
+
+
+def test_untrusted_on_the_way_home_asks_for_source_set_two_and_no_global_setpoint_is_commanded_from_then_on():
+    world = world_tests.World()
+    flown = mission(features=SOURCE_ON)
+    context = WatchedContext(world)
+    flown.on_enter(context)
+    status, switched_at, globals_after = MissionStatus.RUNNING, None, 0
+    for _ in range(900 * 20):
+        if switched_at is None and flown.flight.state == "RETURN" and len(context.global_sets) >= 5:
+            context.untrusted_from_s = switched_at = world.t  # the monitor finds the fault in mid-return, global setpoints already flowing
+            before = len(context.global_sets)
+        status = context.tick(flown)
+        if status != MissionStatus.RUNNING:
+            break
+    flown.on_exit(context)
+    assert switched_at is not None
+    said = " | ".join(context.infos)
+    assert "GPS UNTRUSTED (the GPS position moved 5.0 m beyond what was flown in 1 s (by vision))" in said
+    assert "GPS UNTRUSTED: asking the flight controller for source set 2" in said and "source set 2 acknowledged by the flight controller" in said
+    assert context.source_commands[1:] == [(round(switched_at, 2), 2)]  # asked once, on the tick the monitor said so: it was acknowledged
+    assert "it is left there, and nothing after this should be flown on GPS" in said  # the mission's end, still UNTRUSTED: said, and no command
+    assert len(context.global_sets) <= before + 1  # no global setpoint after the tick it was found on
+    assert context.abort_modes[-1][-1] == "LAND"  # a failure from here is a landing: there is no GPS to fly home on
+    assert status in (MissionStatus.SUCCESS, MissionStatus.FAILURE)  # the way home without GPS is the flight's own rule (REC-7): set down where it may, or a landing with the bucket
+
+
+def test_the_first_source_set_is_asked_for_again_only_on_the_way_and_only_once_gps_is_trusted_again():
+    world = world_tests.World()
+    flown = mission(features=SOURCE_ON)
+    context = WatchedContext(world)
+    flown.on_enter(context)
+    states_at_commands = []
+    for _ in range(900 * 20):
+        if context.untrusted_from_s is None and flown.flight.state == "TRANSIT" and flown._source_switch.confirmed:
+            context.untrusted_from_s, context.back_at_s = world.t, world.t + 3.0  # a fault of three seconds on the way out
+        sent = len(context.source_commands)
+        status = context.tick(flown)
+        if len(context.source_commands) > sent:
+            states_at_commands.append((context.source_commands[-1][1], flown.flight.state))
+        if status != MissionStatus.RUNNING:
+            break
+    assert [source_set for source_set, _state in states_at_commands] == [1, 2, 1]  # (the first: the start's "make sure")
+    from drone_mission_demo.missions.package_recovery_mission import SOURCE_SET_BACK_STATES
+
+    assert states_at_commands[2][1] in SOURCE_SET_BACK_STATES and context.source_commands[2][0] >= context.source_commands[1][0] + 3.0
+    assert "source set 1 acknowledged by the flight controller" in " | ".join(context.infos)
+
+
+def test_a_flight_controller_that_stops_answering_is_asked_on_and_the_flight_stays_off_gps():
+    world = world_tests.World()
+    flown = mission(features=SOURCE_ON)
+    context = WatchedContext(world)
+    flown.on_enter(context)
+    for _ in range(60 * 20):
+        if context.untrusted_from_s is None and flown.flight.state == "TRANSIT" and flown._source_switch.confirmed:
+            context.untrusted_from_s, context.answers = world.t, False  # a fault, and no answer from then on
+            before = len(context.global_sets)
+        if context.tick(flown) != MissionStatus.RUNNING:
+            break
+    asked = [(at, source_set) for at, source_set in context.source_commands[1:]]
+    assert [source_set for _at, source_set in asked[:5]] == [2] * 5 and all(abs((later[0] - earlier[0]) - 1.0) < 0.06 for earlier, later in zip(asked[:5], asked[1:5]))
+    assert "source set 2 was not acknowledged after 5 tries: which set the flight controller is on is not known" in " | ".join(context.infos)
+    # It goes on being asked, every five seconds, and nothing is flown on GPS.
+    assert len(asked) > 6 and all(source_set == 2 for _at, source_set in asked) and all(later[0] - earlier[0] > 4.9 for earlier, later in zip(asked[5:], asked[6:]))
+    assert flown._source_switch.acknowledged is None and len(context.global_sets) <= before + 1 and context.abort_modes[-1][-1] == "LAND"
+
+
+def test_untrusted_with_nothing_feeding_source_set_two_commands_nothing_and_flies_without_the_gps():
+    world = world_tests.World()
+    flown = mission(features=SOURCE_ON)
+    context = WatchedContext(world, fed=False)
+    flown.on_enter(context)
+    for _ in range(900 * 20):
+        if context.untrusted_from_s is None and flown.flight.state == "RETURN" and len(context.global_sets) >= 5:
+            context.untrusted_from_s = world.t
+            before = len(context.global_sets)
+        if context.tick(flown) != MissionStatus.RUNNING:
+            break
+    said = " | ".join(context.infos)
+    assert [source_set for _t, source_set in context.source_commands] == [1]  # the start's only
+    assert "source set 2 is not asked for, nothing is feeding it" in said and "asking the flight controller for source set 2" not in said
+    assert len(context.global_sets) <= before + 1 and context.abort_modes[-1][-1] == "LAND"
+
+
+def test_a_mission_that_ends_on_source_set_two_with_gps_trusted_again_asks_for_the_first_set():
+    world = world_tests.World()
+    flown = mission(features=SOURCE_ON)
+    context = WatchedContext(world)
+    flown.on_enter(context)
+    status = MissionStatus.RUNNING
+    for _ in range(900 * 20):
+        if context.untrusted_from_s is None and flown.flight.state == "CLEAR":
+            context.untrusted_from_s, context.back_at_s = world.t, world.t + 1.0  # a fault after the bucket is down: no state from here lets the set go back
+        status = context.tick(flown)
+        if status != MissionStatus.RUNNING:
+            break
+    assert context.untrusted_from_s is not None and [source_set for _t, source_set in context.source_commands] == [1, 2]
+    flown.on_exit(context)
+    assert context.source_commands[-1][1] == 1 and "the mission ends with the flight controller on source set 2: asking for source set 1" in " | ".join(context.infos)
+

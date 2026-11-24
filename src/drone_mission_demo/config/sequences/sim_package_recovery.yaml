@@ -18,8 +18,8 @@ mission_sequence:
     package_recovery: false                         # Fly the recovery mission (recovery_flight.py). Needs use_target_estimator and use_height_estimator.
     swing_shaping: false                            # Walk the way back over whole pendulum periods, up to carry_speed_mps (recovery_grip.py). Needs package_recovery.
     recovery_gps_untrusted: false                   # Never command a global setpoint; the pickup must then be given as local. Needs package_recovery.
+    ekf_source_switching: false                     # Ask the GPS health monitor every tick; on UNTRUSTED fly as without GPS, and ask the flight controller for source set 2 only while optical flow is being sent to it (gps_health.py). Needs package_recovery.
     recovery_telemetry: false                       # Not built: the mission refuses to start with it on.
-    ekf_source_switching: false                     # Not built (REC-6): refused when on.
     visual_attach_check: false                      # Not built (the hook camera's view of the bucket): refused when on.
     marker_homing: false                            # Not built (REC-7b): refused when on.
     keyframe_homing: false                          # Not built (REC-7b): refused when on.

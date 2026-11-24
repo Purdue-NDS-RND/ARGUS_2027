@@ -228,7 +228,8 @@ class FlowOdometryNode(Node):
         status = self._String()
         status.data = json.dumps({"stamp_ns": sample.stamp_ns, "quality": sample.quality, "why": sample.why, "shift_px": [round(value, 3) for value in sample.shift_px],
                                   "height_m": round(sample.height_m, 3), "height_source": height_source, "dt_s": round(sample.dt_s, 4), "patches": sample.patches,
-                                  "forward_mps": round(sample.forward_mps, 4), "right_mps": round(sample.right_mps, 4), "east_mps": round(sample.east_mps, 4), "north_mps": round(sample.north_mps, 4)})  # fmt: skip
+                                  "forward_mps": round(sample.forward_mps, 4), "right_mps": round(sample.right_mps, 4), "east_mps": round(sample.east_mps, 4), "north_mps": round(sample.north_mps, 4),
+                                  "sent": bool(self._send)})  # fmt: skip  ("sent": this sample goes to the flight controller as OPTICAL_FLOW, below)
         self._outputs[STATUS_TOPIC].publish(status)
         if self._send:
             fields = self._flow.mavlink_fields(sample, self._focal_px)

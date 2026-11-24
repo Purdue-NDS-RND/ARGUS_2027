@@ -21,6 +21,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
+from .gps_health import SET_EKF_SOURCE_SET
 from .target_access import (
     ACTUATION_DELAY_S,
     ESTIMATOR_OFF,
@@ -431,6 +432,44 @@ class MissionContext:
         request.confirmation = 0
         request.param1 = 1.0
         request.param2 = 0.0 if release else 1.0
+        future = self._node._command_client.call_async(request)
+        if done_callback is not None:
+            future.add_done_callback(done_callback)
+        return future
+
+    def gps_health(self):
+        """The GPS health monitor's rating now (gps_health.Rating), or None with the ekf_source_switching flag off (REC-6)."""
+        feed = getattr(self._node, "_gps_health", None)
+        if feed is None:
+            return None
+        return feed.rating(self._now_ns() * 1.0e-9)
+
+    def no_gps_source_fed(self) -> bool:
+        """Whether source set 2 is being fed: the flow odometry is sending the flight controller flow with quality now (REC-6). False without the monitor."""
+        feed = getattr(self._node, "_gps_health", None)
+        return feed is not None and feed.flow_sent(self._now_ns() * 1.0e-9)
+
+    def note_static_target(self, east_m: float | None, north_m: float | None) -> None:
+        """Tell the GPS health monitor where a target that stands still is estimated to be now, or (None, None) that there is none to go by (REC-6). A no-op without the monitor."""
+        feed = getattr(self._node, "_gps_health", None)
+        if feed is None:
+            return
+        if east_m is None or north_m is None:
+            feed.health.forget_static_target()
+        else:
+            feed.health.add_static_target(self._now_ns() * 1.0e-9, float(east_m), float(north_m))
+
+    def command_ekf_source_set(
+        self,
+        source_set: int,
+        done_callback: Callable[[Future[Any]], None] | None = None,
+    ) -> Future[Any]:
+        """Ask the flight controller for one of its EKF source sets (MAV_CMD_SET_EKF_SOURCE_SET; 1 is the GPS set, 2 the one without GPS). REC-6."""
+        request = CommandLong.Request()
+        request.broadcast = False
+        request.command = SET_EKF_SOURCE_SET
+        request.confirmation = 0
+        request.param1 = float(int(source_set))
         future = self._node._command_client.call_async(request)
         if done_callback is not None:
             future.add_done_callback(done_callback)

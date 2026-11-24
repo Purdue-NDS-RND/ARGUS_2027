@@ -126,6 +126,15 @@ def test_flag_on_a_flight_forward_goes_out_as_velocity_status_and_optical_flow_s
     enu = node.publishers[VELOCITY_ENU].sent[-1]
     assert enu.header.frame_id == "map" and enu.twist.linear.x == pytest.approx(2.0, abs=0.1) and enu.twist.linear.y == pytest.approx(0.0, abs=0.1)  # level and heading east
     status = json.loads(node.publishers[STATUS].sent[-1].data)
+    # REC-6 reads this status to know that source set 2 is fed: "sent" is the node's send_optical_flow, and the feed's own reader takes it.
+    from drone_mission_core import gps_health
+
+    assert status["sent"] is True and gps_health.FLOW_STATUS_TOPIC == STATUS
+    feed = gps_health.GpsHealthFeed()
+    feed.on_flow_status(node.publishers[STATUS].sent[-1].data)
+    assert feed.flow_sent(status["stamp_ns"] * 1.0e-9) is (status["quality"] >= gps_health.VISION_MIN_QUALITY) and status["quality"] >= gps_health.VISION_MIN_QUALITY
+    held_back = node_with(ros, **{"features.flow_odometry": True})
+    assert held_back.declared["send_optical_flow"] is False
     assert status["quality"] > 100 and status["why"] == "" and status["height_m"] == pytest.approx(10.0) and status["dt_s"] == pytest.approx(0.2) and status["patches"] == 0
     sent = node.publishers[SEND].sent[-1]
     assert sent.quality == status["quality"] and sent.ground_distance == pytest.approx(10.0) and sent.flow.y == pytest.approx(4 * per_frame, abs=0.35)

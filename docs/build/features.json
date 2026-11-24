@@ -1209,9 +1209,9 @@
       "land": "REC-6",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_gps_health.py -> 20 passed, test_package_recovery_mission.py -> 23 passed; strict check OK; sim recovery/gps_step on -> OK 19.99 points, a 10 m GPS step found 0.11 s after it was set, source set 1 acknowledged, set 2 not asked for (nothing feeds it); docs/results/2026-11-24-gps-health.md. Left: the switch to set 2 needs optical flow reaching the flight controller (REC-5's units, MAVROS's plugin: the lead); a drift flight (the sim's injector has none), R3's 8 of 10 and the switch before the EKF failsafe are not flown; the estimator's flags are not fed; thirty minutes of a real receiver's data (field)",
       "blocked_reason": ""
     },
     {

@@ -1,0 +1,47 @@
+# REC-6: the GPS health monitor in a flight (the spec's run R3, as far as it can be flown). The recovery of
+# recovery/pickup_oracle with the mission flag ekf_source_switching on, and a 10 m step of the simulated GPS 41 s
+# into the flight, in the descent over the mat. The monitor must say UNTRUSTED (the launch log's line, to be held
+# against the event's own time in gps_events.jsonl: the spec's line is 1.5 s).
+#
+# The flight controller is NOT sent to source set 2 here, and the log must say why: nothing feeds that set (its
+# velocity is optical flow, and REC-5's OPTICAL_FLOW is off until its units are checked). The mission makes sure of
+# set 1 at its start (the command and its acknowledgement are in the log) and from the step flies without the
+# GPS's word. The flow odometry is not started: its own pass line fails a run (REC-5), and a step is found without
+# it, by the receiver's own velocity. docs/results/2026-11-24-gps-health.md has the flights where set 2 was asked
+# for and acknowledged, before that rule.
+#
+# Flown with --variants on.
+description: The recovery with the GPS health monitor on - a 10 m GPS step in the descent must be found within 1.5 s; source set 2 is not asked for while nothing feeds it, and the mission flies on without the GPS's word.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+  ekf_source_switching: true
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "State: CENTRE -> CONE_DESCENT"
+  - "source set 1 acknowledged by the flight controller"
+  - "GPS UNTRUSTED"
+  - "source set 2 is not asked for, nothing is feeding it"
+wind: {level: calm}
+gps_events:
+  - {at_s: 41.0, kind: glitch, north_m: 10.0, for_s: 60.0}

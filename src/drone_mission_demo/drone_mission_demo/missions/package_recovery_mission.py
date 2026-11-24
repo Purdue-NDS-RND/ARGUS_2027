@@ -34,9 +34,15 @@ GPS fix or GPS is not trusted (recovery_return.py, "Abort"). It never gives
 a landing back when it leaves.
 
 The mission's other flags: `swing_shaping` (the way back walked over whole
-pendulum periods) and `recovery_gps_untrusted` (no global setpoint, ever; the
+pendulum periods), `ekf_source_switching` (REC-6: the GPS health monitor's
+rating is asked every tick; on UNTRUSTED the flight flies as without GPS, and
+the flight controller is asked for source set 2 only while the flow odometry
+is sending it flow, for unfed that set is dead reckoning; set 1 is made sure
+of at the start, and asked for again only when the rating is TRUSTED again
+and the mission is on its way out or home)
+and `recovery_gps_untrusted` (no global setpoint, ever; the
 pickup must then be given as `local`). The flags the spec names whose
-behaviour is not built (`recovery_telemetry`, `ekf_source_switching`,
+behaviour is not built (`recovery_telemetry`,
 `visual_attach_check`, `marker_homing`, `keyframe_homing`) are refused when
 on: the mission is not constructed.
 
@@ -61,6 +67,9 @@ FIX_MAX_AGE_S = 2.0
 POSE_MAX_AGE_S = 0.5
 TARGET_CLASSES = ("bucket", "green_x")  # the bucket's own track first: the handle is on it. The X's finds and centres; the cone and the engage go by the bucket's only
 CONFIRMED = "CONFIRMED"
+SOURCE_FLAG = "ekf_source_switching"  # gps_health.FLAG (a test holds the two together)
+STATIC_TARGET_STATES = ("ACQUIRE", "APPROACH", "CENTRE", "CONE_DESCENT")  # the bucket is tracked and stands on the ground
+SOURCE_SET_BACK_STATES = ("TRANSIT", "ACQUIRE", "SEARCH", "RETURN")  # where the mission lets the flight controller go back to the GPS's source set
 LOG_EVERY_S = 2.0
 
 
@@ -80,6 +89,8 @@ class PackageRecoveryMission(BaseMission):
     def __init__(self, spec) -> None:
         super().__init__(spec)
         self._enabled = bool(get_feature_flag(spec.features, FLAG))
+        # REC-6: the GPS health monitor's word and the flight controller's source set. Off: a fix is trusted as before, and nothing is commanded.
+        self._source_switching = self._enabled and bool(get_feature_flag(spec.features, SOURCE_FLAG))
         self.flight: Any = None
         if not self._enabled:
             return
@@ -145,6 +156,15 @@ class PackageRecoveryMission(BaseMission):
         self._said_state = ""
         self._last_log_s = -1.0e9
         self._abort_mode: Optional[str] = None  # what the executor was last told
+        # REC-6 (flag ekf_source_switching): the flight controller's source set, by its acknowledgements. None with the flag off.
+        self._source_switch: Any = None
+        if self._source_switching:
+            from drone_mission_core import gps_health
+
+            self._gps_health = gps_health
+            self._source_switch = gps_health.SourceSwitch()
+            self._gps_state = ""
+            self._static_kind: Optional[bool] = None  # which track the monitor was last told of as standing still
         # A landing an earlier mission of the sequence left named (it failed with something on its hook) is not undone here.
         self._abort_land_inherited = context.named_abort_mode() == self._rf.back.ABORT_LAND
         if self._abort_land_inherited or self.flight.abort_mode() == self._rf.back.ABORT_LAND:
@@ -157,6 +177,14 @@ class PackageRecoveryMission(BaseMission):
     def on_exit(self, context: Any) -> None:
         if self._enabled:
             context.clear_all_setpoints()  # (the abort's mode is left as it stands: a failure's abort comes after this)
+            if getattr(self, "_source_switch", None) is not None:
+                # What flies after this mission flies on GPS without asking the monitor: the flight controller is not left off set 1 unsaid.
+                source_set, say = self._source_switch.leave(self._gps_state, context.now().nanoseconds * 1.0e-9)
+                if say:
+                    context.logger.warn(f"[{self.name}] {say}")
+                if source_set is not None:
+                    asked = int(source_set)
+                    context.command_ekf_source_set(asked, done_callback=lambda future: self._on_source_set(context, asked, future))
 
     def update(self, context: Any) -> MissionStatus:
         if not self._enabled:
@@ -164,6 +192,18 @@ class PackageRecoveryMission(BaseMission):
             return MissionStatus.SUCCESS
         rf = self._rf
         readings = self._read(context)
+        if self._source_switch is not None:
+            switch = self._source_switch
+            if not switch.confirmed and not switch.failed:
+                # Nothing is flown before the flight controller has said which source set it is on (an earlier run may have left it
+                # on set 2): the vehicle holds where the takeoff left it, for the five tries at most. An untrusted first tick would
+                # also be the whole flight's: the takeoff's place is taken on it.
+                self._watch_gps(context, readings)
+                if not self._said_state:
+                    context.logger.info(f"[{self.name}] holding until the flight controller answers for source set {switch.wanted}")
+                    self._said_state = "HOLD"
+                return MissionStatus.RUNNING
+            readings = self._watch_gps(context, readings)
         command = self.flight.update(readings)
         abort_mode = rf.back.ABORT_LAND if self._abort_land_inherited else self.flight.abort_mode()
         if abort_mode != self._abort_mode:
@@ -185,6 +225,58 @@ class PackageRecoveryMission(BaseMission):
             context.logger.error(f"[{self.name}] failed: {command.reason}")
             return MissionStatus.FAILURE
         return MissionStatus.RUNNING
+
+    # --- GPS health and the source set (REC-6) ------------------------------------------
+
+    def _watch_gps(self, context: Any, readings: Any) -> Any:
+        """Ask the monitor, tell the flight whether GPS is trusted, and keep the flight controller on the source set that goes with it."""
+        import dataclasses
+
+        health = self._gps_health
+        # The bucket on the mat does not move: while it stands there its estimated place is something the GPS's drift shows in.
+        # Only while the flight controller is on the GPS's set (off it, the estimate's own drift would read as the GPS's), and one
+        # track at a time: the bucket's and the X's are two places, and a change from one to the other is not a drift.
+        switch = self._source_switch
+        on_gps = switch.acknowledged == health.GPS_SET and switch.wanted == health.GPS_SET
+        target = readings.target if on_gps and self.flight.state in STATIC_TARGET_STATES else None
+        kind = None if target is None else bool(target.is_bucket)
+        if target is None or kind != self._static_kind:
+            context.note_static_target(None, None)
+        if target is not None:
+            context.note_static_target(target.e, target.n)
+        self._static_kind = kind
+        rating = context.gps_health()
+        if rating is None:
+            return readings  # no monitor on the executor: as without the flag
+        if rating.state != self._gps_state:
+            why = f" ({'; '.join(rating.reasons)})" if rating.reasons else ""
+            if rating.state == health.UNTRUSTED:
+                context.logger.warn(f"[{self.name}] GPS {rating.state}{why}")
+            else:
+                context.logger.info(f"[{self.name}] GPS {rating.state}{why}")
+            self._gps_state = rating.state
+        # Back to the GPS's set only where the mission chooses: on the way out or the way home, never over the bucket or with it near the ground.
+        may_go_back = self.flight.state in SOURCE_SET_BACK_STATES
+        source_set, say = self._source_switch.update(rating, readings.now_s, may_go_back=may_go_back, no_gps_set_fed=bool(context.no_gps_source_fed()))
+        if say:
+            context.logger.warn(f"[{self.name}] {say}")
+        if source_set is not None:
+            asked = int(source_set)
+            context.command_ekf_source_set(asked, done_callback=lambda future: self._on_source_set(context, asked, future))
+        # The flight flies on the GPS only while the monitor trusts it AND the flight controller has said it is on the GPS's set
+        # (before its first answer it may be on the set an earlier run left it on).
+        trusted = rating.state != health.UNTRUSTED and self._source_switch.acknowledged == health.GPS_SET and self._source_switch.confirmed
+        return dataclasses.replace(readings, gps_trusted=trusted)
+
+    def _on_source_set(self, context: Any, source_set: int, future: Any) -> None:
+        try:
+            result = future.result()
+            accepted = result is not None and bool(result.success)
+        except Exception:  # noqa: BLE001  (an answer that did not come is not an acknowledgement)
+            accepted = False
+        said = self._source_switch.answered(source_set, accepted, context.now().nanoseconds * 1.0e-9)
+        if said:
+            context.logger.warn(f"[{self.name}] {said}")
 
     # --- the context in, the command out -----------------------------------------------
 

@@ -74,8 +74,10 @@ until the flight controller says landed. The engage flown is the plunge; a
 sweep is refused when the plan is made.
 
 GPS is taken as trusted while there is a fix, unless the plan says
-`gps_untrusted`: then no global setpoint is ever commanded. (REC-6's monitor
-will say more than "there is a fix".)
+`gps_untrusted` (then no global setpoint is ever commanded) or the GPS health
+monitor says UNTRUSTED (REC-6: `Readings.gps_trusted` False; then none is
+commanded while it says so, the abort is a landing, and the way back is flown
+in the local frame as far as it may be).
 
 Every height in the plan is above the ground. The commanded height is walked
 in the local frame from where the vehicle is, by the difference between the
@@ -103,7 +105,6 @@ SWING_FLAG = grip.SWING_FLAG
 # refused on the ground, not flown as if it were there.
 UNBUILT_FLAGS = {
     "recovery_telemetry": "the recovery telemetry is not built",
-    "ekf_source_switching": "EKF source switching is REC-6's",
     "visual_attach_check": "nothing tracks the bucket in the hook camera yet (REC-1)",
     "marker_homing": "marker homing is REC-7b's",
     "keyframe_homing": "keyframe homing is REC-7b's",
@@ -228,6 +229,7 @@ class Readings:
     landed: Optional[bool] = None
     landed_age_s: Optional[float] = None
     fix: Optional[Tuple[float, float]] = None  # a usable GPS fix now: latitude, longitude
+    gps_trusted: Optional[bool] = None  # the GPS health monitor's word (REC-6): False is UNTRUSTED. None: no monitor, and a fix is trusted as before
     home_up_m: Optional[float] = None  # home's height in the local frame (the local height less the height above home)
     pickup_en: Optional[Tuple[float, float]] = None  # the pickup's coordinates in the local frame, once they can be placed
     target: Optional[Target] = None
@@ -417,7 +419,7 @@ class RecoveryFlight:
         return self.plan.centre_above_handle_m + self.plan.hook_below_m + self.plan.handle_up_m
 
     def _trusted(self, r: Readings) -> bool:
-        return not self.plan.gps_untrusted and r.fix is not None
+        return not self.plan.gps_untrusted and r.fix is not None and r.gps_trusted is not False
 
     # --- one tick ----------------------------------------------------------------------
 
@@ -434,7 +436,7 @@ class RecoveryFlight:
         # RTL can be flown with a pose and a GPS fix, in a mission that trusts GPS. Lost on the tick either is
         # missing; back only when both have been there for RTL_AGAIN_AFTER_S, so a fix that comes and goes does not
         # flip the abort (and its log line) twenty times a second.
-        if self.plan.gps_untrusted or r.fix is None or None in (r.e, r.n, r.up):
+        if self.plan.gps_untrusted or r.fix is None or r.gps_trusted is False or None in (r.e, r.n, r.up):
             self._position_missing_s, self._rtl_can_be_flown = now, False
         elif self._position_missing_s is None or now - self._position_missing_s >= RTL_AGAIN_AFTER_S:
             self._rtl_can_be_flown = True
