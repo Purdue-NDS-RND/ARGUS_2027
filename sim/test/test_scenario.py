@@ -370,6 +370,25 @@ def test_node_flags_are_checked_against_the_shipped_params_and_set_in_the_copy(t
     assert "features" not in on  # never at the top level of a ROS params file
 
 
+def test_a_scenario_may_give_a_node_other_values_for_parameters_the_shipped_file_holds_with_its_flags_on(tmp_path):
+    """PLT-11's scenario gives the health monitor a topic nobody publishes. Flags off is the shipped file, whatever the scenario says."""
+    ghost = ["camera:camera/image:sensor_msgs/msg/Image:30", "ghost:/argus/nobody:std_msgs/msg/String:5"]
+    path = scenario_file(tmp_path, node_flags={"health_monitor": {"health_monitor": True}}, node_params={"health_monitor": {"rates": ghost, "temp_limit_c": 70.0}})
+    assert yaml.safe_load((CONFIG / "params" / "sim_target_mission.yaml").read_text())["health_monitor"]["ros__parameters"]["rates"] == ghost[:1]  # the shipped list: the camera only
+    shipped = yaml.safe_load((CONFIG / "params" / "sim_target_mission.yaml").read_text())["health_monitor"]["ros__parameters"]
+    on = read(build_run(path, tmp_path / "on", variant="on"), "params.yaml")["health_monitor"]["ros__parameters"]
+    off = read(build_run(path, tmp_path / "off", variant="off"), "params.yaml")["health_monitor"]["ros__parameters"]
+    assert on["rates"] == ghost and on["temp_limit_c"] == 70.0 and on["features"] == {"health_monitor": True} and on["send_statustext"] is shipped["send_statustext"]
+    assert off == shipped and shipped["features"] == {"health_monitor": False}
+    # The launch is asked for the node only with its flag on.
+    assert read(tmp_path / "on", "scenario.json")["launch"]["arguments"]["health_monitor"] == "true"
+    assert "health_monitor" not in read(tmp_path / "off", "scenario.json")["launch"]["arguments"]
+    for wrong, said in (({"health_monitor": {"no_such_setting": 1}}, "health_monitor.no_such_setting"), ({"no_such_node": {"rates": []}}, "no_such_node.rates"),
+                        ({"health_monitor": {"features": {"health_monitor": True}}}, "flags are set with node_flags")):  # fmt: skip
+        with pytest.raises(BuildError, match=said):
+            build_run(scenario_file(tmp_path, node_params=wrong), tmp_path / "bad")
+
+
 # --- config overrides ---------------------------------------------------------------------
 
 

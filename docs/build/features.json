@@ -1260,9 +1260,9 @@
       "land": "PLT-11",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_health.py -> 5, test_health_monitor_node.py -> 8, test_statustext_from_tlog.py -> 1 passed; strict check OK; sim delivery/health_monitor on -> OK (0.03 m from the target), a silent topic said as ARGUS H:SILENT within 8 s and 14 ARGUS H status texts in the flight's telemetry log; docs/results/2026-11-24-health-monitor.md. Left: nothing has run on the Jetson (its thermal, throttle and GPU files, the cost of the camera subscription), no flight params file has the block, dropped frames and a quiet flight are not flown, nobody has seen a line in QGroundControl",
       "blocked_reason": ""
     },
     {

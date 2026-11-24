@@ -19,7 +19,7 @@ import sensor_profiles  # noqa: E402  (sim/sensor_profiles.py: the camera profil
 
 KEYS = {
     "description", "mission", "site", "seed", "timeout_s", "sequence", "params", "launch",
-    "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "objects", "waypoints",
+    "config", "targets", "payload", "bucket", "coordinate_error", "flags", "node_flags", "node_params", "objects", "waypoints",
     "wind", "gps_events", "sun", "sensor_profile", "sitl_params", "judge", "list_file", "driver", "sim_time",
     "sensor_check", "truth_poses", "dds_profile", "survey", "expect_log", "grab_refusals", "forbid_log", "fc_scripts", "preflight",
 }  # fmt: skip
@@ -118,6 +118,7 @@ class Scenario:
     coordinate_error: dict
     flags: dict
     node_flags: dict
+    node_params: dict  # other values for parameters of a node that the shipped params file holds, with the flags on: {node: {parameter: value}}
     objects: list
     waypoints: dict | None
     survey: dict | None  # a survey mission's search area, in metres from the take-off point (LOC-3)
@@ -262,7 +263,7 @@ def parse_scenario(data, path: Path) -> Scenario:
             raise BuildError(f"{where}: missing '{key}'")
 
     driver = data.get("driver")
-    mission_keys = ("sequence", "params", "launch", "config", "targets", "flags", "node_flags", "waypoints", "survey")
+    mission_keys = ("sequence", "params", "launch", "config", "targets", "flags", "node_flags", "node_params", "waypoints", "survey")
     if driver is None:
         for key in ("sequence", "params"):
             if not data.get(key):
@@ -364,6 +365,7 @@ def parse_scenario(data, path: Path) -> Scenario:
         coordinate_error=coordinate_error,
         flags=_mapping(data, "flags", where),
         node_flags=_mapping(data, "node_flags", where),
+        node_params=_mapping(data, "node_params", where),
         objects=objects,
         waypoints=waypoints,
         survey=survey,

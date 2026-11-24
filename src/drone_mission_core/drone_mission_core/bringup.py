@@ -24,7 +24,7 @@ This module turns a profile into what the launch needs, and checks it
 against the files it will be flown with: every node flag must be declared
 (as `false`) in that node's block of the params file, as the rule for node
 flags asks, and a node that exists only for its flag (`ring_fit`,
-`recovery_cv`, `loc_node`, `flow_odometry`) is started only when that flag is on.
+`recovery_cv`, `loc_node`, `flow_odometry`, `health_monitor`) is started only when that flag is on.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 CAMERAS = ("none", "mipi", "usb")
 DETECTORS = ("none", "target_cv")
 # Nodes the launch starts only when the node's flag of the same name is on (the scenario builder's FLAG_STARTED_NODES).
-FLAG_STARTED_NODES = ("ring_fit", "recovery_cv", "loc_node", "flow_odometry")
+FLAG_STARTED_NODES = ("ring_fit", "recovery_cv", "loc_node", "flow_odometry", "health_monitor")
 # package, executable of every node the launch can start
 NODES = {
     "simple_takeoff_service": ("drone_utils", "simple_takeoff_service"),
@@ -50,6 +50,7 @@ NODES = {
     "flow_odometry": ("drone_target_cv", "flow_odometry"),
     "loc_node": ("argus_localisation", "loc_node"),
     "session_logger": ("drone_utils", "session_logger"),
+    "health_monitor": ("drone_utils", "health_monitor"),
 }
 # Mission flags that read a detection's stamp as its frame's capture time (the frame-time pose, the time guard's
 # frame-age limit), and the node flag without which that node stamps with its own clock at publish time. A flight

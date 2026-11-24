@@ -220,6 +220,7 @@ else
     run_test "" sim/test/test_watchdog_check.py
     run_test "" sim/test/test_preflight_check.py
     run_test "" sim/test/test_attempt_check.py
+    run_test "" sim/test/test_statustext_from_tlog.py
     run_test "" sim/test/test_flow_check.py
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
@@ -248,6 +249,8 @@ else
     run_test "" sim/test/test_inject.py
     run_test "" sim/test/test_loc_check.py
     run_test src/drone_utils src/drone_utils/test/test_stream_keeper.py
+    run_test src/drone_utils src/drone_utils/test/test_health.py
+    run_test src/drone_utils src/drone_utils/test/test_health_monitor_node.py
     run_test "" src/drone_utils/test/test_takeoff_cancel.py
     run_test "" src/drone_utils/test/test_preflight.py
     run_test src/argus_camera src/argus_camera/test/test_argus_camera.py

@@ -33,6 +33,22 @@ target_cv:
       stamp_from_image: false  # Stamp detections with the image's stamp, not this node's clock (detection_stamp.py).
       detection_contract: false  # Also publish on the detection contract, /perception/target_cv/detections (FND-02).
 
+health_monitor:  # The companion computer's health and its lines to the ground station (PLT-11). Only started by a launch given health_monitor:=true.
+  ros__parameters:
+    rates:                         # the topics whose rate is watched, each name:topic:type:hz (a message is only counted)
+      - "camera:camera/image:sensor_msgs/msg/Image:30"
+    # The pose is not in the shipped list: it comes at 30 a second only with the stream keeper running (PLT-06), and a
+    # start-up without it would be warned about for the whole flight. A flight with the keeper adds
+    # "pose:/mavros/local_position/pose:geometry_msgs/msg/PoseStamped:30". Nodes whose own count of frames had and dropped is
+    # watched go in frame_counts, each name:topic (the localisation node's is "loc:/loc/status"); none in a delivery.
+    send_statustext: true          # findings go to the ground station as STATUSTEXT (false: to the log and /argus/health only)
+    temp_limit_c: 85.0             # a thermal zone at or over this is a finding
+    cpu_limit_percent: 95.0        # the CPUs this busy for five seconds is a finding
+    gpu_limit_percent: 98.0        # the same for the GPU, where the kernel says its load
+    drop_limit_share: 0.10         # a node dropping this share of its frames is a finding
+    features:
+      health_monitor: false        # Watch the rates above and the computer, publish /argus/health and send findings to the ground station (health.py).
+
 ring_fit:  # The near-field bullseye centre finder (CEN-13). Only started by a launch given ring_fit:=true.
   ros__parameters:
     image_topic: "camera/image"

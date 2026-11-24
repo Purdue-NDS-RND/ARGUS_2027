@@ -1,0 +1,34 @@
+# PLT-11: the health monitor in a flight. The 2026 delivery of delivery/baseline with the health monitor node
+# started and its flag on. It is given the sim's camera and pose to watch, at the rates they come at, and one
+# topic that nobody publishes ("ghost"): the camera and the pose must be reported at their rates, and the silent
+# topic must be found and said to the ground station as a STATUSTEXT (`ARGUS H:SILENT ghost`), which the flight's
+# own telemetry log then holds (docs/results/2026-11-24-health-monitor.md says how it was read).
+#
+# Flown with --variants on.
+description: The 2026 delivery with the health monitor on - the camera's and the pose's rates reported, and a silent topic said to the ground station.
+mission: delivery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_delivery_demo.yaml
+params: sim_target_mission.yaml
+node_flags:
+  health_monitor:
+    health_monitor: true
+node_params:
+  health_monitor:
+    rates:
+      - "camera:camera/image:sensor_msgs/msg/Image:30"
+      - "pose:/mavros/local_position/pose:geometry_msgs/msg/PoseStamped:30"
+      - "ghost:/argus/nobody_publishes_this:std_msgs/msg/String:5"
+targets:
+  package_delivery: delivery_target
+objects:
+  - name: delivery_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+expect_log:
+  - "Health monitor on (features.health_monitor)"
+  - "Health: ARGUS H:SILENT ghost"
+wind: {level: calm}

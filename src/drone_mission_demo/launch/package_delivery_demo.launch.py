@@ -65,6 +65,16 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[params],
     )
 
+    # The health monitor (PLT-11): a 2027 node, started only when asked for.
+    health_monitor_node = Node(
+        package="drone_utils",
+        executable="health_monitor",
+        name="health_monitor",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("health_monitor")),
+        parameters=[params],
+    )
+
     session_logger_node = Node(
         package="drone_utils",
         executable="session_logger",
@@ -112,10 +122,16 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="false",
                 description="Start the near-field ring fit node (its features.ring_fit flag must be on as well)",
             ),
+            DeclareLaunchArgument(
+                "health_monitor",
+                default_value="false",
+                description="Start the health monitor node (its features.health_monitor flag must be on as well)",
+            ),
             takeoff_service_node,
             target_cv_node,
             executor_node,
             session_logger_node,
             ring_fit_node,
+            health_monitor_node,
         ]
     )

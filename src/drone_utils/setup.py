@@ -29,6 +29,7 @@ setup(
             'session_logger = drone_utils.session_logger:main',
             'stream_keeper = drone_utils.stream_keeper_node:main',
             'preflight = drone_utils.preflight_node:main',
+            'health_monitor = drone_utils.health_monitor_node:main',
         ],
     },
 )
