@@ -1277,9 +1277,9 @@
       "land": "PLT-14",
       "proven_in": "Bench",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_judges_list_view.py -> 14, test_attempt_download.py -> 11, test_ground_station.py -> 4 passed; strict check OK; tools/ground_station.sh judges_list_view.py on a sim flight's list, in the Humble image -> 8 markers, LIST CLEAN. Left (bench, a person): each line of docs/ops/ground_station.md on a club laptop, the download from the aircraft over the field's network timed against the 30 minutes, QGroundControl on the telemetry radio; the lead's word on the download running on the laptop and not in the image",
       "blocked_reason": ""
     },
     {

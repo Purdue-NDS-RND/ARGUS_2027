@@ -109,6 +109,7 @@ run_test "" tools/test/test_build_ledger.py
 run_test "" tools/test/test_fc_param_check.py
 run_test "" tools/test/test_dataflash_pull.py
 run_test "" tools/test/test_ops_documents.py
+run_test "" tools/test/test_ground_station.py
 run_test "" tools/test/test_dataflash_params.py
 run_test "" sim/test/test_nightly.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_centring_controller.py
@@ -197,6 +198,8 @@ else
     run_test "" tools/test/test_readiness_kit.py
     run_test "" tools/test/test_post_flight.py
     run_test "" tools/test/test_release_confirm.py
+    run_test "" tools/test/test_judges_list_view.py
+    run_test "" tools/test/test_attempt_download.py
     run_test "" tools/test/test_score_model.py
     run_test "" tools/test/test_freeze_check.py
     run_test "" tools/test/test_sim_sequence_copies.py
