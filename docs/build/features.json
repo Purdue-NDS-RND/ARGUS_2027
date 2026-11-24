@@ -1309,9 +1309,9 @@
       "land": "OPS-07",
       "proven_in": "Unit",
       "note": "Code part only: the impulse analysis script",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_impulse_rig.py -> 11 passed; strict check OK. Left (hardware, a person): build the rig (docs/ops/impulse_rig.md), record set-downs at three or more descent speeds, and run tools/impulse_rig.py against the organisers' limit once it is announced; only generated signals have been through the tool",
       "blocked_reason": ""
     },
     {
