@@ -17,7 +17,7 @@ things: a mission sequence, a params file, and a profile. A profile
 `profiles/comp_2026.yaml` enables nothing: the launch then starts what it
 is told to with every flag false, which is the 2026 code.
 
-The 2027 camera driver (`argus_camera`) is not started here: it is a boot
+The 2027 camera driver is not started here: it is a boot
 service (PLT-02), and nothing but that service starts it (PLT-03).
 
 This module turns a profile into what the launch needs, and checks it
