@@ -132,6 +132,26 @@ class DigitVotes:
         self._version += 1
         return True
 
+    def add_sums(self, track_id: int, sums: Sequence[float], weight: float, readings: int) -> bool:
+        """Votes already summed elsewhere (another pass over the same markers, LOC-12): the ten weighted sums, their total weight and how many readings they were.
+
+        They are added as they stand: `sums` is what `log_probabilities` gave where they were taken. False when they are not a vote.
+        """
+        if not _number(weight) or weight <= 0.0 or int(readings) <= 0:
+            return False
+        try:
+            scores = np.asarray(sums, dtype=float)
+        except (TypeError, ValueError):
+            return False
+        if scores.shape != (10,) or not np.isfinite(scores).all():
+            return False
+        track_id = int(track_id)
+        self._sums[track_id] = self._sums.get(track_id, np.zeros(10)) + scores
+        self._weights[track_id] = self._weights.get(track_id, 0.0) + float(weight)
+        self._counts[track_id] = self._counts.get(track_id, 0) + int(readings)
+        self._version += 1
+        return True
+
     def add_frame(self, assignment: Mapping[int, int], ground: Sequence[Any], crops: Sequence[Any], readings: Sequence[Any]) -> int:
         """A frame's readings to the tracks their boxes went to; how many were votes.
 

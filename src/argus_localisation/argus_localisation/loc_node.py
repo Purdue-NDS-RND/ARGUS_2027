@@ -62,6 +62,13 @@ With it on:
     LOC-8), with one assignment over tracks and digits while
     `digit_ids_unique` is true. The digit and the summed log-probabilities
     go out in the track's own fields on `/loc/tracks`.
+  - `features.post_landing_pass` (LOC-12; with the frame log and the
+    tracker on) keeps, beside the survey's logged frames, what a second
+    look at them after landing needs: the survey's poses and rangefinder
+    readings as they come (`flight_record.jsonl`) and, when the survey
+    stops, the tracks as the flight leaves them with their digit votes
+    (`live_tracks.json`). The pass itself is `tools/second_pass.py`, run
+    after landing; the node does not run it.
   - `features.judges_list` (with the tracker on) writes the judges' list
     (judges_list.py, LOC-10) in `judges_list_dir`: `judges_list.csv`
     (`ID,Latitude,Longitude`), a KML and a map image, each replaced whole
@@ -116,6 +123,10 @@ class LocNode(Node):
         self._stopping = threading.Event()
         self._seq = 0
         self._list_writer: Any = None  # the judges' list (LOC-10), with the flag on
+        self._second_pass: Any = None  # the second_pass module, with features.post_landing_pass on (LOC-12)
+        self._flight_record: Any = None  # the survey's poses and ranges, written beside its frames for the second pass
+        self._record_folder: Any = None
+        self._last_record: Any = None  # the record last closed (its `failed` says whether the disk took it)
         self._list_origin: Any = None
         self._list_text = ""  # the count as it now stands
         self._list_text_sent = ""  # and as it last went to the ground station
@@ -135,6 +146,7 @@ class LocNode(Node):
             self.declare_parameter("features.template_digit_classifier", False)
             self.declare_parameter("features.digit_vote", False)
             self.declare_parameter("features.judges_list", False)
+            self.declare_parameter("features.post_landing_pass", False)
             self.declare_parameter("camera_mode", "")
             self.declare_parameter("airframe", "")
             self.declare_parameter("image_topic", "camera/image")
@@ -365,6 +377,15 @@ class LocNode(Node):
                 expected_rate_hz=min(runtime.TARGET_RATE_HZ, float(mode.fps)),
                 min_free_bytes=self._number("frame_log_min_free_gb") * 1.0e9,
             )
+        if self._flag("features.post_landing_pass"):
+            # LOC-12: what the pass after landing needs from the flight is kept beside the frames. It needs the frames and the tracks.
+            # Like the reader, the vote and the list it is extra to the flight's own detections: without what it needs it is said and left out.
+            if frame_log is None or not self._flag("features.marker_tracker"):
+                self.get_logger().error("features.post_landing_pass needs features.survey_frame_log and features.marker_tracker (it looks again at the logged frames and merges with the flight's tracks): nothing is kept for a pass after landing")
+            else:
+                from . import second_pass
+
+                self._second_pass = second_pass
         detector = self._detector(camera, mount)
         projector = GroundProjector(camera, mount, self._poses.pose_at, ground)
         frame_id = str(getattr(mount, "optical_frame", "") or "down_camera_optical")
@@ -466,6 +487,41 @@ class LocNode(Node):
             self.get_logger().error(f"localisation: the survey's frames are not being logged ({self._frame_log.status()['error']})")
         else:
             self.get_logger().info(f"localisation: logging the survey's frames to {folder}")
+            if self._second_pass is not None:
+                try:
+                    self._flight_record, self._record_folder = self._second_pass.FlightRecord(folder), folder
+                    self.get_logger().info(f"localisation: recording the survey's poses and ranges to {self._flight_record.path} for the pass after landing (features.post_landing_pass)")
+                    if self._last_record is not None and self._last_record.failed:
+                        self.get_logger().error(f"localisation: the last survey's record for the pass after landing was not written whole ({self._last_record.failed})")
+                except OSError as error:
+                    self._flight_record = None
+                    self.get_logger().error(f"localisation: the survey's poses cannot be recorded ({error}): no pass after landing can be run on this survey")
+
+    def _close_flight_record(self, wait_s: Optional[float] = None) -> None:
+        """The survey has stopped: the record is closed and the tracks as the flight leaves them are written beside it (LOC-12).
+        What is written is gathered here, from memory; the writing is the record's own thread's, so the stop does not wait on the disk."""
+        record, self._flight_record = self._flight_record, None
+        if record is None:
+            return
+        try:
+            votes = getattr(self.runtime.pipeline, "digit_votes", None)
+            if votes is not None:
+                votes.settle()
+            origin = self._list_origin.origin() if self._list_origin is not None else None
+            tracks = self._second_pass.kept(self._tracker.tracks(), votes)
+            settings = {
+                "ground_below_home_m": float(self.get_parameter("ground_below_home_m").value),
+                "digit_min_confidence": 0.9 if self._digit_settings_problem else float(self._number("digit_min_confidence")),
+                "median_positions": self._flag("features.loc_median_position"),
+                "digit_ids_unique": True if self._vote_settings_problem else bool(self.get_parameter("digit_ids_unique").value),
+            }
+            path, module = self._record_folder / self._second_pass.LIVE_TRACKS_NAME, self._second_pass
+            record.close(then=lambda: module.save_live_tracks(path, tracks, origin, settings), wait_s=wait_s)
+            self._last_record = record
+            self.get_logger().info(f"localisation: the survey's poses and ranges and {len(tracks)} track(s) are being kept in {self._record_folder} for the pass after landing")
+        except Exception as error:  # noqa: BLE001  (the pass after landing is extra to the flight's own list)
+            record.close()
+            self.get_logger().error(f"localisation: what the pass after landing needs could not be kept ({error}); the flight's own list stands")
 
     # --- inputs ----------------------------------------------------------------------
 
@@ -473,6 +529,8 @@ class LocNode(Node):
         position, orientation = message.pose.position, message.pose.orientation
         stamp_ns = _stamp_ns(message.header.stamp)
         self._poses.add_pose(stamp_ns, (position.x, position.y, position.z), (orientation.x, orientation.y, orientation.z, orientation.w))
+        if self._flight_record is not None:
+            self._flight_record.pose(stamp_ns, (position.x, position.y, position.z), (orientation.x, orientation.y, orientation.z, orientation.w))
         if self._tracker is None:
             return
         # An EKF reset moves everything the vehicle will see from here on: the tracks made before it go with it.
@@ -486,9 +544,13 @@ class LocNode(Node):
     def _on_velocity(self, message: Any) -> None:
         linear = message.twist.linear
         self._poses.add_velocity(_stamp_ns(message.header.stamp), (linear.x, linear.y, linear.z))
+        if self._flight_record is not None:
+            self._flight_record.velocity(_stamp_ns(message.header.stamp), (linear.x, linear.y, linear.z))
 
     def _on_range(self, message: Any) -> None:
         self._ground.add_range(_stamp_ns(message.header.stamp), message.range, message.min_range, message.max_range)
+        if self._flight_record is not None:
+            self._flight_record.range(_stamp_ns(message.header.stamp), message.range, message.min_range, message.max_range)
 
     def _on_truth(self, message: Any) -> None:
         poses, stamp_ns = {}, None
@@ -638,6 +700,7 @@ class LocNode(Node):
             if self._frame_log is not None:
                 self._frame_log.stop()
             self._close_list()
+            self._close_flight_record()
         self.get_logger().info(f"{ENABLE_SERVICE}: {response.message}")
         return response
 
@@ -658,6 +721,7 @@ class LocNode(Node):
 
     def destroy_node(self) -> None:
         self._stopping.set()
+        self._close_flight_record(wait_s=2.0)  # a survey still running at shutdown leaves its record and tracks all the same; a stalled disk does not hold the shutdown
         if self._list_writer is not None:
             self._list_writer.stop(wait_s=2.0)  # what is waiting is written; a stalled disk does not hold the shutdown
         if self._frame_log is not None:

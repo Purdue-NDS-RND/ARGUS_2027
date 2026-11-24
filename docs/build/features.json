@@ -1243,9 +1243,9 @@
       "land": "LOC-12",
       "proven_in": "Bench",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_second_pass.py -> 10, test_second_pass_tool.py -> 6, test_loc_node.py -> 34 passed; strict check OK; tools/second_pass.py --time-only on 30 made-up 4K frames -> 16 ms a frame to read and tile, 16 tiles; docs/results/2026-11-24-second-pass.md. Left (bench, a person): the pass on the aircraft's computer on a real survey with an engine, inside 900 s; the organisers' ruling on processing after landing",
       "blocked_reason": ""
     },
     {

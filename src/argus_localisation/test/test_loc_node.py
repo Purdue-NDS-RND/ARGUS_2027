@@ -354,7 +354,7 @@ def test_the_shipped_params_declare_every_flag_off_under_the_node():
     params = yaml.safe_load((SRC / "argus_localisation" / "config" / "loc_params.yaml").read_text())
     assert set(params) == {"loc_node"}  # no top-level `features:`, which would stop every node of the launch
     settings = params["loc_node"]["ros__parameters"]
-    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False, "judges_list": False}
+    assert settings["features"] == {"loc_node": False, "sim_oracle_detector": False, "loc_tiling": False, "marker_tracker": False, "loc_median_position": False, "survey_frame_log": False, "digit_reader": False, "template_digit_classifier": False, "digit_vote": False, "judges_list": False, "post_landing_pass": False}
     assert settings["sim_only"] is False and settings["start_enabled"] is False and settings["detector"] == "engine"
 
 
@@ -569,6 +569,53 @@ def test_the_surveys_frames_are_logged_between_the_pipelines_start_and_its_stop_
     assert status["rate_hz"] < 2.0 and status["frame_log"]["keep_every"] > 1 and "the detector is" in status["frame_log"]["reason"]
     node.destroy_node()
     assert node._frame_log.status()["logging"] is False
+
+
+def test_with_the_post_landing_flag_on_the_surveys_poses_ranges_and_final_tracks_are_kept_beside_its_frames(ros, objects_file, tmp_path):
+    """LOC-12: what tools/second_pass.py needs after landing. With the flag off nothing of it is written or loaded."""
+    with_vision_msgs(ros)
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    base = {**SIM, **FLAGS, **EXACT, **LOGGING, "features.marker_tracker": True, "frame_log_dir": str(frames), "oracle_objects_file": objects_file}
+    ros.delitem(sys.modules, "argus_localisation.second_pass", raising=False)
+    off = node_with(ros, **base)
+    assert off.declared["features.post_landing_pass"] is False and off._second_pass is None and "argus_localisation.second_pass" not in sys.modules
+    flying(off)
+    set_enabled(off, True)
+    set_enabled(off, False)
+    off._frame_log.stop(wait_s=5.0)
+    assert all(not (folder / "flight_record.jsonl").exists() and not (folder / "live_tracks.json").exists() for folder in frames.iterdir())
+    off.destroy_node()
+
+    kept = tmp_path / "kept"
+    kept.mkdir()
+    node = node_with(ros, **{**base, "frame_log_dir": str(kept), "features.post_landing_pass": True})
+    assert node.logger.error.call_args is None
+    flying(node)  # before the survey: nothing is recorded
+    assert set_enabled(node, True).message == "localisation pipeline started"
+    (folder,) = list(kept.iterdir())
+    flying(node, T0 + S)
+    node.subscriptions[IMAGE_TOPIC](image(T0 + S))
+    tick(node)
+    set_enabled(node, False)
+    node._frame_log.stop(wait_s=5.0)
+    assert node._last_record.wait(5.0) and node._last_record.failed == ""  # (the record's own thread writes it: the stop did not wait on the disk; the test does)
+    from argus_localisation import second_pass
+
+    events = second_pass.read_record(folder)
+    assert len([event for event in events if event["k"] == "pose"]) == 40 and all(event["t"] >= T0 + S - 30 * 33_000_000 for event in events)  # the survey's own, not what came before it
+    tracks, _origin, settings = second_pass.load_live_tracks(folder / "live_tracks.json")
+    assert [track.source for track in tracks] == ["live"] * len(tracks) and len(tracks) == len(node._tracker.tracks())
+    assert settings == {"ground_below_home_m": 0.0, "digit_min_confidence": 0.9, "median_positions": False, "digit_ids_unique": True}  # the flight's own, for the tool
+    assert (folder / "index.jsonl").is_file()  # beside the frames' own index
+    assert any("for the pass after landing" in call.args[0] for call in node.logger.info.call_args_list)
+    node.destroy_node()
+    # It needs the frame log and the tracker: without either the node says so and flies on without it (it is extra to the flight's own detections).
+    for missing in ("features.survey_frame_log", "features.marker_tracker"):
+        without = node_with(ros, **{**base, "features.post_landing_pass": True, missing: False})
+        assert without.runtime is not None and without._second_pass is None
+        assert "features.post_landing_pass needs features.survey_frame_log and features.marker_tracker" in without.logger.error.call_args[0][0]
+        without.destroy_node()
 
 
 def test_the_shipped_settings_of_the_frame_log_are_the_specs_and_a_wrong_one_is_refused(ros, objects_file, tmp_path):
@@ -809,6 +856,24 @@ def test_the_vote_is_behind_its_flag_and_a_tracks_digit_goes_out_with_the_track(
         short = fly(frames=1, **missing, **{"features.digit_vote": True})
         assert short.runtime is not None and short.runtime.pipeline.digit_votes is None and needs in short.logger.error.call_args[0][0]
         assert len(short.publishers["/loc/detections"].sent) == 1
+
+    # LOC-12: with the post-landing flag on, the flight's tracks are kept with their votes as they stand when the survey ends.
+    from argus_localisation import second_pass
+
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    keeping = fly(**reading, **{"features.digit_vote": True, "features.survey_frame_log": True, "features.post_landing_pass": True, "frame_log_dir": str(frames_dir), "frame_log_workers": 1, "frame_log_min_free_gb": 0.0})
+    assert keeping.logger.error.call_args is None
+    keeping.destroy_node()
+    (folder,) = list(frames_dir.iterdir())
+    tracks, _origin, settings = second_pass.load_live_tracks(folder / "live_tracks.json")
+    (track,) = tracks
+    votes = keeping.runtime.pipeline.digit_votes
+    assert track.digit == 7 and track.vote_readings == votes.readings(track.track_id) >= 3 and track.vote_weight == pytest.approx(votes.weight(track.track_id)) and track.vote_weight > 0.0
+    assert track.digit_log_prob == pytest.approx(votes.log_probabilities(track.track_id)) and settings["digit_ids_unique"] is True
+    # ... and summed with a second pass's votes by the vote's own rule, they are still a 7.
+    again = second_pass.merge(tracks, [second_pass.KeptTrack(9, "marker", track.state, track.reported_east_m + 0.2, track.reported_north_m, 20, digit_log_prob=track.digit_log_prob, vote_weight=track.vote_weight, vote_readings=track.vote_readings, source="second pass")])
+    assert len(again) == 1 and again[0].digit == 7 and again[0].vote_readings == 2 * track.vote_readings
 
 
 def test_the_judges_list_is_behind_its_flag_and_is_written_as_the_tracks_get_their_digits(ros, tmp_path):

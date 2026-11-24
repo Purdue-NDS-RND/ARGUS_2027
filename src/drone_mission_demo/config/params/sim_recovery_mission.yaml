@@ -62,6 +62,7 @@ loc_node:  # The sim's oracle detector as the bucket's detector: a stand-in, sim
       template_digit_classifier: false  # The digit reader's stand-in classifier for the sim's marker model; not a trained model. Needs digit_reader, sim time and sim_only.
       digit_vote: false            # A track's digit is the weighted vote of its readings, one digit to one track (digit_vote.py, LOC-8). Needs marker_tracker and digit_reader.
       judges_list: false           # Write the judges' list (ID,Latitude,Longitude), a KML and a map in judges_list_dir as the tracks change (judges_list.py, LOC-10). Needs marker_tracker.
+      post_landing_pass: false     # Keep the survey's poses, ranges and final tracks beside its logged frames, for tools/second_pass.py after landing (second_pass.py, LOC-12). Needs survey_frame_log and marker_tracker; off until the organisers rule on processing after landing.
 
 recovery_cv:  # The green X and bucket detector (REC-1). Only started by a launch given recovery_cv:=true.
   ros__parameters:
