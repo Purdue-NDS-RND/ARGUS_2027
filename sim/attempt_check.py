@@ -15,7 +15,9 @@ landing, with the same two tools:
 and then holds the result to what an attempt must be: complete for its
 mission; every file as the manifest says; a bag that closed, holds the
 vehicle's pose and state and no image; a pulled log that is, byte for byte,
-the file SITL wrote (up to what SITL has added to it since). The verdict goes to <run folder>/attempt_check.json.
+the file SITL wrote (up to what SITL has added to it since). For the
+geofence demonstration (OPS-02) tools/readiness_kit.py is run on the bundle
+too, and must say READY. The verdict goes to <run folder>/attempt_check.json.
 
 No ROS imports.
 """
@@ -96,6 +98,20 @@ def judge(manifest: Optional[dict], verify_problems: List[str], counts: dict, pu
     return {"passed": not problems, "problems": problems}
 
 
+def readiness_verdict(folder: Path) -> dict:
+    """tools/readiness_kit.py on an attempt's bundle: readiness.md written into it, and {"ready", "problems"}."""
+    import readiness_kit
+
+    try:
+        text, ready = readiness_kit.report(folder)
+    except readiness_kit.KitError as problem:
+        return {"ready": False, "problems": [f"the readiness kit could not read the bundle: {problem}"]}
+    (folder / "readiness.md").write_text(text, encoding="utf-8")
+    missing = text.split("## What is missing", 1)[1].split("## The video", 1)[0] if "## What is missing" in text else ""
+    lines = [line[2:] for line in missing.splitlines() if line.startswith("- ")]
+    return {"ready": ready, "problems": [] if ready else [f"the readiness kit says NOT READY: {line}" for line in lines] or ["the readiness kit says NOT READY"]}
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
@@ -126,7 +142,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     on_disk = None if pulled is None else state / "sitl" / "logs" / pulled.name
     verdict = judge(manifest, bundle_attempt.verify(folder) if manifest else [], counts, None if manifest is None else folder / "dataflash" / pulled.name if pulled else None, on_disk,
                     flown_profile=Path(scenario["go"]["profile"]).stem)  # fmt: skip
-    report.update(passed=verdict["passed"] and not report["problems"], problems=report["problems"] + verdict["problems"], attempt=str(folder), bundle_exit_code=code,
+    readiness = None
+    if attempt["mission"] == "geofence" and manifest is not None:
+        # The readiness video's demonstration (OPS-02): the kit a person runs on the bundle is run here, and its
+        # READY, read from the flight controller's own log, is part of the run's pass.
+        readiness = readiness_verdict(folder)
+        verdict["problems"] += readiness["problems"]
+        verdict["passed"] = verdict["passed"] and readiness["ready"]
+    report.update(passed=verdict["passed"] and not report["problems"], problems=report["problems"] + verdict["problems"], attempt=str(folder), bundle_exit_code=code, readiness=readiness,
                   dataflash_bytes=None if pulled is None else pulled.stat().st_size, bag_messages=sum(counts.values()), bag_topics=len(counts),
                   bag_storage=None if manifest is None else ((manifest.get("parts") or {}).get("bag") or {}).get("storage"), warnings=[] if manifest is None else manifest.get("warnings"))  # fmt: skip
     (run_dir / "attempt_check.json").write_text(json.dumps(report, indent=2) + "\n")

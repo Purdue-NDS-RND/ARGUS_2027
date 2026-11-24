@@ -119,3 +119,52 @@ def test_a_run_with_an_attempt_counts_only_if_the_bundle_is_whole(tmp_path):
     (run / "attempt_check.json").write_text(json.dumps({"passed": True, "problems": []}))
     assert result.run_result(run)["status"] == "OK"
     assert result.run_result(test_runner.make_run(tmp_path / "plain", score=test_runner.SCORE))["attempt_check"] is None
+
+
+def test_the_readiness_demonstration_is_flown_by_the_mission_stack_judged_as_a_fence_flight_and_bundled(tmp_path):
+    """OPS-02: the fence_demo mission through the GO command, the geofence judge on the true position, an attempt's bundle after."""
+    import yaml
+
+    run = build_run(SIM / "scenarios" / "geofence" / "readiness_demo.yaml", tmp_path / "run", variant="on")
+    scenario = json.loads((run / "scenario.json").read_text())
+    assert scenario["mission"] == "geofence" and scenario["flags"] == {"fence_demo": True} and scenario["driver"] is None  # no fence_check tool: the mission flies it
+    command = scenario["go"]["command"]
+    assert command[command.index("--profile") + 1] == str(REPO / "profiles" / "fence_demo.yaml") and command[command.index("--detector") + 1] == "none" and "--no-camera" in command
+    assert scenario["attempt"] == {"slot": "readiness", "mission": "geofence", "port": scenario_spec.ATTEMPT_PORT}
+    assert scenario["preflight"]["expect"] == "GO"
+    sequence = yaml.safe_load((run / "sequence.yaml").read_text())["mission_sequence"]
+    assert sequence["features"]["fence_demo"] is False  # the run's file keeps the flag false: the profile turns it on
+    assert [item["type"] for item in sequence["missions"]] == ["takeoff", "fence_demo", "rtl"]
+    # Variant off flies the 2026 profile: the mission is skipped, and nothing flies at the fence.
+    off = json.loads((build_run(SIM / "scenarios" / "geofence" / "readiness_demo.yaml", tmp_path / "off", variant="off") / "scenario.json").read_text())
+    assert off["flags"] == {} and off["go"]["command"][off["go"]["command"].index("--profile") + 1] == str(REPO / "profiles" / "comp_2026.yaml")
+
+
+def test_a_fence_demonstration_the_judge_did_not_pass_fails_the_run(tmp_path):
+    """Found flying it: with no tool's exit code behind it, a run whose fence judge said "never reached the fence" counted as OK."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import test_runner
+
+    def demonstration(folder, passed, notes=()):
+        scenario = {"mission": "geofence", "go": {"command": ["python3", "tools/go.py"]}}
+        score = {**test_runner.SCORE, "mission": "geofence", "points": 1.0 if passed else 0.0, "details": {"passed": passed, "held": None}, "notes": list(notes)}
+        return result.run_result(test_runner.make_run(tmp_path / folder, score=score, manifest=scenario))
+
+    assert demonstration("a", True)["status"] == "OK"
+    failed = demonstration("b", False, ["geofence: the vehicle never reached the fence"])
+    assert failed["status"] == "FAIL" and "the fence did not answer the demonstration: geofence: the vehicle never reached the fence" in failed["reason"]
+
+
+def test_the_readiness_kits_verdict_is_part_of_a_fence_demonstrations_pass(tmp_path):
+    """The spec audit: the scenario passed whether or not the kit said READY."""
+    sys.path.insert(0, str(REPO / "tools" / "test"))
+    import test_readiness_kit as kit_test
+
+    ready = kit_test.make_bundle(tmp_path / "ready", events=kit_test.held_events())
+    verdict = attempt_check.readiness_verdict(ready)
+    assert verdict == {"ready": True, "problems": []} and "Verdict: **READY**" in (ready / "readiness.md").read_text()
+    no_fence = kit_test.make_bundle(tmp_path / "not", events=[kit_test.mode(60.0, 4), kit_test.mode(200.0, 6, 2)])
+    verdict = attempt_check.readiness_verdict(no_fence)
+    assert verdict["ready"] is False and len(verdict["problems"]) == 1 and verdict["problems"][0].startswith("the readiness kit says NOT READY: the log has no fence breach")
+    assert attempt_check.readiness_verdict(tmp_path / "nowhere")["problems"][0].startswith("the readiness kit could not read the bundle")
+    assert 'attempt["mission"] == "geofence"' in (SIM / "attempt_check.py").read_text()

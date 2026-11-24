@@ -100,6 +100,9 @@ def test_a_generated_sequence_is_its_source_with_only_its_coordinate_lines_chang
     assert len(body) == len(source)
     differing = [(old, new) for old, new in zip(source, body) if old != new]
     expected = (2 if "target" in plan else 0) + (2 if plan.get("survey") else 0) + (1 if "pickup" in plan else 0)
+    if plan.get("fence_demo"):
+        expected = 0  # the placeholder site's own bearing and run: the example day gives the same two values
+        assert "bearing_deg: 90.0 " in "\n".join(body) and "boundary_m: 150.0 " in "\n".join(body) and "max_run_m: 160.0 " in "\n".join(body) and "start_latitude: 34.1750000 " in "\n".join(body)
     assert len(differing) == expected, differing
     for old, new in differing:
         key = old.split(":", 1)[0].strip()
@@ -332,13 +335,13 @@ def test_a_day_with_no_delivery_target_leaves_the_delivery_sequences_out_and_say
     out = capsys.readouterr().out
     assert "left out package_delivery_live.yaml: the day file has no targets.delivery" in out and "left out waypoint_navigation_live.yaml: the day file has no waypoints" in out
     assert "left out final_waypoint_drop.yaml: the day file has no waypoints" in out
-    assert sorted(path.name for path in (tmp_path / "out" / "sequences").iterdir()) == ["package_drop_2027.yaml", "package_drop_live.yaml", "search_pattern_demo.yaml", "sim_package_recovery.yaml"]
+    assert sorted(path.name for path in (tmp_path / "out" / "sequences").iterdir()) == ["fence_demo.yaml", "package_drop_2027.yaml", "package_drop_live.yaml", "search_pattern_demo.yaml", "sim_package_recovery.yaml"]
     assert not (tmp_path / "out" / "waypoints").exists()
 
 
 def test_every_sequence_with_a_target_or_the_competition_route_is_in_the_tools_table():
     """A new live sequence with coordinates in it must be added to SEQUENCES, or its coordinates would be typed by hand."""
-    marks = ("target_latitude:", fs.WAYPOINT_FILE_LINE, "search_area:", "pickup:", "latlon:", "flight_boundary:", "latitude:")  # every way a sequence holds a coordinate
+    marks = ("target_latitude:", fs.WAYPOINT_FILE_LINE, "search_area:", "pickup:", "latlon:", "flight_boundary:", "latitude:", "bearing_deg:")  # every way a sequence holds a coordinate, or a direction on the field
     seen = 0
     for path in sorted(SEQUENCES.glob("*.yaml")):
         text = "\n".join(line.split("#", 1)[0] for line in path.read_text().splitlines())
@@ -349,3 +352,49 @@ def test_every_sequence_with_a_target_or_the_competition_route_is_in_the_tools_t
             seen += 1
             assert path.name in fs.SEQUENCES, path.name
     assert seen == len(fs.SEQUENCES)  # and nothing is in the table that holds no coordinate
+
+
+def test_the_fence_demonstrations_run_is_to_the_boundary_along_its_bearing_plus_the_overshoot(tmp_path):
+    """OPS-02: bearing_deg and max_run_m are the site's, and come from the day file like every coordinate."""
+    data = example()
+    made = fs.parse_day(data)
+    assert fs.distance_to_boundary_along(made, 90.0) == pytest.approx(150.0, abs=0.01) and fs.distance_to_boundary_along(made, 180.0) == pytest.approx(60.0, abs=0.01)
+    assert fs.distance_to_boundary_along(made, 0.0) == pytest.approx(180.0, abs=0.01) and fs.distance_to_boundary_along(made, 270.0) == pytest.approx(150.0, abs=0.01)
+    assert fs.distance_to_boundary_along(made, 45.0) == pytest.approx(150.0 * 2**0.5, abs=0.02)  # the east edge, on the diagonal
+    assert fs.boundary_meeting(made, 90.0)[1] == pytest.approx(0.0, abs=0.01) and fs.boundary_meeting(made, 45.0)[1] == pytest.approx(45.0, abs=0.1) and fs.boundary_meeting(made, 100.0)[1] == pytest.approx(10.0, abs=0.1)
+    assert fs.fence_demo_run_m(made) == 160.0
+    data["fence_demo"] = {"bearing_deg": 180.0}
+    south = fs.parse_day(data)
+    fs.generate(south, tmp_path, "ab" * 32)
+    config = next(found for found in _configs(yaml.safe_load((tmp_path / "sequences" / "fence_demo.yaml").read_text())) if "bearing_deg" in found)
+    assert config == {"bearing_deg": 180.0, "start_latitude": 34.175, "start_longitude": -118.4825, "boundary_m": 60.0, "max_run_m": 70.0, "speed_mps": 5.0, "settle_s": 3.0, "rtl_mode": "RTL"}  # 60 m to the south edge, and 10 past it
+    assert "fence demonstration: from the takeoff point on bearing 180, 60.0 m to the boundary; the run fails at 70.0 m" in (tmp_path / "summary.txt").read_text()
+    # A bearing that meets the fence at an angle is refused: the avoidance would slide the vehicle along the fence.
+    data["fence_demo"] = {"bearing_deg": 135.0}
+    problems = fs.check_day(fs.parse_day(data))
+    assert len(problems) == 1 and "fence_demo: bearing 135 meets the boundary 45 degrees from square; at most 15" in problems[0]
+    data["fence_demo"] = {"bearing_deg": 170.0}
+    assert fs.check_day(fs.parse_day(data)) == []  # 10 degrees from square to the south edge: allowed
+    del data["fence_demo"]
+    _written, skipped = fs.generate(fs.parse_day(data), tmp_path / "none", "ab" * 32)
+    assert skipped == ["fence_demo.yaml: the day file has no fence_demo"]
+    for bad in ({"bearing_deg": 400.0}, {"bearing": 90.0}, 90.0, {"bearing_deg": 90.0, "speed_mps": 1.0}):
+        data["fence_demo"] = bad
+        with pytest.raises(FieldError, match="fence_demo has bearing_deg"):
+            fs.parse_day(data)
+
+
+def test_a_demonstration_whose_run_would_be_too_long_is_said():
+    sys.path.insert(0, str(REPO / "sim"))
+    import target_placement
+
+    data = example()
+    origin = data["site"]["origin"]
+
+    def at(east_m, north_m):
+        latitude, longitude = target_placement.latlon_for(origin["latitude_deg"], origin["longitude_deg"], north_m, east_m)
+        return {"latitude_deg": latitude, "longitude_deg": longitude}
+
+    data["site"]["flight_boundary"] = [at(-150, -60), at(700, -60), at(700, 180), at(-150, 180)]  # a long field to the east
+    problems = fs.check_day(fs.parse_day(data))
+    assert len(problems) == 1 and "fence_demo: the boundary is 700 m from the takeoff point on bearing 90; a run may be 500 m at most" in problems[0]

@@ -75,6 +75,7 @@ EXPECTED = {
     "recovery": _EVERY,
     "waypoint_navigation": _EVERY,
     "time_trial": _EVERY,
+    "geofence": _EVERY,  # the readiness video's fence demonstration (OPS-02)
 }
 _NAME = re.compile(r"[a-z0-9][a-z0-9_]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")

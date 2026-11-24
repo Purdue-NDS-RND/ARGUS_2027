@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from .fence import fence_breaches
-from .geometry import point_in_polygon
+from .geometry import distance_to_segment, point_in_polygon
 from .hungarian import assign
 from .record import AIRBORNE_HEIGHT_M, VEHICLE, Flight, Pose, Record
 
@@ -500,8 +500,23 @@ def judge_geofence(run: Run) -> tuple[float, dict]:
         t_response = t_mode if t_reported is None else min(t_mode, t_reported)
     delay = None if t_response is None or t_cross is None else t_response - t_cross
 
+    # A vehicle the flight controller stops at the fence, inside, has not crossed and nothing is reported: its
+    # avoidance holds it at the fence's margin. A scenario that expects that (OPS-02's demonstration) says how
+    # near the line the true position must come, and for how long it must stay there.
+    held = None
+    if t_cross is None and t_reported is None and s.get("held_within_m") is not None and fence.get("polygon"):
+        polygon = fence["polygon"]
+        near = [pose.t for pose in run.record.track(VEHICLE, t0, t1) if min(distance_to_segment(pose.e, pose.n, polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))) <= s["held_within_m"]]
+        closest = min((min(distance_to_segment(pose.e, pose.n, polygon[i], polygon[(i + 1) % len(polygon)]) for i in range(len(polygon))) for pose in run.record.track(VEHICLE, t0, t1)), default=None)
+        held = {"closest_m": closest, "held_s": (near[-1] - near[0]) if near else 0.0}
+
     problem = ""
-    if t_cross is None and t_reported is None:
+    if held is not None:
+        if held["closest_m"] is None or held["closest_m"] > s["held_within_m"]:
+            problem = f"the vehicle never came within {s['held_within_m']} m of the fence (closest: {held['closest_m']})"
+        elif held["held_s"] < s.get("held_min_s", 3.0):
+            problem = f"the vehicle was within {s['held_within_m']} m of the fence for {held['held_s']:.1f} s only (at least {s.get('held_min_s', 3.0)} s for a hold)"
+    elif t_cross is None and t_reported is None:
         problem = "the vehicle never reached the fence"
     elif t_response is None:
         problem = "the autopilot did not leave the commanded flight after the breach"
@@ -518,6 +533,7 @@ def judge_geofence(run: Run) -> tuple[float, dict]:
         "t_mode": t_mode,
         "response_mode": modes[0]["mode"] if modes else None,
         "response_delay_s": delay,  # negative: the autopilot responded before the true position crossed the line
+        "held": held,  # {"closest_m", "held_s"} when the vehicle was stopped inside the fence and the scenario expects a hold; else None
         "max_excursion_m": max_excursion,
     }
     return (0.0 if problem else 1.0), details

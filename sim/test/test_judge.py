@@ -921,6 +921,32 @@ def test_geofence_vehicle_stopped_before_the_line_passes_with_no_excursion():
     assert details["t_cross"] is None and details["response_delay_s"] is None and details["max_excursion_m"] == 0.0
 
 
+def held_flight(stop_at=48.0, hold_s=30.0):
+    """Fly east to `stop_at` (the fence is at 50 m), stay there `hold_s`, then home. Nothing is reported: nothing was breached."""
+    t_there = 10.0 + stop_at / 2.0
+    knots = [(0, 0, 0, 0), (10, 0, 0, 15), (t_there, stop_at, 0, 15), (t_there + hold_s, stop_at, 0, 15), (t_there + hold_s + stop_at / 2.0, 0, 0, 15), (t_there + hold_s + stop_at / 2.0 + 10, 0, 0, 0)]
+    return record(flight(knots), event(1.0, "mode", mode="GUIDED"), event(t_there + hold_s, "mode", mode="RTL"))
+
+
+def test_a_vehicle_held_inside_the_fence_passes_only_where_the_scenario_expects_a_hold():
+    """OPS-02: the flight controller's avoidance stops the vehicle at the fence's margin; no line is crossed and nothing is reported."""
+    rec = held_flight()
+    plain = geofence(rec)["details"]
+    assert plain["passed"] is False and plain["held"] is None  # the SIM-02 pass line as it was: the vehicle never reached the fence
+    details = geofence(rec, {"held_within_m": 4.0, "held_min_s": 4.0})["details"]
+    assert details["passed"] is True and details["held"]["closest_m"] == pytest.approx(2.0, abs=0.01) and details["held"]["held_s"] >= 30.0
+    assert details["max_excursion_m"] == 0.0 and details["t_cross"] is None
+    # Not near enough, or not for long enough, is not a hold at the fence.
+    far = geofence(held_flight(stop_at=40.0), {"held_within_m": 4.0, "held_min_s": 4.0})
+    assert far["details"]["passed"] is False and any("never came within 4.0 m of the fence" in note for note in far["notes"])
+    brief = geofence(held_flight(hold_s=0.5), {"held_within_m": 4.0, "held_min_s": 4.0})
+    assert brief["details"]["passed"] is False and any("s only" in note for note in brief["notes"])
+    # A vehicle that does cross is judged by the line, hold setting or not.
+    rec, _ = fence_flight(furthest=52.0, report_at=35.1, mode_at=35.8)
+    crossed = geofence(rec, {"held_within_m": 4.0, "held_min_s": 4.0})["details"]
+    assert crossed["passed"] is True and crossed["held"] is None and crossed["max_excursion_m"] == pytest.approx(2.0, abs=0.05)
+
+
 @pytest.mark.parametrize("mode_at, passed", [(36.8, True), (37.3, False)])
 def test_geofence_response_must_come_within_two_seconds(mode_at, passed):
     rec, t_cross = fence_flight(furthest=58.0, mode_at=mode_at)  # no report: only the mode change shows the response

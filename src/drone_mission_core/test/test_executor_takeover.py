@@ -218,7 +218,7 @@ def test_an_abort_that_a_takeover_interrupted_asks_for_its_mode_again_after_the_
 
 def test_every_shipped_sequence_declares_the_latch_off():
     files = sorted(SEQUENCES.glob("*.yaml"))
-    assert len(files) == 19
+    assert len(files) == 20  # with the fence demonstration's (OPS-02)
     for file in files:
         features = yaml.safe_load(file.read_text())["mission_sequence"]["features"]
         assert features["takeover_latch"] is False, file.name

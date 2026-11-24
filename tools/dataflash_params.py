@@ -47,10 +47,16 @@ def _text(raw: bytes) -> str:
     return raw.split(b"\0", 1)[0].decode("ascii", "replace")
 
 
-def read_parameters(path) -> LogParameters:
+def messages(path, names=None):
+    """Every message of a dataflash log, in the order written: (name, {column: value}).
+
+    `names`, when given, are the only messages yielded (FMT is always read, to learn the others' layouts). A
+    message's layout is the one its FMT gave; text columns are left as bytes (`_text` turns one into a string).
+    A torn write is skipped by looking for the next message head.
+    """
     data = Path(path).read_bytes()
     layouts: Dict[int, Tuple[str, int, struct.Struct, List[str]]] = {FMT_TYPE: ("FMT", FMT_LENGTH, struct.Struct("<BB4s16s64s"), ["Type", "Length", "Name", "Format", "Columns"])}
-    result = LogParameters()
+    wanted = None if names is None else set(names)
     position, end = 0, len(data)
     while position + 3 <= end:
         if data[position : position + 2] != HEAD or data[position + 2] not in layouts:
@@ -62,14 +68,23 @@ def read_parameters(path) -> LogParameters:
         if layout.size != length - 3:
             position += length
             continue
-        row = dict(zip(columns, layout.unpack_from(data, position + 3)))
-        if name == "FMT":
-            try:
-                packed = struct.Struct("<" + "".join(FIELD[letter] for letter in _text(row["Format"])))
-            except KeyError:
-                packed = struct.Struct("<")  # a field letter this reader does not know: the message is skipped by its length
-            layouts[row["Type"]] = (_text(row["Name"]), row["Length"], packed, _text(row["Columns"]).split(","))
-        elif name == "PARM" and "Name" in row and "Value" in row:
+        if name == "FMT" or wanted is None or name in wanted:
+            row = dict(zip(columns, layout.unpack_from(data, position + 3)))
+            if name == "FMT":
+                try:
+                    packed = struct.Struct("<" + "".join(FIELD[letter] for letter in _text(row["Format"])))
+                except KeyError:
+                    packed = struct.Struct("<")  # a field letter this reader does not know: the message is skipped by its length
+                layouts[row["Type"]] = (_text(row["Name"]), row["Length"], packed, _text(row["Columns"]).split(","))
+            if wanted is None or name in wanted:
+                yield name, row
+        position += length
+
+
+def read_parameters(path) -> LogParameters:
+    result = LogParameters()
+    for name, row in messages(path, ("PARM", "MSG")):
+        if name == "PARM" and "Name" in row and "Value" in row:
             parameter, value = _text(row["Name"]), float(row["Value"])
             if parameter in result.values and result.values[parameter] != value:
                 result.changed.setdefault(parameter, [result.values[parameter]]).append(value)
@@ -78,7 +93,6 @@ def read_parameters(path) -> LogParameters:
             message = _text(row["Message"])
             if message.startswith(("ArduCopter", "ArduPlane", "ArduRover", "ArduSub")):
                 result.firmware = message
-        position += length
     if not result.values:
         raise DataflashError(f"{path}: no parameters found (is it an ArduPilot dataflash .BIN log?)")
     return result

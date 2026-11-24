@@ -1,5 +1,6 @@
 """Mission type registrations for the demo mission package."""
 
+from .fence_demo_mission import FenceDemoMission
 from .gps_waypoint_mission import GpsWaypointMission
 from .local_waypoint_mission import LocalWaypointMission
 from .package_delivery_mission import PackageDeliveryMission
@@ -12,6 +13,7 @@ from .takeoff_mission import TakeoffMission
 
 __all__ = [
     "CommandStepProbeMission",
+    "FenceDemoMission",
     "GpsWaypointMission",
     "LocalWaypointMission",
     "PackageDeliveryMission",

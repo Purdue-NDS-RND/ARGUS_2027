@@ -8,7 +8,8 @@
 The day file is the one place a coordinate is typed (field/example_day.yaml
 shows it): the site (takeoff point, flight boundary, survey area, fence: what
 sim/site_file.py takes), the targets (drop, delivery, the recovery's pickup),
-the waypoints, and where the recovery returns to (takeoff or compass_rose). From it come, under field/<name>/:
+the waypoints, where the recovery returns to (takeoff or compass_rose), and
+the compass bearing of the geofence demonstration's run (OPS-02). From it come, under field/<name>/:
 
   site.yaml                               the site file: the sim flies it, sim/fence_upload.py uploads its fence
   fence.plan, fence.param                 the same fence for a ground station (QGroundControl plan; FENCE_* values)
@@ -60,13 +61,16 @@ from drone_mission_core import safety_limits  # noqa: E402
 
 CONFIG = ROOT / "src" / "drone_mission_demo" / "config"
 FIELD = ROOT / "field"
-DAY_KEYS = {"name", "date", "verified", "site", "targets", "waypoints", "recovery_return"}
+DAY_KEYS = {"name", "date", "verified", "site", "targets", "waypoints", "recovery_return", "fence_demo"}
+FENCE_DEMO_OVERSHOOT_M = 10.0  # the geofence demonstration's run ends this far past the boundary if the fence has done nothing (OPS-02)
+FENCE_DEMO_MAX_OBLIQUE_DEG = 15.0  # the run meets the boundary no further than this from square: the avoidance slides a vehicle along a fence it meets at an angle
+FENCE_DEMO_MAX_RUN_M = 500.0  # fence_demo.py's own limit on a run
 RECOVERY_RETURNS = ("takeoff", "compass_rose")  # where the recovery takes the bucket: the rules allow either
 LEG_STEP_M = 1.0  # a route's leg is checked against the fence at points this far apart
 TARGETS = ("drop", "delivery", "recovery_pickup")
 MAX_FROM_TAKEOFF_M = 2000.0  # further than this from the takeoff point is a typing mistake, not a target
 FEET_TO_METERS = 0.3048
-COORDINATE_KEYS = ("target_latitude", "target_longitude", "search_area", "flight_boundary", "pickup", "return_target")  # the only settings a generated sequence may differ in
+COORDINATE_KEYS = ("target_latitude", "target_longitude", "search_area", "flight_boundary", "pickup", "return_target", "bearing_deg", "start_latitude", "start_longitude", "boundary_m", "max_run_m")  # the only settings a generated sequence may differ in
 WAYPOINT_FILE_LINE = "waypoint_file: ../waypoints/competition_waypoints.yaml"
 
 # Sequence file -> what it takes from the day file. "target": the target whose coordinates become
@@ -86,6 +90,7 @@ SEQUENCES: Dict[str, Dict[str, Any]] = {
     "final_curcuit_delivery.yaml": {"target": "delivery", "waypoints": True},
     "waypoint_navigation_live.yaml": {"waypoints": True},
     "circuit_time_trial_live.yaml": {"waypoints": True},
+    "fence_demo.yaml": {"fence_demo": True},  # the readiness video's demonstration: the run's bearing and length (OPS-02)
     "search_pattern_demo.yaml": {"survey": True, "sim_only": True},
     "sim_package_recovery.yaml": {"pickup": "recovery_pickup", "sim_only": True},
 }
@@ -105,6 +110,7 @@ class Day:
     targets: Dict[str, Tuple[float, float]]  # name -> (latitude, longitude)
     waypoints: Tuple[Dict[str, Any], ...]  # {"name", "latitude", "longitude", "altitude_agl_ft"}
     recovery_return: Optional[str] = None  # "takeoff", "compass_rose", or None: the sequence's own is left as it is
+    fence_demo_bearing_deg: Optional[float] = None  # the geofence demonstration's compass bearing from the takeoff point, or None
 
 
 def _latlon(item: Any, where: str) -> Tuple[float, float]:
@@ -161,7 +167,14 @@ def parse_day(data: Any, where: str = "day file") -> Day:
     recovery_return = data.get("recovery_return")
     if recovery_return is not None and recovery_return not in RECOVERY_RETURNS:
         raise FieldError(f"{where}: recovery_return is {' or '.join(RECOVERY_RETURNS)}, got {recovery_return!r}")
-    return Day(name, date, verified, site, dict(site_data), targets, tuple(waypoints), recovery_return)
+    demo = data.get("fence_demo")
+    bearing = None
+    if demo is not None:
+        bearing = demo.get("bearing_deg") if isinstance(demo, dict) and set(demo) == {"bearing_deg"} else None
+        if isinstance(bearing, bool) or not isinstance(bearing, (int, float)) or not 0.0 <= bearing <= 360.0:
+            raise FieldError(f"{where}: fence_demo has bearing_deg, the compass bearing of the demonstration's run from the takeoff point (0 to 360)")
+        bearing = float(bearing)
+    return Day(name, date, verified, site, dict(site_data), targets, tuple(waypoints), recovery_return, bearing)
 
 
 def load_day(path) -> Day:
@@ -194,6 +207,43 @@ def points(day: Day) -> List[Tuple[str, float, float]]:
     return named
 
 
+def distance_to_boundary_along(day: Day, bearing_deg: float) -> Optional[float]:
+    """From the takeoff point along a compass bearing: how far to the flight boundary. None if the line never meets it."""
+    met = boundary_meeting(day, bearing_deg)
+    return None if met is None else met[0]
+
+
+def boundary_meeting(day: Day, bearing_deg: float) -> Optional[Tuple[float, float]]:
+    """Where a compass bearing from the takeoff point meets the flight boundary: (how far, degrees from square to that edge)."""
+    start = day.site.takeoff
+    d_east, d_north = math.sin(math.radians(bearing_deg)), math.cos(math.radians(bearing_deg))
+    nearest = None
+    corners = day.site.boundary
+    for index, a in enumerate(corners):
+        b = corners[(index + 1) % len(corners)]
+        edge_east, edge_north = b[0] - a[0], b[1] - a[1]
+        cross = d_east * edge_north - d_north * edge_east
+        if abs(cross) < 1.0e-12:
+            continue  # the edge runs along the bearing
+        along = ((a[0] - start[0]) * edge_north - (a[1] - start[1]) * edge_east) / cross
+        on_edge = ((a[0] - start[0]) * d_north - (a[1] - start[1]) * d_east) / cross
+        if along > 0.0 and -1.0e-9 <= on_edge <= 1.0 + 1.0e-9 and (nearest is None or along < nearest[0]):
+            length = math.hypot(edge_east, edge_north)
+            # Square to the edge is the bearing along the edge's normal: the sine of the angle from square is the
+            # share of the run's direction that lies along the edge.
+            along_edge = abs(d_east * edge_east + d_north * edge_north) / length
+            nearest = (along, math.degrees(math.asin(min(1.0, along_edge))))
+    return nearest
+
+
+def fence_demo_run_m(day: Day) -> Optional[float]:
+    """The demonstration's max_run_m: to the boundary along its bearing, and the overshoot. None with no demonstration in the day file."""
+    if day.fence_demo_bearing_deg is None:
+        return None
+    distance = distance_to_boundary_along(day, day.fence_demo_bearing_deg)
+    return None if distance is None else round(distance + FENCE_DEMO_OVERSHOOT_M, 1)
+
+
 def check_day(day: Day) -> List[str]:
     """What in a day's coordinates breaks a rule or the fence. Empty when the day can be flown as typed."""
     problems = []
@@ -222,6 +272,15 @@ def check_day(day: Day) -> List[str]:
         if ends_ok and worst is not None and worst < margin:
             where = "leaves the flight boundary" if worst < 0.0 else f"comes within {worst:.1f} m of the flight boundary"
             problems.append(f"the leg from {one['name']} to {other['name']} {where} (a commanded path keeps {margin:g} m)")
+    if day.fence_demo_bearing_deg is not None:
+        run = fence_demo_run_m(day)
+        if run is None:
+            problems.append(f"fence_demo: the bearing {day.fence_demo_bearing_deg:g} from the takeoff point never meets the flight boundary")
+        elif boundary_meeting(day, day.fence_demo_bearing_deg)[1] > FENCE_DEMO_MAX_OBLIQUE_DEG:
+            oblique = boundary_meeting(day, day.fence_demo_bearing_deg)[1]
+            problems.append(f"fence_demo: bearing {day.fence_demo_bearing_deg:g} meets the boundary {oblique:.0f} degrees from square; at most {FENCE_DEMO_MAX_OBLIQUE_DEG:g}: the flight controller's avoidance slides a vehicle along a fence it meets at an angle. Choose the bearing square to the edge")
+        elif run > FENCE_DEMO_MAX_RUN_M:
+            problems.append(f"fence_demo: the boundary is {run - FENCE_DEMO_OVERSHOOT_M:.0f} m from the takeoff point on bearing {day.fence_demo_bearing_deg:g}; a run may be {FENCE_DEMO_MAX_RUN_M:g} m at most: choose a bearing to a nearer edge")
     names = [item["name"] for item in day.waypoints]
     for name in sorted({name for name in names if names.count(name) > 1}):
         problems.append(f"waypoint {name} is listed more than once")
@@ -240,6 +299,8 @@ def needed_by(sequence: str, day: Day) -> List[str]:
     missing = [f"targets.{plan[key]}" for key in ("target", "pickup") if key in plan and plan[key] not in day.targets]
     if plan.get("waypoints") and not day.waypoints:
         missing.append("waypoints")
+    if plan.get("fence_demo") and day.fence_demo_bearing_deg is None:
+        missing.append("fence_demo")
     return missing
 
 
@@ -281,7 +342,15 @@ def sequence_text(source_text: str, sequence: str, day: Day, sha256: str) -> str
             out.append(lines._with_value(match, value))
             changed["return_target"] += 1
             continue
-        if key in ("target_latitude", "target_longitude") and "target" in plan:
+        if key == "bearing_deg" and plan.get("fence_demo"):
+            value = f"{day.fence_demo_bearing_deg:.1f}"
+        elif key in ("start_latitude", "start_longitude") and plan.get("fence_demo"):
+            value = f"{day.site_data['takeoff_point']['latitude_deg' if key == 'start_latitude' else 'longitude_deg']:.7f}"
+        elif key == "boundary_m" and plan.get("fence_demo"):
+            value = f"{fence_demo_run_m(day) - FENCE_DEMO_OVERSHOOT_M:.1f}"
+        elif key == "max_run_m" and plan.get("fence_demo"):
+            value = f"{fence_demo_run_m(day):.1f}"
+        elif key in ("target_latitude", "target_longitude") and "target" in plan:
             value = f"{day.targets[plan['target']][0 if key == 'target_latitude' else 1]:.7f}"
         elif key == "search_area" and plan.get("survey"):
             value = "[" + ", ".join(f"[{corner['latitude_deg']:.7f}, {corner['longitude_deg']:.7f}]" for corner in day.site_data["survey_area"]) + "]"
@@ -296,6 +365,7 @@ def sequence_text(source_text: str, sequence: str, day: Day, sha256: str) -> str
             out.append(lines._with_value(match, value))
     wanted = (["target_latitude", "target_longitude"] if "target" in plan else []) + (["search_area", "flight_boundary"] if plan.get("survey") else []) + (["pickup", "flight_boundary"] if "pickup" in plan else [])
     wanted += ["return_target"] if "pickup" in plan and day.recovery_return is not None else []
+    wanted += ["bearing_deg", "start_latitude", "start_longitude", "boundary_m", "max_run_m"] if plan.get("fence_demo") else []
     for key in wanted:
         if changed[key] != 1:
             raise FieldError(f"{sequence}: expected one {key} line to put the day's coordinates in, found {changed[key]}")
@@ -385,6 +455,9 @@ def summary_text(day: Day) -> str:
             a, b = day.site.to_enu(one["latitude"], one["longitude"]), day.site.to_enu(other["latitude"], other["longitude"])
             legs.append(math.hypot(b[0] - a[0], b[1] - a[1]))
         out += ["", "route: " + ", ".join(f"{leg:.0f} m" for leg in legs) + f"; {sum(legs):.0f} m in the order given"]
+    if day.fence_demo_bearing_deg is not None and fence_demo_run_m(day) is not None:
+        run = fence_demo_run_m(day)
+        out += ["", f"fence demonstration: from the takeoff point on bearing {day.fence_demo_bearing_deg:.0f}, {run - FENCE_DEMO_OVERSHOOT_M:.1f} m to the boundary; the run fails at {run:.1f} m"]
     out += ["", site_file.summary(day.site)]
     return "\n".join(out) + "\n"
 

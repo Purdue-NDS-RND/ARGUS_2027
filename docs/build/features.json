@@ -1040,9 +1040,9 @@
       "land": "L22",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_fence_demo.py 17, test_fence_demo_mission.py 17, test_readiness_kit.py 26 passed); sim/run_scenarios.sh geofence/readiness_demo --variants on -> OK, held 1.87 m inside the fence for 37 s, attempt bundle whole, tools/readiness_kit.py READY; the kit's breach reading confirmed on the real log of geofence/breach; docs/results/2026-11-23-readiness-demo.md. Left: the demonstration flown and filmed on the aircraft before 5 May, and what the video must show (open question 18) (lead)",
       "blocked_reason": ""
     },
     {

@@ -69,6 +69,11 @@ targets:
 # keep what the sequence file says.
 recovery_return: takeoff
 
+# The geofence demonstration for the readiness video (OPS-02): the compass bearing the vehicle flies from the
+# takeoff point until the fence acts. Choose it on the field: towards the nearest edge that has nobody beyond it.
+fence_demo:
+  bearing_deg: 90.0           # placeholder: east
+
 # The waypoint mission's and the time trial's route, in the order given. Heights above the ground, in feet.
 waypoints:
   - {name: wp1, latitude_deg: 34.1751797, longitude_deg: -118.4835859, altitude_agl_ft: 50}

@@ -1,0 +1,51 @@
+# OPS-02: the geofence demonstration for the readiness video, flown as it will be on the field: by the mission
+# stack. The GO command (profile fence_demo) checks the aircraft, records the flight, and starts the sequence
+# fence_demo.yaml: take off, hold, fly east at 5 m/s. The flight controller's avoidance stops the vehicle at the
+# fence's margin with the velocity still commanded; the mission sees the hold, asks for RTL, and the vehicle
+# comes home. The geofence judge holds the true position to the hold: within 4 m of the line, inside, for 4 s,
+# and never across it. (Had the vehicle crossed, the SIM-02 pass line would apply: RTL within 2 s and 10 m.)
+# The flight is bundled as an attempt (PLT-12): the bundle is what tools/readiness_kit.py reads the proof from.
+#
+# Flown with --variants on (the flag on, sim time). Not in the nightly suite.
+description: The readiness video's geofence demonstration - the fence_demo mission flies at the east fence at 5 m/s; the flight controller must hold the vehicle inside the line, and the flight is bundled as an attempt.
+mission: geofence
+site: apollo_xi
+seed: 1
+timeout_s: 900
+sequence: fence_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  fence_demo: true
+wind: {level: calm}
+judge:                        # the flight controller holds the vehicle at the fence, inside: no line is crossed
+  held_within_m: 4.0          # the true position must come this near the line (the fence's margin is 2 m)
+  held_min_s: 4.0             # and stay there this long
+sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param), value for value: a test holds the two together
+  SIM_BATT_VOLTAGE: 25.0      # a 6S pack, charged
+  BATT_LOW_VOLT: 21.0
+  BATT_CRT_VOLT: 19.8
+  BATT_LOW_TIMER: 10.0
+  BATT_FS_LOW_ACT: 2.0
+  BATT_FS_CRT_ACT: 1.0
+  FS_THR_ENABLE: 1.0
+  FS_THR_VALUE: 975.0
+  FS_GCS_ENABLE: 1.0
+  FS_GCS_TIMEOUT: 5.0
+  FS_EKF_ACTION: 1.0
+  FS_EKF_THRESH: 0.8
+  FS_OPTIONS: 16.0
+  GRIP_ENABLE: 1.0
+  GRIP_TYPE: 1.0
+  SERVO7_FUNCTION: 28.0
+  GRIP_GRAB: 1900.0
+  GRIP_RELEASE: 1100.0
+  GRIP_NEUTRAL: 1500.0
+  EK3_SRC_OPTIONS: 0.0
+  GPS2_TYPE: 0.0
+preflight:
+  expect: GO
+  go:
+    profile: fence_demo
+    detector: none
+    attempt: readiness

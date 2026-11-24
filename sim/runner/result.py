@@ -93,6 +93,8 @@ def headline(score: dict) -> str:
     if mission == "geofence":
         if not details.get("passed"):
             return "fence not held"
+        if details.get("held"):
+            return f"held {details['held']['closest_m']:.2f} m inside the fence for {details['held']['held_s']:.0f} s"
         delay = details.get("response_delay_s")
         when = "stopped before the line" if delay is None else f"response {delay:+.2f} s from the line"
         return f"{when}, {details.get('max_excursion_m', 0.0):.2f} m outside"
@@ -304,6 +306,11 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the scenario says what the preflight must say but the run left no check of it (preflight_check.json)")
         elif result["status"] == "OK" and not report.get("passed"):
             result.update(status="FAIL", reason="the preflight check failed: " + (report.get("problem") or "no reason given"))
+    if manifest.get("mission") == "geofence" and manifest.get("go") and result["status"] == "OK" and not ((score or {}).get("details") or {}).get("passed"):
+        # The fence demonstration flown by the mission stack (OPS-02): no tool's exit code says whether the fence
+        # answered, so the judge's verdict on the true position is what the run counts by.
+        notes = [note for note in (score or {}).get("notes") or [] if note.startswith("geofence:")]
+        result.update(status="FAIL", reason="the fence did not answer the demonstration: " + ("; ".join(notes) or "the geofence judge did not pass the run"))
     if manifest.get("attempt"):
         # The attempt's bundle was made after the landing (PLT-12): the run counts only if it is whole.
         report = _read_json(run_dir / "attempt_check.json")

@@ -152,7 +152,7 @@ PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "
 GO_DETECTORS = ("none", "target_cv")
 PROFILES = Path(__file__).resolve().parents[2] / "profiles"
 ATTEMPT_PORT = 14556  # and one for pulling the flight controller's log after the landing (PLT-12)
-ATTEMPT_MISSIONS = ("localisation", "drop", "delivery", "recovery", "waypoint_navigation", "time_trial")  # tools/bundle_attempt.py EXPECTED
+ATTEMPT_MISSIONS = ("localisation", "drop", "delivery", "recovery", "waypoint_navigation", "time_trial", "geofence")  # tools/bundle_attempt.py EXPECTED
 PREFLIGHT_PORT = 14555  # a MAVLink output of its own, for the preflight's reading of the flight controller's parameters
 
 

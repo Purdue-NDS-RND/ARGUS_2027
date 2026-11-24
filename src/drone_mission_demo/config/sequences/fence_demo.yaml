@@ -1,0 +1,45 @@
+# The geofence demonstration for the readiness video (OPS-02): take off, hold, then fly at the flight boundary at
+# 5 m/s and keep commanding it. The flight controller stops the vehicle at the fence (in the sim its avoidance
+# holds it 2 m inside the line); after 30 s of that the mission asks for RTL. If instead the vehicle goes over,
+# the fence's own action takes it. Either way the flight controller ends the run and the vehicle comes home.
+# Every flag is false, so as it stands the demonstration is skipped: it returns SUCCESS on its first tick and
+# commands nothing, and the flight is a takeoff. The profile profiles/fence_demo.yaml (through tools/go.py) or a
+# sim scenario turns the flag on; nothing in this file is edited to do it.
+# The takeoff point, bearing_deg, boundary_m and max_run_m are the site's. Those below are the placeholder
+# site's (sim/sites/apollo_xi.yaml): from its takeoff point east, 150 m to the boundary, the run failing 10 m
+# past it. For a real site tools/field_setup.py writes them from the day file, into a generated copy of this
+# file; they are not edited here.
+# The RTL mission at the end is for the flights the demonstration does not end: with the flag off (a takeoff
+# and a return) and after a failure it is the failure policy's. After a demonstration the vehicle is on the
+# ground in RTL already, and that mission has nothing to ask for.
+mission_sequence:
+  on_failure: abort_and_rtl                         # Abort the remaining sequence and request RTL on failure.
+  features:                                         # Mission feature flags; a missing flag means false.
+    use_frame_time_pose: false                      # Keep 5 s of pose history in the executor (pose_buffer.py).
+    use_target_estimator: false                     # Run the target estimator in the executor (target_estimator.py). Needs use_frame_time_pose.
+    enforce_safety_limits: false                    # Refuse to start if a configured height breaks a rule limit (safety_limits.py).
+    takeover_latch: false                           # A flight mode autonomy did not ask for stops the executor until it is re-armed by hand (takeover.py).
+    time_health_guard: false                        # Treat a stale pose, a stale frame or a time-sync jump as no target (time_health.py).
+    fence_demo: false                               # Fly at the flight boundary until the fence acts (fence_demo.py). Off: the mission is skipped.
+  missions:
+    - type: takeoff                                # Mission type registered in the mission framework.
+      name: takeoff                                # Human-readable mission instance name for logs.
+      config:
+        target_altitude_m: 10.0                    # Target climb altitude after takeoff in meters.
+
+    - type: fence_demo                             # One slow run at the flight boundary, ended by the flight controller's fence.
+      name: fence_demo                             # Human-readable mission instance name for logs.
+      config:
+        bearing_deg: 90.0                          # Compass bearing of the run, degrees clockwise from north. The site's: field_setup.py writes it.
+        start_latitude: 34.1750000                 # The takeoff point the run's lengths are measured from: the run is flown only from within 10 m of it.
+        start_longitude: -118.4825000              # The site's: field_setup.py writes both.
+        boundary_m: 150.0                          # How far the flight boundary is along the bearing from the takeoff point. The site's.
+        max_run_m: 160.0                           # The run fails this far along the bearing with the vehicle still under command: the fence did neither.
+        speed_mps: 5.0                             # The velocity commanded during the run.
+        settle_s: 3.0                              # Held still before the run.
+        rtl_mode: "RTL"                            # The mode asked for after a hold at the fence.
+
+    - type: rtl                                    # Return-to-launch mission.
+      name: rtl                                    # Human-readable mission instance name for logs.
+      config:
+        rtl_mode: "RTL"                            # Flight mode string sent to the FCU for return-to-launch.

@@ -1,0 +1,7 @@
+# The geofence demonstration for the readiness video (OPS-02): the one flag
+# that lets the fence_demo mission fly at the flight boundary. Flown with
+# src/drone_mission_demo/config/sequences/fence_demo.yaml (or the copy
+# tools/field_setup.py generates for the day's site) and nothing else.
+description: The geofence demonstration - fly at the flight boundary until the flight controller's fence acts.
+enable:
+  - fence_demo

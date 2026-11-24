@@ -140,7 +140,7 @@ def test_what_a_mission_owes_depends_on_the_mission(tmp_path, flight):
     assert bundled(tmp_path / "a", flight, mission="localisation", judges_list=None)["owed"] == ["judges_list"]
     assert bundled(tmp_path / "c", flight, mission="localisation", frames=[])["owed"] == ["frames"]
     assert bundled(tmp_path / "b", flight, mission="time_trial", frames=[], judges_list=None)["complete"] is True  # no camera, no list
-    assert set(ba.EXPECTED) == {"localisation", "drop", "delivery", "recovery", "waypoint_navigation", "time_trial"}
+    assert set(ba.EXPECTED) == {"localisation", "drop", "delivery", "recovery", "waypoint_navigation", "time_trial", "geofence"}
     assert all(set(parts) <= set(ba.PARTS) and {"bag", "dataflash", "config", "preflight"} <= set(parts) for parts in ba.EXPECTED.values())
 
 

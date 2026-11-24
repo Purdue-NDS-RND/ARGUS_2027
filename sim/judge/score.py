@@ -72,7 +72,10 @@ MISSIONS = {
     # Not a competition mission: the SIM-02 pass line, scored from true positions.
     "geofence": (
         missions.judge_geofence,
-        {"max_response_s": 2.0, "max_excursion_m": 10.0, "response_modes": ["RTL", "SMART_RTL", "LAND", "BRAKE"], "autonomy_bonus_fraction": 0.0},
+        # held_within_m: None, or how near the line (inside) a vehicle the flight controller stops must come to pass
+        # without crossing, and held_min_s how long it must stay there (OPS-02's demonstration).
+        {"max_response_s": 2.0, "max_excursion_m": 10.0, "response_modes": ["RTL", "SMART_RTL", "LAND", "BRAKE"], "held_within_m": None, "held_min_s": 3.0,
+         "autonomy_bonus_fraction": 0.0},  # fmt: skip
     ),
 }
 
