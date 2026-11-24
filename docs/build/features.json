@@ -1156,7 +1156,7 @@
       "land": "CEN-14",
       "proven_in": "Sim, Field",
       "note": "",
-      "status": "TODO",
+      "status": "DOING",
       "attempts": 0,
       "evidence": "",
       "blocked_reason": ""
@@ -1670,8 +1670,8 @@
     "G0-W4": {
       "title": "Flags-off baseline re-check after wave 4",
       "after_wave": "4",
-      "status": "not run",
-      "result": ""
+      "status": "PASS",
+      "result": "docs/results/2026-11-23-gate-G0-W4.md"
     },
     "G7": {
       "title": "Field replay",
