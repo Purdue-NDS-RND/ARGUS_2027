@@ -29,7 +29,10 @@ def test_the_recovery_params_are_2026s_value_for_value_abort_mode_and_all():
 def test_the_sims_recovery_params_are_the_recovery_abort_mode_with_both_detectors_off():
     sim = yaml.safe_load((PARAMS / "sim_recovery_mission.yaml").read_text())
     survey = yaml.safe_load((PARAMS / "sim_survey_mission.yaml").read_text())
-    assert set(sim) == {"simple_takeoff_service", "mission_executor", "loc_node", "recovery_cv"}  # no top-level `features:`
+    assert set(sim) == {"simple_takeoff_service", "mission_executor", "loc_node", "recovery_cv", "flow_odometry"}  # no top-level `features:`
+    # The flow odometry (REC-5): the recovery vehicle's flow camera, its flag false.
+    flow = sim["flow_odometry"]["ros__parameters"]
+    assert flow["features"] == {"flow_odometry": False} and flow["camera_mode"] == "sim_flow_recovery" and flow["airframe"] == "sim_iris_recovery"
     assert sim["simple_takeoff_service"] == survey["simple_takeoff_service"]
     executor = sim["mission_executor"]["ros__parameters"]
     assert executor == {"loop_rate_hz": 20.0, "abort_rtl_mode": recovery_return.ABORT_RTL, "estimator_detectors": ["recovery_cv", "sim_oracle"]}

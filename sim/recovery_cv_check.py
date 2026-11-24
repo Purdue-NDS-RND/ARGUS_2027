@@ -47,6 +47,7 @@ MIN_FRAMES = 20
 STILL_MPS = 1.0  # frames slower than this are also reported by themselves
 TRUTH_PERIOD_S = 1.0 / 30.0  # sim/truth_poses.py publishes at 30 Hz
 FOUND_SHARE = 0.95
+NEAR_BELOW_M = 3.0  # under this height the bucket's own numbers are reported as the near field
 CENTRE_PX, CENTRE_SHARE_OF_SPAN = 2.0, 0.01  # the spec's line for the X's centre
 EXTRA_PX = 2.0  # over the spec's line with the vehicle still: stamps to the millisecond, a pose a frame
 SPEED_OVER_S = 0.1  # the vehicle's speed at a frame is its true movement over this long before it
@@ -84,6 +85,12 @@ def build_report(frames: List[dict]) -> dict:
     ]
     errors = [frame["x_error_px"] for frame in judged]
     buckets = [frame["bucket_error_px"] for frame in whole if frame.get("bucket_error_px") is not None]
+    # The near field (REC-5's hand-off): under NEAR_BELOW_M with the bucket's rim in the picture, where no X can be fitted
+    # and the bucket is looked for by itself. Reported, not judged: the mission's own rules (a CONFIRMED track) judge it.
+    near = [frame for frame in frames if frame.get("bucket_in_view") and frame["height_m"] < NEAR_BELOW_M]
+    near_found = [frame for frame in near if frame.get("bucket_error_px") is not None]
+    near_errors = [frame["bucket_error_px"] for frame in near_found]
+    near_metres = [frame["bucket_error_px"] / frame["px_per_m"] for frame in near_found if frame.get("px_per_m")]
     share = len(found) / len(whole) if whole else 0.0
     over_p95 = _percentile(over, 0.95)
     problems = []
@@ -114,6 +121,11 @@ def build_report(frames: List[dict]) -> dict:
         "bucket_found": len(buckets),
         "bucket_error_px": {"median": _percentile(buckets, 0.5), "p95": _percentile(buckets, 0.95)},
         "heights_m": {"lowest": min((frame["height_m"] for frame in whole), default=None), "highest": max((frame["height_m"] for frame in whole), default=None)},
+        "near_field": {"below_m": NEAR_BELOW_M, "frames": len(near), "bucket_found": len(near_found), "bucket_found_share": round(len(near_found) / len(near), 4) if near else None,
+                       "x_reported": sum(1 for frame in near if frame.get("x_error_px") is not None),
+                       "bucket_error_px": {"median": _percentile(near_errors, 0.5), "p95": _percentile(near_errors, 0.95), "max": max(near_errors) if near_errors else None},
+                       "bucket_error_m_at_the_ground": {"median": _percentile(near_metres, 0.5), "p95": _percentile(near_metres, 0.95)},
+                       "lowest_m": min((frame["height_m"] for frame in near_found), default=None)},  # fmt: skip
     }
 
 
@@ -129,6 +141,7 @@ def frame_of(detections: Sequence[Tuple[str, float, float]], truth_x_px, truth_b
 
     return {
         "whole": bool(whole),
+        "bucket_in_view": truth_bucket_px is not None and 0.0 <= truth_bucket_px[0] < width and 0.0 <= truth_bucket_px[1] < height,
         "span_px": float(span),
         "height_m": float(height_m),
         "speed_mps": None if speed_mps is None else float(speed_mps),
@@ -153,7 +166,16 @@ def summary_lines(report: dict) -> List[str]:
         + ("" if errors.get("median") is None else f", centre error median {errors['median']:.1f} px and p95 {errors['p95']:.1f} px at up to {(report.get('speeds_mps') or {}).get('max') or 0.0:.1f} m/s")
         + f"; the bucket in {report.get('bucket_found', 0)}"
     )
-    return [line] + [f"problem: {problem}" for problem in report.get("problems") or []]
+    lines = [line]
+    near = report.get("near_field") or {}
+    if near.get("frames"):
+        errors = near.get("bucket_error_px") or {}
+        metres = near.get("bucket_error_m_at_the_ground") or {}
+        found = f"near field (under {near['below_m']:g} m, the bucket's rim in view): the bucket reported in {near['bucket_found']} of {near['frames']} frames"
+        if errors.get("median") is not None:
+            found += f", down to {near['lowest_m']:.2f} m; centre error median {errors['median']:.1f} px and p95 {errors['p95']:.1f} px (about {metres['median']:.3f} m and {metres['p95']:.3f} m)"
+        lines.append(found + f"; the X in {near.get('x_reported', 0)} of them")
+    return lines + [f"problem: {problem}" for problem in report.get("problems") or []]
 
 
 def listen(run_dir: Path) -> dict:

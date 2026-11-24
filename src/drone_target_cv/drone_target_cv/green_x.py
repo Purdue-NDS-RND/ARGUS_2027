@@ -26,6 +26,13 @@ Classical vision, no trained model: behind the node flag `features.recovery_cv`
     nor the arms' green, of about a bucket's size against the arm width;
     its centre from an ellipse fit. Its handle, when the bucket is large
     enough in the picture to show one, is the longest line through it.
+  - **The near field.** Under about 3 m the mat fills the picture and its
+    arms run out of every side: no X can be fitted. The bucket is then
+    looked for by itself (`_near_bucket`): in a picture that is mostly the
+    mat's green and white, a coloured, round, solid blob with mat all the
+    way round it, standing on the arms' crossing and a bucket's size
+    against the arm's width. No `green_x` is reported from there, only the
+    `bucket` and its handle.
 
 Sizes are taken from the picture itself (the arm's width is the ruler), so
 the detector needs no height; the mat's proportions are the sim's and the
@@ -69,6 +76,22 @@ BUCKET_MIN_SOLIDITY = 0.6  # the blob's area over its hull's
 BUCKET_MAX_ELONGATION = 2.0  # its length over its width
 QUARTER_CLOSE_OVER_PX = 41  # a wider closing of the white is done on a quarter-size mask: the cost of a frame stays bounded
 MIN_HANDLE_BUCKET_PX = 24.0  # a bucket narrower than this in the picture shows no handle
+# The near field: under about 3 m the mat fills the picture, the arms run out of it on every side and no X can be
+# fitted. The bucket is then looked for by itself, on a picture that is plainly the mat seen from close by.
+NEAR_MIN_GREEN_SHARE = 0.12  # of the picture is the arms' green,
+NEAR_MIN_WHITE_SHARE = 0.03  # some of it is still the mat's white,
+NEAR_MIN_MAT_SHARE = 0.6  # and green and white together are most of it
+NEAR_MIN_SATURATION = 90  # the bucket is coloured: not the mat's white, not a shadow's grey
+NEAR_MIN_DIAMETER_SHARE = 0.03  # of the picture's width: a bucket from 3 m is about 0.04 of it, and larger from nearer
+NEAR_MAX_DIAMETER_SHARE = 0.6
+NEAR_MIN_RING = 0.8  # of the ring round the blob is the mat's green or white: the bucket stands on the mat
+NEAR_CLOSE_SHARE = 0.025  # of the picture's width: a gap this wide across the blob (the handle's bar) is closed over
+# The near bucket is held to the X as the far one is (`_bucket`): it stands on the arms' crossing and is a bucket's
+# size against the arm's width. With no X fitted, the crossing is read off the green itself.
+NEAR_RING_OVER_INSCRIBED = 1.1  # a circle this much wider than the largest one that fits in the arms round the blob
+NEAR_RING_SAMPLES = 90
+NEAR_MIN_RING_IN_PICTURE = 0.6  # of that circle must be in the picture to count the arms on it
+NEAR_ARMS = (3, 5)  # green stretches on that circle: four at a crossing (two along one arm, none or one on grass or a tarp)
 
 
 @dataclass(frozen=True)
@@ -246,6 +269,102 @@ def _bucket(image: np.ndarray, hsv: np.ndarray, green: np.ndarray, centre: np.nd
     return BucketDetection(float(middle[0]), float(middle[1]), float(axes[0]), float(axes[1]), float(size_score), handle)
 
 
+def _green_stretches(green: np.ndarray, middle: np.ndarray, radius: float) -> Optional[int]:
+    """How many separate stretches of green a circle about `middle` passes through, or None when too little of the circle is in the picture.
+
+    A stretch cut by the picture's edge counts as one. Short breaks (a shadow's edge, a pixel of noise) do not split a stretch.
+    """
+    height, wide = green.shape
+    samples = []
+    for index in range(NEAR_RING_SAMPLES):
+        angle = 2.0 * math.pi * index / NEAR_RING_SAMPLES
+        x, y = int(round(middle[0] + radius * math.cos(angle))), int(round(middle[1] + radius * math.sin(angle)))
+        samples.append(None if not (0 <= x < wide and 0 <= y < height) else bool(green[y, x]))
+    inside = [value for value in samples if value is not None]
+    if len(inside) < NEAR_MIN_RING_IN_PICTURE * NEAR_RING_SAMPLES:
+        return None
+    # Close breaks of one sample (4 degrees), then count the runs of green round the circle; the picture's edge ends a run.
+    marks = [value is True for value in samples]
+    closed = [marks[index] or (marks[index - 1] and marks[(index + 1) % len(marks)] and samples[index] is not None) for index in range(len(marks))]
+    if all(closed):
+        return 0  # green all the way round: grass, or a tarp
+    return sum(1 for index in range(len(closed)) if closed[index] and not closed[index - 1])
+
+
+def _near_bucket(image: np.ndarray, hsv: np.ndarray, green: np.ndarray, white: np.ndarray) -> Optional[BucketDetection]:
+    """The bucket by itself, when the mat fills the picture and no X can be fitted: a coloured round blob standing on the mat.
+
+    Only a picture that is mostly the mat's green and white is looked at, and the blob is held to the X as the far
+    bucket is: it must stand on the arms' crossing (a circle round it cuts four arms) and be a bucket's size
+    against the arm's width, both read off the green itself. An orange thing on grass, a red target ringed in
+    white, or a coloured thing lying along one arm is not a bucket.
+    """
+    import cv2
+
+    height, wide = green.shape
+    pixels = float(height * wide)
+    green_share, white_share = float(np.count_nonzero(green)) / pixels, float(np.count_nonzero(white)) / pixels
+    if green_share < NEAR_MIN_GREEN_SHARE or white_share < NEAR_MIN_WHITE_SHARE or green_share + white_share < NEAR_MIN_MAT_SHARE:
+        return None
+    mat = ((green > 0) | (white > 0)).astype(np.uint8)
+    other = ((mat == 0) & (hsv[:, :, 1] >= NEAR_MIN_SATURATION) & (hsv[:, :, 2] >= GREEN_MIN_VALUE)).astype(np.uint8)
+    other = cv2.morphologyEx(other, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    # The handle's bar (and a hook's rod) lies across the bucket, nearer the camera and so wider than it is: the two
+    # halves it cuts the bucket into are closed into one blob again.
+    gap = max(3, int(round(NEAR_CLOSE_SHARE * wide)) | 1)
+    other = cv2.morphologyEx(other, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gap, gap)))
+    contours, _ = cv2.findContours(other, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best = None
+    for contour in contours:
+        area = float(cv2.contourArea(contour))
+        diameter = 2.0 * math.sqrt(area / math.pi) if area > 0.0 else 0.0
+        if not NEAR_MIN_DIAMETER_SHARE * wide <= diameter <= NEAR_MAX_DIAMETER_SHARE * wide:
+            continue
+        hull_area = float(cv2.contourArea(cv2.convexHull(contour)))
+        (_rx, _ry), (rect_w, rect_h), _turn = cv2.minAreaRect(contour)
+        if hull_area <= 0.0 or area / hull_area < BUCKET_MIN_SOLIDITY or max(rect_w, rect_h) > BUCKET_MAX_ELONGATION * max(1.0, min(rect_w, rect_h)):
+            continue
+        # The ring round it, from 1.15 to 1.5 of its radius: mat all the way round (a ring cut by the picture's edge counts what shows).
+        moments = cv2.moments(contour)
+        middle = np.array([moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]])
+        ring = np.zeros((height, wide), np.uint8)
+        cv2.circle(ring, (int(round(middle[0])), int(round(middle[1]))), int(math.ceil(0.75 * diameter)), 1, -1)
+        cv2.circle(ring, (int(round(middle[0])), int(round(middle[1]))), int(math.ceil(0.575 * diameter)), 0, -1)
+        around = int(np.count_nonzero(ring))
+        if around < 20:
+            continue
+        ring_share = float(np.count_nonzero(ring & mat)) / around
+        if ring_share < NEAR_MIN_RING:
+            continue
+        # On the crossing, and a bucket's size against the arm: the arms with the blob's own hole filled, and the
+        # largest circle about the blob's middle that stays inside them. At a crossing of arms w wide that circle
+        # is 1.41 w across, and a circle a little wider cuts four arms; along one arm it cuts two, on grass none.
+        blob = np.zeros((height, wide), np.uint8)
+        cv2.drawContours(blob, [contour], -1, 1, -1)
+        # (the seam between the blob and the green, a pixel or two of neither where the colours meet, is closed over)
+        arms = cv2.morphologyEx(((green > 0) | (blob > 0)).astype(np.uint8), cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (gap, gap)))
+        row, col = min(height - 1, max(0, int(round(middle[1])))), min(wide - 1, max(0, int(round(middle[0]))))
+        inscribed = float(cv2.distanceTransform(arms, cv2.DIST_L2, 5)[row, col])
+        arm_width = inscribed * math.sqrt(2.0)
+        if arm_width <= 0.0 or not 0.5 * BUCKET_OVER_ARM_WIDTH <= diameter / arm_width <= 2.0 * BUCKET_OVER_ARM_WIDTH:
+            continue
+        stretches = _green_stretches(arms, middle, NEAR_RING_OVER_INSCRIBED * inscribed)
+        if stretches is None or not NEAR_ARMS[0] <= stretches <= NEAR_ARMS[1]:
+            continue
+        if best is None or area > best[0]:
+            best = (area, contour, middle, diameter, ring_share * min(1.0, area / hull_area))
+    if best is None:
+        return None
+    _area, contour, middle, diameter, score = best
+    axes = (diameter, diameter)
+    if len(contour) >= 5:
+        (ex, ey), (major, minor), _angle = cv2.fitEllipse(contour)
+        if 0.5 * diameter <= minor <= major <= 2.0 * diameter:
+            middle, axes = np.array([ex, ey]), (float(major), float(minor))
+    handle = _handle(image, middle, max(axes)) if max(axes) >= MIN_HANDLE_BUCKET_PX else None
+    return BucketDetection(float(middle[0]), float(middle[1]), float(axes[0]), float(axes[1]), float(score), handle)
+
+
 def _handle(image: np.ndarray, middle: np.ndarray, diameter: float):
     """The longest straight line through the bucket's middle, as its two ends, or None."""
     import cv2
@@ -407,9 +526,11 @@ def detect(image: np.ndarray, seed: int = 0) -> Result:
         if best is not None:
             break
     if best is None:
-        return Result()
-    found, centre, width, arm_value = best
-    bucket = _bucket(work, hsv, green, centre, width, arm_value)
+        # No X: from close by the mat fills the picture and its arms have no ends. The bucket is looked for by itself.
+        found, bucket = None, _near_bucket(work, hsv, green, white)
+    else:
+        found, centre, width, arm_value = best
+        bucket = _bucket(work, hsv, green, centre, width, arm_value)
     if bucket is not None and scale < 1.0:
         handle = None if bucket.handle is None else tuple((x / scale, y / scale) for x, y in bucket.handle)
         bucket = BucketDetection(bucket.cx / scale, bucket.cy / scale, bucket.width / scale, bucket.height / scale, bucket.score, handle)

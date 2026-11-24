@@ -61,7 +61,7 @@ RUNS_DIR = SIM_DIR / ".state" / "runs"
 FALLBACK_LAUNCH = "multi_mission_demo.launch.py"
 # Nodes the demo launches start only on a launch argument of their own name, which a scenario gives by turning
 # the node's flag of the same name on: `node_flags: {ring_fit: {ring_fit: true}}`.
-FLAG_STARTED_NODES = ("ring_fit", "loc_node", "recovery_cv")
+FLAG_STARTED_NODES = ("ring_fit", "loc_node", "recovery_cv", "flow_odometry")
 
 # What the sim's oracle detector (LOC-5) reports each kind of object as, on the detection contract. A marker with
 # no digit is one of the four larger boundary markers. A payload is not an object of the contract.

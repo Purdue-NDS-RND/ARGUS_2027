@@ -25,7 +25,7 @@
       - gimbal_control
       - vfr_hud
       # The sim's four more.
-      - optical_flow        # OPTICAL_FLOW_RAD to and from the flight controller
+      - optical_flow        # OPTICAL_FLOW to and from the flight controller (mavros_msgs/OpticalFlow on /mavros/optical_flow/raw/...)
       - vision_pose         # a pose from vision, to the flight controller's estimator
       - vision_speed        # a velocity from vision
       - distance_sensor     # DISTANCE_SENSOR both ways: a companion rangefinder (the Gazebo lidar, when it comes)

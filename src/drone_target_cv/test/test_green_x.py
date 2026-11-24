@@ -192,3 +192,119 @@ def test_the_closing_of_the_white_is_bounded_however_pale_the_picture():
     started = time.perf_counter()
     assert gx.detect(pale).x is None
     assert time.perf_counter() - started < 0.5 and gx.QUARTER_CLOSE_OVER_PX == 41
+
+
+# --- the near field (REC-5, the hand-off under 3 m): the mat fills the picture and the bucket is found by itself ---
+
+SIM_SIZE, SIM_FOCAL_PX = (640, 360), 389.0  # the sim's downward camera
+
+
+def near_mat(height_m, offset=(0.0, 0.0), rotation_deg=20.0, **more):
+    options = synth_targets.RenderOptions(width=SIM_SIZE[0], height=SIM_SIZE[1], mpp=height_m / SIM_FOCAL_PX, rotation_deg=rotation_deg, offset_px=offset, background="noise", supersample=2, **more)
+    return synth_targets.render(synth_targets.XMat(bucket=True), options, seed=2)
+
+
+@pytest.mark.parametrize("height_m", [2.0, 1.5, 1.2, 1.0, 0.9])
+def test_under_the_height_where_no_x_can_be_fitted_the_bucket_is_still_found_where_it_is(height_m):
+    """From 2 m down the arms run out of every side of the picture: before, nothing at all was reported from there."""
+    for offset in ((0.0, 0.0), (60.0, -30.0), (-150.0, 80.0)):
+        image, truth = near_mat(height_m, offset)
+        found = gx.detect(image)
+        assert found.x is None and found.bucket is not None, (height_m, offset)
+        cx, cy = truth["center_px"]
+        assert math.hypot(found.bucket.cx - cx, found.bucket.cy - cy) <= 2.0
+        assert found.bucket.width == pytest.approx(0.2 * SIM_FOCAL_PX / height_m, rel=0.08)  # the bucket's own size in the picture
+        assert [item.class_id for item in gx.to_detections(found)] == ["bucket"]  # on the contract: a bucket and no X
+
+
+def test_the_near_bucket_is_held_to_the_x_it_stands_on_the_crossing_and_is_a_buckets_size():
+    """The flight-safety review: the near search was tied to nothing but colour and shape, and the descent runs on what it reports."""
+    def mat_without_bucket(height_m=1.5, offset=(0.0, 0.0)):
+        options = synth_targets.RenderOptions(width=SIM_SIZE[0], height=SIM_SIZE[1], mpp=height_m / SIM_FOCAL_PX, rotation_deg=20.0, offset_px=offset, background="noise", supersample=2)
+        return synth_targets.render(synth_targets.XMat(bucket=False), options, seed=2)
+
+    orange = (20, 110, 235)
+    image, truth = mat_without_bucket()
+    cx, cy = truth["center_px"]
+    bucket_px = 0.2 * SIM_FOCAL_PX / 1.5
+    # A coloured thing of a bucket's size lying along one arm, half a metre from the crossing: a circle round it cuts two arms, not four.
+    along = image.copy()
+    step = 0.9 * SIM_FOCAL_PX / 1.5  # 0.9 m along the arm (the arms are on the mat's diagonals, turned 20 degrees)
+    angle = math.radians(45.0 + 20.0)
+    spot = (int(round(cx + step * math.cos(angle))), int(round(cy - step * math.sin(angle))))
+    cv2.circle(along, spot, int(round(bucket_px / 2)), orange, -1)
+    found = gx.detect(along).bucket
+    assert found is None or math.hypot(found.cx - spot[0], found.cy - spot[1]) > 20.0, "a blob along one arm was taken for the bucket"
+    # A thing on the crossing far too big, or far too small, for a bucket against the arm's width.
+    for radius in (int(round(1.3 * bucket_px)), int(round(0.12 * bucket_px))):
+        wrong = image.copy()
+        cv2.circle(wrong, (int(round(cx)), int(round(cy))), radius, orange, -1)
+        assert gx.detect(wrong).bucket is None, radius
+    # The same size on the crossing is the bucket.
+    right = image.copy()
+    cv2.circle(right, (int(round(cx)), int(round(cy))), int(round(bucket_px / 2)), orange, -1)
+    assert gx.detect(right).bucket is not None
+    # The delivery's red-and-white target on green ground, from close: green and white fill the picture, a red disc is ringed in white. Not a bucket.
+    rng = np.random.default_rng(9)
+    for height_m in (1.0, 2.0, 3.0, 5.0):
+        grass = np.clip(np.array([60, 140, 70], dtype=np.float32) + rng.normal(0.0, 14.0, (360, 640, 3)), 0, 255).astype(np.uint8)
+        options = synth_targets.RenderOptions(width=640, height=360, mpp=height_m / SIM_FOCAL_PX, background="plain", background_color=(70, 140, 60), supersample=2)
+        target, _ = synth_targets.render(synth_targets.Bullseye(size_m=1.5), options, seed=1)
+        mask = np.abs(target.astype(int) - np.array([60, 140, 70])).sum(axis=2) > 40  # the target's own pixels, laid on the noisy grass
+        grass[mask] = target[mask]
+        result = gx.detect(grass)
+        assert result.x is None and result.bucket is None, height_m
+    # Under the height where the crossing's circle fits the picture nothing is reported, rather than a blob held to nothing.
+    for offset in ((0.0, 0.0), (60.0, -30.0)):
+        low, _ = near_mat(0.6, offset)
+        assert gx.detect(low).bucket is None
+
+
+def test_the_near_bucket_is_found_blurred_dim_noisy_and_with_its_handle():
+    image, truth = near_mat(1.2, (40.0, 20.0), blur_sigma_px=1.5, noise_sigma=6.0, brightness=0.8)
+    found = gx.detect(image).bucket
+    assert found is not None and math.hypot(found.cx - truth["center_px"][0], found.cy - truth["center_px"][1]) <= 3.0
+    image, truth = near_mat(1.0)
+    cx, cy = truth["center_px"]
+    radius = 0.1 * SIM_FOCAL_PX / 1.0
+    angle = math.radians(60.0)
+    cv2.line(image, (int(round(cx - radius * math.cos(angle))), int(round(cy - radius * math.sin(angle)))), (int(round(cx + radius * math.cos(angle))), int(round(cy + radius * math.sin(angle)))), (25, 25, 25), 3)
+    bucket = gx.detect(image).bucket
+    assert bucket is not None and bucket.handle is not None
+    (x1, y1), (x2, y2) = bucket.handle
+    assert abs((math.degrees(math.atan2(y2 - y1, x2 - x1)) % 180.0 - 60.0 + 90.0) % 180.0 - 90.0) <= 6.0
+
+
+def test_a_coloured_thing_that_is_not_on_the_mat_seen_from_close_is_not_a_bucket():
+    """The near search looks only at a picture that is mostly the mat's green and white, with mat all round the blob."""
+    rng = np.random.default_rng(5)
+    grass = np.clip(np.array([60, 140, 70], dtype=np.float32) + rng.normal(0.0, 18.0, (360, 640, 3)), 0, 255).astype(np.uint8)
+    cv2.circle(grass, (320, 180), 40, (20, 110, 235), -1)  # an orange ball on grass: green all round it, and no white anywhere
+    assert gx.detect(grass).bucket is None
+    for target, mpp in ((synth_targets.Bullseye(), 1.5 / SIM_FOCAL_PX), (synth_targets.Bullseye(), 4.0 / SIM_FOCAL_PX), (synth_targets.NumberedMarker(digit=8), 0.002), (synth_targets.SurveyMarker(digit=4), 0.002)):
+        image, _ = synth_targets.render(target, synth_targets.RenderOptions(width=640, height=360, mpp=mpp, background="noise", supersample=2), seed=1)
+        found = gx.detect(image)
+        assert found.x is None and found.bucket is None, target.name  # red on white from close: no green, so not the mat
+    # The mat from close with no bucket on it: nothing.
+    empty, _ = synth_targets.render(synth_targets.XMat(bucket=False), synth_targets.RenderOptions(width=640, height=360, mpp=1.2 / SIM_FOCAL_PX, rotation_deg=20.0, background="noise", supersample=2), seed=2)
+    assert gx.detect(empty).bucket is None
+    # A coloured thing at the mat's edge, half on the grass: the ring round it is not mat all the way.
+    image, truth = near_mat(1.5, (0.0, 0.0))
+    mostly_mat = image.copy()
+    mostly_mat[:, :200] = (40, 60, 90)  # brown earth down the left of the picture (green grass there could not be told from an arm: see the notes)
+    cv2.circle(mostly_mat, (200, 300), 30, (20, 110, 235), -1)  # an orange thing straddling the edge
+    found = gx.detect(mostly_mat).bucket
+    assert found is None or math.hypot(found.cx - truth["center_px"][0], found.cy - truth["center_px"][1]) <= 3.0  # if anything is reported it is the real bucket
+    # A long coloured streak across the crossing (a strap, a shadow's edge in colour) is not round.
+    streak, _ = synth_targets.render(synth_targets.XMat(bucket=False), synth_targets.RenderOptions(width=640, height=360, mpp=1.2 / SIM_FOCAL_PX, rotation_deg=20.0, background="noise", supersample=2), seed=2)
+    cv2.line(streak, (200, 180), (440, 180), (20, 110, 235), 24)
+    assert gx.detect(streak).bucket is None
+
+
+def test_from_where_the_x_is_still_seen_nothing_changes():
+    """At 3 m and above the X is fitted and the bucket is the one on its crossing, as before the near search."""
+    for height_m in (3.0, 4.0, 6.0):
+        image, truth = near_mat(height_m)
+        found = gx.detect(image)
+        assert found.x is not None and found.bucket is not None
+        assert [item.class_id for item in gx.to_detections(found)] == ["green_x", "bucket"]

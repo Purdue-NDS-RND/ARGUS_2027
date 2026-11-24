@@ -1,0 +1,70 @@
+# REC-5: the flow odometry in a flight. The recovery of recovery/pickup_oracle (transit at 15 m, approach to 6 m,
+# the cone, the carry home) with the node flag flow_odometry on: every frame of the recovery vehicle's flow camera
+# (320 x 200 at 20 Hz in the sim, the hook hanging in the middle of it) becomes a velocity sample from the four
+# corner patches, turning taken out with the pose history, scaled by the rangefinder. sim/flow_check.py holds the
+# samples against Gazebo's true velocity: the spec's line is an RMS of 0.15 m/s at 5 to 15 m.
+#
+# The bullseyes and markers are there as ground to look at, not as targets: to the sim's mono flow camera the grass
+# is black, and without them the only thing in the picture is the mat and the hook. What the odometry does over
+# that bare ground is reported by the same check (no quality, and why).
+#
+# Flown with --variants on. As built (REC-5) this run FAILS its check: the RMS at 5 to 15 m is 0.33 m/s, and under
+# 5 m it is 0.02 to 0.05 m/s (docs/results/2026-11-24-flow-odometry-and-near-field.md). It is kept as the measure.
+description: The recovery mission of recovery/pickup_oracle with the flow odometry on - its velocity is held against the true velocity.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+  flow_odometry:
+    flow_odometry: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: texture_0, kind: bullseye, size_m: 3.0, at: {east_m: -5.0, north_m: 4.5}}
+  - {name: texture_1, kind: bullseye, size_m: 3.0, at: {east_m: 3.5, north_m: -5.0}}
+  - {name: texture_2, kind: bullseye, size_m: 3.0, at: {east_m: 4.5, north_m: 4.0}}
+  - {name: texture_3, kind: bullseye, size_m: 3.0, at: {east_m: 9.0, north_m: -2.0}}
+  - {name: texture_4, kind: bullseye, size_m: 3.0, at: {east_m: 6.5, north_m: 11.5}}
+  - {name: texture_5, kind: bullseye, size_m: 3.0, at: {east_m: 14.0, north_m: 0.5}}
+  - {name: texture_6, kind: bullseye, size_m: 3.0, at: {east_m: 19.0, north_m: 5.5}}
+  - {name: texture_7, kind: bullseye, size_m: 3.0, at: {east_m: 15.0, north_m: 14.5}}
+  - {name: texture_8, kind: bullseye, size_m: 3.0, at: {east_m: 0.0, north_m: 10.0}}
+  - {name: texture_9, kind: bullseye, size_m: 3.0, at: {east_m: 21.0, north_m: 12.0}}
+  - {name: texture_10, kind: bullseye, size_m: 3.0, at: {east_m: -4.0, north_m: -4.0}}
+  - {name: texture_11, kind: bullseye, size_m: 3.0, at: {east_m: 10.0, north_m: 17.0}}
+  - {name: texture_12, kind: bullseye, size_m: 3.0, at: {east_m: -7.0, north_m: 10.5}}
+  - {name: texture_13, kind: bullseye, size_m: 3.0, at: {east_m: 22.0, north_m: -1.0}}
+  - {name: ground_0, kind: marker, digit: 0, size_m: 0.6, heading_deg: 0.0, at: {east_m: 2.0, north_m: 3.5}}
+  - {name: ground_1, kind: marker, digit: 1, size_m: 0.6, heading_deg: 37.0, at: {east_m: 4.5, north_m: 0.5}}
+  - {name: ground_2, kind: marker, digit: 2, size_m: 0.6, heading_deg: 74.0, at: {east_m: 5.0, north_m: 5.5}}
+  - {name: ground_3, kind: marker, digit: 3, size_m: 0.6, heading_deg: 111.0, at: {east_m: 7.5, north_m: 2.5}}
+  - {name: ground_4, kind: marker, digit: 4, size_m: 0.6, heading_deg: 148.0, at: {east_m: 8.0, north_m: 7.5}}
+  - {name: ground_5, kind: marker, digit: 5, size_m: 0.6, heading_deg: 185.0, at: {east_m: 10.0, north_m: 4.0}}
+  - {name: ground_6, kind: marker, digit: 6, size_m: 0.6, heading_deg: 222.0, at: {east_m: 3.0, north_m: 7.0}}
+  - {name: ground_7, kind: marker, digit: 7, size_m: 0.6, heading_deg: 259.0, at: {east_m: 15.5, north_m: 5.0}}
+  - {name: ground_8, kind: marker, digit: 8, size_m: 0.6, heading_deg: 296.0, at: {east_m: 16.0, north_m: 10.5}}
+  - {name: ground_9, kind: marker, digit: 9, size_m: 0.6, heading_deg: 333.0, at: {east_m: 9.0, north_m: 11.0}}
+  - {name: ground_10, kind: marker, digit: 0, size_m: 0.6, heading_deg: 10.0, at: {east_m: -2.5, north_m: 2.0}}
+  - {name: ground_11, kind: marker, digit: 1, size_m: 0.6, heading_deg: 47.0, at: {east_m: 1.0, north_m: -3.0}}
+expect_log:
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
+wind: {level: calm}

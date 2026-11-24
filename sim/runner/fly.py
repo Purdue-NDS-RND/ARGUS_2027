@@ -53,6 +53,7 @@ TOOLS = {
     "loc_check": SIM_DIR / "loc_check.py",  # beside flights with the localisation node on (LOC-5)
     "preflight": SIM_DIR / "preflight_check.py",  # beside flights whose scenario says what the preflight must say (PLT-10)
     "recovery_cv_check": SIM_DIR / "recovery_cv_check.py",  # beside flights with the green X and bucket detector on (REC-1)
+    "flow_check": SIM_DIR / "flow_check.py",  # beside flights with the flow odometry on (REC-5)
 }
 ATTEMPT_CHECK_TIMEOUT_S = 600.0  # wall seconds for pulling the flight controller's log and making the bundle after a flight
 CLOCK_MARK_S = 5.0

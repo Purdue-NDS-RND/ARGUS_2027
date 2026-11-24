@@ -70,3 +70,14 @@ recovery_cv:  # The green X and bucket detector (REC-1). Only started by a launc
     image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
     features:
       recovery_cv: false             # Look for the recovery mat's green X and the bucket in each frame and report them on the detection contract (green_x.py, REC-1).
+
+flow_odometry:  # Optical-flow odometry (REC-5). Only started by a launch given flow_odometry:=true.
+  ros__parameters:
+    camera_mode: "sim_flow_recovery"             # the recovery vehicle's flow camera in the sim: 320 x 200 at 20 Hz (argus_camera modes.yaml)
+    airframe: "sim_iris_recovery"                # the airframe whose flow camera mount is used (argus_camera robot.yaml)
+    image_topic: "/argus/camera/flow/image_raw"  # as the sim's bridge publishes it
+    frames_apart: 4                              # up to four frames between the two pictures (200 ms at the sim's 20 Hz); fewer when the picture moves too far in that time
+    corners_below_m: 100.0                       # the recovery vehicle's hook hangs in the middle of the picture at every height: always the corner patches
+    send_optical_flow: false                     # true: every sample also goes to the flight controller as OPTICAL_FLOW. Off until the message's units are checked (REC-5's notes).
+    features:
+      flow_odometry: false                       # Measure the vehicle's velocity over the ground from the flow camera's frames (flow_odometry.py).

@@ -38,6 +38,7 @@ setup(
             "target_cv = drone_target_cv.target_cv:main",
             "ring_fit = drone_target_cv.ring_fit_node:main",
             "recovery_cv = drone_target_cv.recovery_cv_node:main",
+            "flow_odometry = drone_target_cv.flow_odometry_node:main",
             "detection_legacy_adapter = drone_target_cv.legacy_adapter:main",
             "usb_grabber = drone_target_cv.usb_grabber:main",
             "debug_viewer = drone_target_cv.debug_viewer:main",

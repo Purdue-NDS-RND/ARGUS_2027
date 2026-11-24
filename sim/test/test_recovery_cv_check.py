@@ -110,3 +110,24 @@ def test_the_survey_over_the_mat_builds_with_the_node_started_and_its_flag_on_on
     # The shipped params file has the flag off, under the node's own ros__parameters.
     shipped = yaml.safe_load((SIM.parent / "src" / "drone_mission_demo" / "config" / "params" / "sim_survey_mission.yaml").read_text())
     assert shipped["recovery_cv"]["ros__parameters"]["features"] == {"recovery_cv": False} and "features" not in shipped
+
+
+def test_the_near_field_is_reported_by_itself_and_not_judged():
+    """REC-5's hand-off: under 3 m no X can be fitted and the bucket is looked for by itself. How often and how well it was found is in the report."""
+    far = [frame() for _ in range(40)]
+    near_seen = [{**frame(x_error=None, bucket_error=2.0 + 0.1 * index, whole=False, height_m=2.8 - 0.1 * index), "bucket_in_view": True, "px_per_m": 150.0 + 20.0 * index} for index in range(20)]
+    near_missed = [{**frame(x_error=None, bucket_error=None, whole=False, height_m=1.0), "bucket_in_view": True}] * 5
+    out_of_view = [{**frame(x_error=None, bucket_error=None, whole=False, height_m=1.0), "bucket_in_view": False}] * 7  # the bucket's rim is out of the picture: not counted
+    report = check.build_report(far + near_seen + near_missed + out_of_view)
+    near = report["near_field"]
+    assert report["passed"] and near["frames"] == 25 and near["bucket_found"] == 20 and near["bucket_found_share"] == 0.8 and near["x_reported"] == 0
+    assert near["bucket_error_px"]["median"] == pytest.approx(2.9, abs=0.11) and near["lowest_m"] == pytest.approx(0.9) and near["bucket_error_m_at_the_ground"]["p95"] < 0.02
+    lines = check.summary_lines(report)
+    assert len(lines) == 2 and lines[1].startswith("near field (under 3 m, the bucket's rim in view): the bucket reported in 20 of 25 frames, down to 0.90 m; centre error median 2.9 px")
+    # No near frame: no near line, and the far verdict is what it was.
+    assert check.summary_lines(check.build_report(far)) == check.summary_lines(report)[:1] and check.build_report(far)["near_field"]["frames"] == 0
+    # A near field in which the bucket was never found does not fail the detector's check: the mission's rules judge that.
+    assert check.build_report(far + near_missed)["passed"] is True
+    one = check.frame_of([("bucket", 300.0, 200.0)], None, (302.0, 201.0), corners(side=2000.0), SIZE, 1.2, 5.0, 0.1)
+    assert one["bucket_in_view"] is True and one["whole"] is False and one["bucket_error_px"] == pytest.approx(math.hypot(2.0, 1.0))
+    assert check.frame_of([], None, (-5.0, 201.0), corners(side=2000.0), SIZE, 1.2, 5.0, 0.1)["bucket_in_view"] is False

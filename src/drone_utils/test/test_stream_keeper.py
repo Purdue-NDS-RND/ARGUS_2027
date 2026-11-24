@@ -44,7 +44,9 @@ NOT_TOPICS = {"argus_mavros", "install_geographiclib_datasets", "param"}
 # Used only behind a flag, by code that flies on without it, and whose plugin the aircraft's MAVROS does not load:
 # a plugin in the allow-list runs with every flag off, so adding one is the lead's to decide. /mavros/mission is
 # the AUTO mission's upload (PLT-13, flag time_trial_auto); with no `waypoint` plugin the time trial flies in GUIDED.
-FLAG_ONLY_NOT_ALLOWED = {"mission": "waypoint"}
+# /mavros/optical_flow is where the flow odometry sends its samples (REC-5, node flag flow_odometry); with no
+# `optical_flow` plugin the node still publishes its velocity on its own topics and the flight controller hears nothing.
+FLAG_ONLY_NOT_ALLOWED = {"mission": "waypoint", "optical_flow": "optical_flow"}
 
 
 # --- the config file -----------------------------------------------------------------------------

@@ -215,6 +215,8 @@ def tools_needed(manifest: dict) -> set[str]:
         needed.add("preflight")  # the preflight is run beside the flight and held to what the scenario expects of it (the GO command runs its own)
     if ((manifest.get("node_flags") or {}).get("recovery_cv") or {}).get("recovery_cv") is True:
         needed.add("recovery_cv_check")  # the green X and bucket detector's pixels against the truth
+    if ((manifest.get("node_flags") or {}).get("flow_odometry") or {}).get("flow_odometry") is True:
+        needed.add("flow_check")  # the flow odometry's velocity against the true velocity
     return needed
 
 
@@ -239,6 +241,7 @@ def unsupported(manifest: dict, tools_present) -> str:
         "loc_check": "it turns the localisation node on, and the check of its pipeline (sim/loc_check.py) is missing",
         "preflight": "it says what the preflight must say, and the tool that runs it (sim/preflight_check.py) is missing",
         "recovery_cv_check": "it turns the recovery detector on, and the check of it against the truth (sim/recovery_cv_check.py) is missing",
+        "flow_check": "it turns the flow odometry on, and the check of it against the true velocity (sim/flow_check.py) is missing",
     }
     missing = tools_needed(manifest) - set(tools_present)
     return "; ".join(reasons[name] for name in sorted(missing, reverse=True))

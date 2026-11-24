@@ -37,6 +37,25 @@ airframes:
         source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
     payload_offset_m: [0.0, 0.0, 0.0]
 
+  # The sim's recovery vehicle (sim/models/iris_recovery; iris_flow carries the same two cameras): the Iris above
+  # with the flow camera beside the downward camera. The flow odometry (REC-5) reads the flow camera's mode
+  # through this entry.
+  sim_iris_recovery:
+    description: The sim's Iris with the downward camera and the flow camera (sim/models/iris_recovery, iris_flow).
+    verified: true
+    cameras:
+      down:
+        optical_frame: down_camera_optical
+        position_m: [0.0, 0.0, 0.0]
+        image_yaw_deg: 0.0
+        source: sim/models/iris_downcam/model.sdf, sensor pose 0 0 0 0 1.5708 0
+      flow:
+        optical_frame: flow_camera_optical
+        position_m: [0.05, 0.0, -0.08]
+        image_yaw_deg: 0.0
+        source: sim/sensor_profiles.py, flowcam_link pose 0.05 0 -0.08 from the base link
+    payload_offset_m: [0.0, 0.0, 0.0]
+
   # Not a vehicle of its own: the sim's Iris described as if its release point
   # were 0.30 m ahead of the flight controller and 0.10 m to its left, so that
   # aiming the payload (CEN-01) can be flown and judged with an offset that is

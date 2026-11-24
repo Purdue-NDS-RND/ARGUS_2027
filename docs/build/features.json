@@ -1192,9 +1192,9 @@
       "land": "REC-5",
       "proven_in": "Sim, Field",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; sim: recovery/pickup_detector OK 19.99 points, one descent on the real detector with the near field (bucket found down to 0.84 m, 0.9 px median); recovery/flow_odometry FAIL: RMS 0.333 m/s at 5 to 15 m against the spec's 0.15 (0.038 elsewhere); docs/results/2026-11-24-flow-odometry-and-near-field.md. Left: the pass line at height, the OV9782's in-process frames, OPTICAL_FLOW's units and the aircraft's MAVROS plugin, the 2 ms timing, the field replay and its tool (lead); the hook's measured offset and the bucket's colour (mechanical team)",
       "blocked_reason": ""
     },
     {

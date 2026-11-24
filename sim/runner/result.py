@@ -39,6 +39,8 @@ from loc_check import read_loc_check, summary_lines as loc_lines  # noqa: E402
 from loc_check import wanted as loc_check_wanted  # noqa: E402
 from recovery_cv_check import read_check as read_recovery_cv_check, summary_lines as recovery_cv_lines  # noqa: E402
 from recovery_cv_check import wanted as recovery_cv_check_wanted  # noqa: E402
+from flow_check import read_flow_check, summary_lines as flow_check_lines  # noqa: E402
+from flow_check import wanted as flow_check_wanted  # noqa: E402
 from payload_bridge import wanted as bridge_wanted  # noqa: E402
 from projection_check import read_projection_check  # noqa: E402
 from wind import read_wind, tilt_problem  # noqa: E402
@@ -133,6 +135,7 @@ def run_result(run_dir: Path) -> dict:
         "expect_log": None,
         "loc_check": None,
         "recovery_cv_check": None,
+        "flow_check": None,
         "failsafe_check": None,
         "watchdog_check": None,
         "preflight_check": None,
@@ -298,6 +301,12 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the run had the recovery detector on but left no check of it (recovery_cv_check.json)")
         elif result["status"] == "OK" and not result["recovery_cv_check"]["passed"]:
             result.update(status="FAIL", reason="the recovery detector missed a pass line: " + "; ".join(result["recovery_cv_check"].get("problems") or ["no reason given"]))
+    if flow_check_wanted(manifest):
+        result["flow_check"] = read_flow_check(run_dir)
+        if result["status"] == "OK" and result["flow_check"] is None:
+            result.update(status="INVALID", reason="the run had the flow odometry on but left no check of it (flow_check.json)")
+        elif result["status"] == "OK" and not result["flow_check"]["passed"]:
+            result.update(status="FAIL", reason="the flow odometry missed its pass line: " + "; ".join(result["flow_check"].get("problems") or ["no reason given"]))
     if manifest.get("preflight"):
         # The preflight was run before the flight (PLT-10): the run counts only if it said what the scenario expects.
         report = _read_json(run_dir / "preflight_check.json")
@@ -436,6 +445,11 @@ def _loc_rows(result: dict) -> list[str]:
     return [] if not report else [f"| Localisation pipeline | {'; '.join(loc_lines(report))} |"]
 
 
+def _flow_check_rows(result: dict) -> list[str]:
+    report = result.get("flow_check")
+    return [] if not report else [f"| Flow odometry | {'; '.join(line.strip() for line in flow_check_lines(report))} |"]
+
+
 def _recovery_cv_rows(result: dict) -> list[str]:
     report = result.get("recovery_cv_check")
     return [] if not report else [f"| Recovery detector | {'; '.join(recovery_cv_lines(report))} |"]
@@ -504,6 +518,7 @@ def render_report(result: dict) -> str:
         *_gps_rows(result),
         *_loc_rows(result),
         *_recovery_cv_rows(result),
+        *_flow_check_rows(result),
         *_expect_log_rows(result),
         f"| Fence breaches (true position) | {len(result['fence_breaches'])} |",
         f"| Failsafes | {len(result['failsafes'])} |",

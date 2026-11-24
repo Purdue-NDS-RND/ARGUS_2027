@@ -106,8 +106,9 @@ def evaluate(count: int = 300, negatives: int = 200, seed: int = 1) -> dict:
             if kind != "bullseye":
                 options = synth_targets.RenderOptions(**{**options.__dict__, "mpp": float(rng.uniform(0.002, 0.02))})
             image, _truth = synth_targets.render(target, options, seed=seed * 7919 + index)
-        if green_x.detect(image).x is not None:
-            false_alarms.append(f"{kind} #{index}")
+        seen = green_x.detect(image)
+        if seen.x is not None or seen.bucket is not None:  # a bucket by itself (the near field) on a picture with no mat is a false alarm too
+            false_alarms.append(f"{kind} #{index}" + ("" if seen.x is not None else " (a bucket with no X)"))
     return {
         "count": count,
         "found": found_count,

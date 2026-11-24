@@ -1,11 +1,16 @@
-# The recovery mission in the sim (REC-2) on the green X and bucket detector as built (REC-1). The detector
-# gives the X and the bucket from the transit height down to about 3 m and nothing below that (the mat fills the
-# picture; the hand-off to the flow camera is not built). The mission flies to the pickup's coordinates, takes
-# the track, approaches, centres 3 m above the handle and starts down the cone; when the detections stop the
-# cone holds and says the handle is lost, the mission climbs to see it again, and after three descents it
-# fails and the executor brings the vehicle home (the abort is RTL: the gripper never closed). No bucket is taken: the flight shows the
-# chain from the camera to the cone, and that the mission does not go down blind.
-description: The recovery mission on the green X detector as built - it reaches the cone and does not descend blind.
+# The recovery mission in the sim (REC-2) on the green X and bucket detector (REC-1), with the detector's near field
+# (REC-5's hand-off). From the transit height down to about 3 m the detector gives the X and the bucket on its
+# crossing; below that the mat fills the picture, no X can be fitted, and the detector gives the bucket by itself.
+# The mission flies to the pickup's coordinates, takes the track, approaches, centres 3 m above the handle, comes
+# down the cone on the bucket's track (CONFIRMED all the way: the descend and release rules are unchanged), engages,
+# lifts, verifies the attach, and takes the bucket home.
+#
+# Before the near field this scenario showed the mission refusing to descend blind: the detections stopped at 3 m,
+# the cone held, and after three descents the mission failed to RTL. No sim scenario shows that any more; the rule
+# is held by unit tests of the flight (src/drone_mission_core/test/test_recovery_flight.py:
+# test_a_detector_that_sees_nothing_below_three_metres_ends_in_three_lost_descents and
+# test_no_descent_below_point_eight_after_the_handle_is_lost).
+description: The recovery mission on the green X and bucket detector as built - from takeoff to the bucket set down at the takeoff point.
 mission: recovery
 site: apollo_xi
 seed: 1
@@ -31,5 +36,7 @@ objects:
   - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
 expect_log:
   - "State: CENTRE -> CONE_DESCENT"
-  - "-> LOST_TARGET"
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
 wind: {level: calm}

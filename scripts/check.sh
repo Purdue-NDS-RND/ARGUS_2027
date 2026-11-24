@@ -151,6 +151,8 @@ else
     run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit_node.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_green_x.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_recovery_cv_node.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_flow_odometry.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_flow_odometry_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_feature_plumbing.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_bringup.py
@@ -216,6 +218,7 @@ else
     run_test "" sim/test/test_watchdog_check.py
     run_test "" sim/test/test_preflight_check.py
     run_test "" sim/test/test_attempt_check.py
+    run_test "" sim/test/test_flow_check.py
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
     run_test "" sim/test/test_gates.py
