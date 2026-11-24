@@ -21,8 +21,8 @@ mission_sequence:
     ekf_source_switching: false                     # Ask the GPS health monitor every tick; on UNTRUSTED fly as without GPS, and ask the flight controller for source set 2 only while optical flow is being sent to it (gps_health.py). Needs package_recovery.
     recovery_telemetry: false                       # Not built: the mission refuses to start with it on.
     visual_attach_check: false                      # Not built (the hook camera's view of the bucket): refused when on.
-    marker_homing: false                            # Not built (REC-7b): refused when on.
-    keyframe_homing: false                          # Not built (REC-7b): refused when on.
+    marker_homing: false                            # Set the bucket down on the home marker's track (home_marker) in the last metres home. Needs package_recovery, and recovery_cv's features.marker_homing.
+    keyframe_homing: false                          # The same from the takeoff climb's keyframes. Needs package_recovery, and recovery_cv's features.keyframe_homing.
   missions:
     - type: takeoff                                # Mission type registered in the mission framework.
       name: takeoff                                # Human-readable mission instance name for logs.

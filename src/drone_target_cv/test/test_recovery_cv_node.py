@@ -131,3 +131,153 @@ def test_what_the_node_cannot_use_is_said_and_not_published(ros):
     node.subscriptions[IMAGE_TOPIC](image_message(image, sec=0, nanosec=0))
     node.subscriptions[IMAGE_TOPIC](image_message(image, encoding="mono8"))
     assert node.publishers[TOPIC].sent == [] and node.counts["looked at"] == 0
+
+
+# --- visual homing in the node (REC-7b) ---------------------------------------------------------------------
+
+POSE_TOPIC = "/mavros/local_position/pose"
+STATE_TOPIC = "/mavros/extended_state"
+GROUND_PX_PER_M = 80.0  # the made-up ground's own scale
+GROUND_MIDDLE = (1200.0, 1200.0)  # the local frame's origin in it
+
+
+def pose_message(stamp_ns, position, yaw_rad=0.0):
+    half = 0.5 * yaw_rad
+    return types.SimpleNamespace(
+        header=types.SimpleNamespace(stamp=types.SimpleNamespace(sec=stamp_ns // 1_000_000_000, nanosec=stamp_ns % 1_000_000_000)),
+        pose=types.SimpleNamespace(position=types.SimpleNamespace(x=position[0], y=position[1], z=position[2]), orientation=types.SimpleNamespace(x=0.0, y=0.0, z=math.sin(half), w=math.cos(half))),
+    )
+
+
+def seen_from(ground_picture, position, yaw_rad=0.0):
+    """What the sim's downward camera sees of a flat picture of the ground from a pose: rendered through the node's own camera model and mount."""
+    from drone_mission_core import projection_v2
+    from drone_mission_core.frame_projection import load_camera
+
+    camera, mount = load_camera("sim_delivery", "sim_iris_downcam")
+    orientation = (0.0, 0.0, math.sin(0.5 * yaw_rad), math.cos(0.5 * yaw_rad))
+    corners = [(0.0, 0.0), (WIDTH - 1.0, 0.0), (WIDTH - 1.0, HEIGHT - 1.0), (0.0, HEIGHT - 1.0)]
+    on_ground = []
+    for corner in corners:
+        point = projection_v2.project(camera, mount, corner, position, orientation, 0.0)
+        on_ground.append((GROUND_MIDDLE[0] + point.east_m * GROUND_PX_PER_M, GROUND_MIDDLE[1] - point.north_m * GROUND_PX_PER_M))
+    warp = cv2.getPerspectiveTransform(np.float32(on_ground), np.float32(corners))
+    grey = cv2.warpPerspective(ground_picture, warp, (WIDTH, HEIGHT), flags=cv2.INTER_AREA, borderValue=110)
+    pixel_of = lambda east, north: projection_v2.pixel_of_ground_point(camera, mount, (east, north, 0.0), position, orientation)  # noqa: E731
+    return cv2.cvtColor(grey, cv2.COLOR_GRAY2BGR), pixel_of
+
+
+def homing_node(ros, **flags):
+    with_vision_msgs(ros)
+    ros.setitem(sys.modules, "mavros_msgs.msg", types.SimpleNamespace(ExtendedState=object))
+    return node_with(ros, **{"features.recovery_cv": True, **flags})
+
+
+def test_the_homing_flags_are_off_by_default_and_then_nothing_of_homing_is_loaded_or_subscribed(ros):
+    for module in ("drone_target_cv.home_marker", "drone_target_cv.keyframe_homing"):
+        ros.delitem(sys.modules, module, raising=False)
+    node = homing_node(ros)
+    assert node.declared["features.marker_homing"] is False and node.declared["features.keyframe_homing"] is False and node.declared["home_marker_id"] == 0
+    assert set(node.subscriptions) == {IMAGE_TOPIC} and "drone_target_cv.home_marker" not in sys.modules and "drone_target_cv.keyframe_homing" not in sys.modules
+    image, _truth = mat()
+    node.subscriptions[IMAGE_TOPIC](image_message(image))
+    assert {detection.class_id for detection in contract.decode(node.publishers[TOPIC].sent[-1]).detections} == {"green_x", "bucket"}
+
+
+def test_with_marker_homing_on_the_home_marker_goes_out_in_a_message_of_its_own_after_the_frames_x_and_bucket(ros):
+    from drone_target_cv import home_marker
+
+    if not home_marker.available():
+        pytest.skip("this OpenCV has no aruco module with the AprilTag 36h11 dictionary")
+
+    node = homing_node(ros, **{"features.marker_homing": True})
+    assert set(node.subscriptions) == {IMAGE_TOPIC}  # the marker needs no pose
+    ground_picture = np.full((2400, 2400), 60, dtype=np.uint8)
+    tag = home_marker.picture(0, cell_px=8)  # 0.8 m across the border at 80 px a metre, with its white margin
+    place = (2.0, -1.0)  # east, north of the tag's centre
+    left, top = int(GROUND_MIDDLE[0] + place[0] * GROUND_PX_PER_M) - 40, int(GROUND_MIDDLE[1] - place[1] * GROUND_PX_PER_M) - 40
+    ground_picture[top : top + 80, left : left + 80] = tag
+    image, pixel_of = seen_from(ground_picture, (1.2, -0.4, 5.0), yaw_rad=0.6)
+    node.subscriptions[IMAGE_TOPIC](image_message(image))
+    first, second = (contract.decode(message) for message in node.publishers[TOPIC].sent[-2:])
+    assert first.detections == () and first.stamp_ns == second.stamp_ns  # the frame's own message first (no X and no bucket in this picture), then the marker's
+    found = second.detections
+    assert [detection.class_id for detection in found] == ["home_marker"] and len(node.publishers[HANDLE_TOPIC].sent) == 1
+    expected = pixel_of(*place)
+    assert math.hypot(found[0].cx - expected[0], found[0].cy - expected[1]) < 2.0 and found[0].score == home_marker.SCORE
+    assert found[0].width == pytest.approx(0.8 * FOCAL_PX / 5.0, rel=0.45) and target_estimator.plane_height_m("home_marker") == 0.0
+    # The marker is looked for at most thirty times a second: a frame 20 ms after the last is not looked at for it.
+    sent = len(node.publishers[TOPIC].sent)
+    node.subscriptions[IMAGE_TOPIC](image_message(image, nanosec=721_000_000))
+    assert len(node.publishers[TOPIC].sent) == sent + 1
+    node.subscriptions[IMAGE_TOPIC](image_message(image, nanosec=821_000_000))
+    assert len(node.publishers[TOPIC].sent) == sent + 3 and node.slowest_homing_ms > 0.0
+    # Another id is not the home marker.
+    other = homing_node(ros, **{"features.marker_homing": True, "home_marker_id": 7})
+    other.subscriptions[IMAGE_TOPIC](image_message(image))
+    assert [contract.decode(message).detections for message in other.publishers[TOPIC].sent] == [()]
+    # An OpenCV without the aruco module: said once, the marker is not looked for, and the X and the bucket go on.
+    ros.setattr(home_marker, "available", lambda: False)
+    without = homing_node(ros, **{"features.marker_homing": True})
+    assert "has no aruco module" in without.logger.error.call_args[0][0] and without._marker_id is None
+    mat_image, _truth = mat()
+    without.subscriptions[IMAGE_TOPIC](image_message(mat_image))
+    assert {detection.class_id for detection in contract.decode(without.publishers[TOPIC].sent[-1]).detections} == {"green_x", "bucket"}
+
+
+def test_with_keyframe_homing_on_the_climbs_pictures_are_kept_and_the_takeoff_point_is_found_on_the_way_back(ros):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import test_home_finders as finders
+
+    node = homing_node(ros, **{"features.keyframe_homing": True})
+    assert set(node.subscriptions) == {IMAGE_TOPIC, POSE_TOPIC, STATE_TOPIC}
+    ground_picture = finders.ground(seed=5, size=2400)
+    home = (0.5, -0.3)
+    clock = [100 * 1_000_000_000]
+
+    def at(position, yaw_rad=0.0, frame=True, landed=False):
+        clock[0] += 400_000_000  # (two and a half frames a second: under the three a second the keyframes are matched at)
+        node.subscriptions[STATE_TOPIC](types.SimpleNamespace(landed_state=1 if landed else 2))
+        for back_ms in (60, 30, 0):
+            node.subscriptions[POSE_TOPIC](pose_message(clock[0] - back_ms * 1_000_000, position, yaw_rad))
+        if not frame:
+            return None, None
+        # The frame comes 20 ms before the pose of its moment, as it does on a busy computer: it is held, and answered when the pose comes.
+        image, pixel_of = seen_from(ground_picture, position, yaw_rad)
+        frame_ns = clock[0] + 20_000_000
+        sent_before = len(node.publishers[TOPIC].sent)
+        node.subscriptions[IMAGE_TOPIC](image_message(image, sec=frame_ns // 1_000_000_000, nanosec=frame_ns % 1_000_000_000))
+        assert [detection.class_id for detection in contract.decode(node.publishers[TOPIC].sent[-1]).detections] == [] and len(node._held) == 1
+        assert sent_before + 1 == len(node.publishers[TOPIC].sent)  # the frame's own message went out at once, before any homing
+        for ahead_ms in (10, 40):
+            node.subscriptions[POSE_TOPIC](pose_message(clock[0] + ahead_ms * 1_000_000, position, yaw_rad))
+        assert node._held == []
+        homing = [contract.decode(message) for message in node.publishers[TOPIC].sent[sent_before + 1 :]]
+        assert all(found.stamp_ns == frame_ns and found.frame_id == "down_camera_optical" for found in homing) and len(homing) <= 1
+        return (homing[0].detections if homing else ()), pixel_of
+
+    for _ in range(4):  # in the air before any landing has been seen (a node started in flight): no takeoff point, whatever the height
+        at((home[0] + 5.0, home[1], 0.05), frame=False)
+    assert node._climb.home is None
+    for _ in range(8):  # standing on the ground, by the flight controller's own word
+        at((home[0], home[1], 0.1), frame=False, landed=True)
+    assert node._climb.home is not None and node._climb.takeoffs == 1
+    for step in range(1, 60):  # straight up to 14.9 m, a quarter of a metre a frame
+        found, _pixel_of = at((home[0], home[1], 0.1 + 0.25 * step))
+        assert found == ()  # the climb's pictures are kept, and nothing is reported from them
+    assert node.counts["keyframes kept"] == 4 and all(abs(keyframe.height_m - wanted) <= 0.75 for keyframe, wanted in zip(node._keyframes.keyframes, (4.0, 7.0, 10.0, 14.0)))
+    at((6.0, 4.0, 15.0), frame=False)  # away
+    assert node._climb.left
+    found, pixel_of = at((home[0] + 1.6, home[1] - 0.9, 5.1), yaw_rad=0.8)  # and back, carrying, from another heading
+    assert [detection.class_id for detection in found] == ["takeoff_point"] and node.counts["takeoff point found"] == 1
+    assert target_estimator.plane_height_m("takeoff_point") == 0.0
+    expected = pixel_of(*home)
+    assert math.hypot(found[0].cx - expected[0], found[0].cy - expected[1]) < 4.0  # pixels: 0.05 m on the ground from 5 m
+    # Far from the takeoff point nothing is looked for.
+    found, _pixel_of = at((home[0] + 30.0, home[1], 5.0))
+    assert found == () and node.counts["takeoff point found"] == 1
+    # Frames whose poses never come are not kept for ever.
+    for index in range(6):
+        late = clock[0] + (index + 1) * 1_000_000_000
+        node.subscriptions[IMAGE_TOPIC](image_message(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8), sec=late // 1_000_000_000, nanosec=late % 1_000_000_000))
+    assert len(node._held) <= 3 and node.counts["frames with no pose for keyframe homing"] >= 3

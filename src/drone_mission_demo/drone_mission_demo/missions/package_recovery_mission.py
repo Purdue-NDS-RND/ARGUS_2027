@@ -42,9 +42,15 @@ of at the start, and asked for again only when the rating is TRUSTED again
 and the mission is on its way out or home)
 and `recovery_gps_untrusted` (no global setpoint, ever; the
 pickup must then be given as `local`). The flags the spec names whose
-behaviour is not built (`recovery_telemetry`,
-`visual_attach_check`, `marker_homing`, `keyframe_homing`) are refused when
-on: the mission is not constructed.
+behaviour is not built (`recovery_telemetry`, `visual_attach_check`) are
+refused when on: the mission is not constructed. `marker_homing` and
+`keyframe_homing` (REC-7b) make the mission take the estimator's confirmed
+track of the home marker (`home_marker`) or of the takeoff point as the
+climb's keyframes show it (`takeoff_point`) as the place to set the bucket
+down: after its fixes have agreed for a second, inside the last ten metres,
+within 4 m (and the drift allowed for; never more than REC-7's 10 m) of
+where the return point was thought to be. The detector node's flags of the
+same names are what finds them.
 
 The configuration is checked when the mission is constructed, so numbers
 that cannot be flown stop the executor on the ground. The mechanism's and
@@ -67,6 +73,10 @@ FIX_MAX_AGE_S = 2.0
 POSE_MAX_AGE_S = 0.5
 TARGET_CLASSES = ("bucket", "green_x")  # the bucket's own track first: the handle is on it. The X's finds and centres; the cone and the engage go by the bucket's only
 CONFIRMED = "CONFIRMED"
+# REC-7b: which of the estimator's tracks each homing flag takes for the return point. The marker's own class and the takeoff point's
+# are two classes: a mission told to home on a marker never takes the keyframes' takeoff point for it.
+HOME_CLASSES = (("marker_homing", "home_marker"), ("keyframe_homing", "takeoff_point"))
+HOMING_MAX_SIGMA_M = 0.5  # a track less sure of its place than this is not a place to set a bucket down on
 SOURCE_FLAG = "ekf_source_switching"  # gps_health.FLAG (a test holds the two together)
 STATIC_TARGET_STATES = ("ACQUIRE", "APPROACH", "CENTRE", "CONE_DESCENT")  # the bucket is tracked and stands on the ground
 SOURCE_SET_BACK_STATES = ("TRANSIT", "ACQUIRE", "SEARCH", "RETURN")  # where the mission lets the flight controller go back to the GPS's source set
@@ -154,6 +164,11 @@ class PackageRecoveryMission(BaseMission):
         self._near: Optional[Tuple[float, float]] = None
         self._boundary: Any = None  # the flight boundary in the local frame, once its corners can be placed
         self._said_state = ""
+        self._said_homed: Optional[Tuple[float, float]] = None
+        self._home_classes = tuple(class_id for flag, class_id in HOME_CLASSES if self.plan.homing and get_feature_flag(self.spec.features, flag))
+        if self._home_classes and self.plan.return_target.kind == self._rf.back.MARKER:
+            # The marker's id is the detector node's to look for: the mission cannot see which id it was told.
+            context.logger.warn(f"[{self.name}] the return target is marker {self.plan.return_target.marker}: the recovery detector's home_marker_id must be {self.plan.return_target.marker} (it is not checked from here)")
         self._last_log_s = -1.0e9
         self._abort_mode: Optional[str] = None  # what the executor was last told
         # REC-6 (flag ekf_source_switching): the flight controller's source set, by its acknowledgements. None with the flag off.
@@ -211,6 +226,12 @@ class PackageRecoveryMission(BaseMission):
             context.set_abort_mode(rf.back.ABORT_LAND if abort_mode == rf.back.ABORT_LAND else None)
             context.logger.info(f"[{self.name}] a failure of the sequence would now ask for {abort_mode}")
             self._abort_mode = abort_mode
+        if self.flight.homed != self._said_homed:
+            self._said_homed = self.flight.homed
+            if self._said_homed is None:
+                context.logger.warn(f"[{self.name}] homing: the place taken for the return point is given up (not seen again, or seen where it cannot be): the way back is by the coordinates")
+            else:
+                context.logger.info(f"[{self.name}] homing: the return point is taken as seen, at ({self._said_homed[0]:.2f}, {self._said_homed[1]:.2f}) in the local frame")
         if self.flight.state != self._said_state:
             context.logger.info(f"[{self.name}] State: {self._said_state or 'START'} -> {self.flight.state}" + (f" ({self.flight.reason})" if self.flight.reason else ""))
             self._said_state = self.flight.state
@@ -331,6 +352,12 @@ class PackageRecoveryMission(BaseMission):
             if track is not None and track.state in (CONFIRMED, "COASTING"):
                 self._near = (track.position[0], track.position[1])
                 values["target"] = rf.Target(track.position[0], track.position[1], float(track.sigma_m), float(track.age_s), track.state == CONFIRMED, class_id == "bucket")
+                break
+        for class_id in self._home_classes:
+            # The return point as the home marker or the takeoff's keyframes show it (REC-7b): the estimator's own confirmed track, sure of its place.
+            home = context.primary_target(class_id)
+            if home is not None and home.state == CONFIRMED and float(home.sigma_m) <= HOMING_MAX_SIGMA_M:
+                values["homing"] = rf.back.HomingFix(float(home.position[0]), float(home.position[1]), float(home.age_s))
                 break
         return rf.Readings(**values)
 

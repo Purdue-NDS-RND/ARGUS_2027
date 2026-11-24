@@ -191,6 +191,8 @@ def _object_sdf(item: dict) -> str:
             return sdf_objects.build_red_white_target_sdf(name, size=float(item.get("size_m", 5.0)), num_rings=int(item.get("rings", 8)))
         if kind == "marker":
             return sdf_objects.build_marker_sdf(name, size=float(item["size_m"]), digit=item["digit"])
+        if kind == "home_tag":
+            return sdf_objects.build_home_tag_sdf(name, size=float(item.get("size_m", 0.8)))
         if kind == "x_mat":
             return sdf_objects.build_x_mat_sdf(name, size=float(item.get("size_m", 5.0)), arm_width=float(item.get("arm_width_m", 0.5)))
         if kind == "bucket":

@@ -553,3 +553,60 @@ def test_a_mission_that_ends_on_source_set_two_with_gps_trusted_again_asks_for_t
     flown.on_exit(context)
     assert context.source_commands[-1][1] == 1 and "the mission ends with the flight controller on source set 2: asking for source set 1" in " | ".join(context.infos)
 
+
+
+# --- visual homing (REC-7b) ---------------------------------------------------------------------------------
+
+
+class HomingContext(Context):
+    """The context whose estimator tracks the return point as one finder shows it (`home_marker` or `takeoff_point`) once the vehicle is within six metres of it."""
+
+    def __init__(self, world, home, class_id, state="CONFIRMED", sigma_m=0.1):
+        super().__init__(world)
+        self.home, self.class_id, self.state, self.sigma_m = home, class_id, state, sigma_m
+
+    def primary_target(self, class_id, near=None):
+        if class_id not in ("home_marker", "takeoff_point"):
+            return super().primary_target(class_id, near)
+        self.near_asked.append((class_id, near))
+        if class_id != self.class_id or math.hypot(self.world.pos[0] - self.home[0], self.world.pos[1] - self.home[1]) > 6.0:
+            return None
+        return target_access.PrimaryTarget(class_id, 11, self.state, (self.home[0], self.home[1], 0.0), ((0.01, 0.0), (0.0, 0.01)), self.sigma_m, 0.05, 0)
+
+
+@pytest.mark.parametrize("flag, class_id, other", [("marker_homing", "home_marker", "takeoff_point"), ("keyframe_homing", "takeoff_point", "home_marker")])
+def test_with_a_homing_flag_on_the_bucket_is_set_down_on_that_flags_own_confirmed_track(flag, class_id, other):
+    from drone_mission_core.features import FLAG_REQUIRES
+    from drone_mission_demo.missions import package_recovery_mission
+
+    home = (1.5, -1.0)
+    world = world_tests.World()
+    context = HomingContext(world, home, class_id)
+    assert run(mission(features={**ON, flag: True}), context) == MissionStatus.SUCCESS
+    assert math.hypot(world.bucket[0] - home[0], world.bucket[1] - home[1]) < 0.35
+    assert "homing: the return point is taken as seen, at (1.50, -1.00) in the local frame" in " | ".join(context.infos)
+    assert (class_id, None) in context.near_asked and (other, None) not in context.near_asked  # the flag's own class, and never the other finder's
+    assert dict(package_recovery_mission.HOME_CLASSES) == {"marker_homing": "home_marker", "keyframe_homing": "takeoff_point"} and FLAG_REQUIRES[flag] == ("package_recovery",)
+    assert LOADED["features"][flag] is False
+    # The other finder's track is not this flag's: the mission told to home on a marker does not take the keyframes' takeoff point for it.
+    wrong_world = world_tests.World()
+    assert run(mission(features={**ON, flag: True}), HomingContext(wrong_world, home, other)) == MissionStatus.SUCCESS and math.hypot(*wrong_world.bucket) < 0.35
+    # A track that is not confirmed, or not sure of its place, is not a place to set a bucket down on.
+    for more in ({"state": "TENTATIVE"}, {"sigma_m": 0.8}):
+        unsure_world = world_tests.World()
+        assert run(mission(features={**ON, flag: True}), HomingContext(unsure_world, home, class_id, **more)) == MissionStatus.SUCCESS
+        assert math.hypot(*unsure_world.bucket) < 0.35, more
+    # With the flags off no such track is asked for.
+    off_world = world_tests.World()
+    off_context = HomingContext(off_world, home, class_id)
+    assert run(mission(), off_context) == MissionStatus.SUCCESS and math.hypot(*off_world.bucket) < 0.35
+    assert not any(asked in ("home_marker", "takeoff_point") for asked, _near in off_context.near_asked)
+
+
+def test_a_marker_return_target_says_which_id_the_detector_must_be_looking_for():
+    world = world_tests.World()
+    context = HomingContext(world, (1.5, -1.0), "home_marker")
+    near = list(world.anchor.to_global(0.5, 0.0))
+    flown = mission(features={**ON, "marker_homing": True}, return_target={"marker": 3, "near": near})
+    flown.on_enter(context)
+    assert "the return target is marker 3: the recovery detector's home_marker_id must be 3 (it is not checked from here)" in " | ".join(context.infos)

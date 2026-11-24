@@ -479,6 +479,48 @@ def build_marker_sdf(model_name: str, size: float = 0.6, digit=None) -> str:
     )
 
 
+# The AprilTag 36h11 of id 0, border included, row by row from its top left: 1 is white. It is the grid
+# drone_target_cv/home_marker.py reads (a test holds the two together); written out here so that the sim's models need no OpenCV.
+HOME_TAG_CELLS = ("00000000", "00010000", "00110100", "00001010", "00001100", "01011100", "01010110", "00000000")
+
+
+HOME_TAG_LAYERS_M = (0.005, 0.015, 0.025)  # the board, the tag's black square and its white cells, above the ground
+
+
+def build_home_tag_sdf(model_name: str, size: float = 0.8) -> str:
+    """Build SDF for the home marker (REC-7b): an AprilTag 36h11 of id 0, lying flat.
+
+    A white board one cell wider than the tag all round, the tag's black
+    square on it, and the tag's white cells on that. Seen from above with
+    north up, the tag's top row is to the north and its columns run east, so
+    the picture is the tag and not its mirror image.
+
+    Args:
+        model_name: Name for the model.
+        size:       Side of the tag across its black border, in metres.
+    """
+    cell = size / len(HOME_TAG_CELLS)
+    white, black = "1 1 1 1", "0.02 0.02 0.02 1"
+    # A centimetre between the layers: plates 2 mm apart were drawn through one another from flying height (the tag was read in one
+    # frame of six in the sim's first flights), and a centimetre of height moves nothing by a pixel.
+    board_z, tag_z, cells_z = HOME_TAG_LAYERS_M
+    links = [_flat_link("board", 0.0, 0.0, board_z, 0.0, size + 2.0 * cell, size + 2.0 * cell, white), _flat_link("tag", 0.0, 0.0, tag_z, 0.0, size, size, black)]
+    for row, line in enumerate(HOME_TAG_CELLS):
+        column = 0
+        while column < len(line):  # each run of white cells in a row is one strip
+            if line[column] != "1":
+                column += 1
+                continue
+            end = column
+            while end + 1 < len(line) and line[end + 1] == "1":
+                end += 1
+            x = ((column + end + 1) / 2.0 - len(line) / 2.0) * cell
+            y = (len(HOME_TAG_CELLS) / 2.0 - row - 0.5) * cell
+            links.append(_flat_link(f"white_{row}_{column}", x, y, cells_z, 0.0, (end - column + 1) * cell, cell, white))
+            column = end + 1
+    return f"<?xml version='1.0'?><sdf version='1.6'><model name='{model_name}'><static>true</static>{''.join(links)}</model></sdf>"
+
+
 def build_x_mat_sdf(
     model_name: str,
     size: float = 5.0,

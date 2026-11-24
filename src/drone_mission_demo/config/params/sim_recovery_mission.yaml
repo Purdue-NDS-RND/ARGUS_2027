@@ -70,6 +70,11 @@ recovery_cv:  # The green X and bucket detector (REC-1). Only started by a launc
     image_topic: "camera/image"      # the sim's camera, as ros_gz_bridge publishes it
     features:
       recovery_cv: false             # Look for the recovery mat's green X and the bucket in each frame and report them on the detection contract (green_x.py, REC-1).
+      marker_homing: false           # Look for the home marker (an AprilTag 36h11 of id home_marker_id) and report it as home_marker (home_marker.py, REC-7b). Needs recovery_cv.
+      keyframe_homing: false         # Keep pictures of the takeoff climb and find the takeoff point in the frames of the way back, as takeoff_point (keyframe_homing.py, REC-7b). Needs recovery_cv.
+    home_marker_id: 0                # the home marker's id in its family
+    pose_topic: "/mavros/local_position/pose"  # the vehicle's pose, for keyframe homing
+    extended_state_topic: "/mavros/extended_state"  # on the ground or not, for keyframe homing's takeoff point
 
 flow_odometry:  # Optical-flow odometry (REC-5). Only started by a launch given flow_odometry:=true.
   ros__parameters:

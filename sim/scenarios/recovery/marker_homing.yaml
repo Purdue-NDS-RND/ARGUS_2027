@@ -1,0 +1,46 @@
+# REC-7b (P1): marker homing in a flight. The recovery of recovery/pickup_detector with the return target a home
+# marker (an AprilTag 36h11, 0.8 m, id 0) said to be near a point 1.5 m east of where it really lies: it lies at the
+# takeoff point, which is the judge's return point. The mission flag marker_homing and the detector node's
+# features.marker_homing are on. The mission flies to the coordinates it was given, takes the marker's confirmed
+# track for the last metres, and sets the bucket down on the marker. Without the flags the same flight sets it down
+# at the coordinates, 1.5 m off (flown as a control: docs/results/2026-11-24-visual-homing.md).
+#
+# Flown with --variants on.
+description: The recovery on the real detector with the return point published 1.5 m off and a home marker lying at the true place - the bucket must be set down on the marker.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+  marker_homing: true
+node_flags:
+  recovery_cv:
+    recovery_cv: true
+    marker_homing: true
+config:
+  package_recovery:
+    return_target: {marker: 0, near: [34.1750000, -118.4824838]}
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: home_tag, kind: home_tag, at: {east_m: 0.0, north_m: 0.0}}
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "State: CENTRE -> CONE_DESCENT"
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
+  - "homing: the return point is taken as seen"
+  - "Home marker first found"
+wind: {level: calm}

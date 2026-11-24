@@ -47,6 +47,7 @@ OBJECT_KINDS = {
     "bullseye": {"size_m", "rings"},
     "marker": {"digit", "size_m"},
     "x_mat": {"size_m", "arm_width_m"},
+    "home_tag": {"size_m"},  # the home marker (REC-7b): an AprilTag 36h11 of id 0, lying flat
     "bucket": {"mass_kg", "diameter_m", "height_m"},
     "payload": {"mass_kg", "size_m"},
 }

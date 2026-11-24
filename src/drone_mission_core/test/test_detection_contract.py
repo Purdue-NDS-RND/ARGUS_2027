@@ -72,7 +72,7 @@ def sample_set():
 
 
 def test_the_class_list_is_the_one_in_the_spec():
-    assert contract.CLASSES == ("bullseye", "green_x", "marker", "boundary_marker", "bucket")
+    assert contract.CLASSES == ("bullseye", "green_x", "marker", "boundary_marker", "bucket", "home_marker", "takeoff_point")
 
 
 def test_the_topic_is_perception_detector_detections():

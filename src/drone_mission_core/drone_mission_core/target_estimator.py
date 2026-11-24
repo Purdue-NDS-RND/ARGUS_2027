@@ -61,7 +61,7 @@ ATTITUDE_SIGMA_RAD = math.radians(1.0)
 HEIGHT_SIGMA_M = {"rangefinder": 0.05, "home": 0.5}  # "home" is the baro height above the take-off point
 # Height above the ground of the plane each class is seen in. "handle" is the
 # bucket's handle, for the detector that will report it (REC lane).
-PLANE_HEIGHT_M = {"bullseye": 0.0, "green_x": 0.0, "marker": 0.0, "boundary_marker": 0.0, "bucket": 0.2, "handle": 0.3}
+PLANE_HEIGHT_M = {"bullseye": 0.0, "green_x": 0.0, "marker": 0.0, "boundary_marker": 0.0, "bucket": 0.2, "handle": 0.3, "home_marker": 0.0, "takeoff_point": 0.0}
 
 # Chosen here; the spec leaves them open (see PROGRESS.md, Decisions).
 SMALL_BOX_PX = 32.0  # a box narrower than this has a less certain centre: sigma grows as 32 / side

@@ -101,13 +101,12 @@ from .safety_limits import capped_speed
 FLAG = "package_recovery"
 UNTRUSTED_FLAG = "recovery_gps_untrusted"
 SWING_FLAG = grip.SWING_FLAG
+HOMING_FLAGS = ("marker_homing", "keyframe_homing")  # REC-7b: either makes the mission take the estimator's track of the home marker or of the takeoff point for the last metres home
 # Flags the spec names whose behaviour is another feature's and not built yet: a sequence that turns one on is
 # refused on the ground, not flown as if it were there.
 UNBUILT_FLAGS = {
     "recovery_telemetry": "the recovery telemetry is not built",
     "visual_attach_check": "nothing tracks the bucket in the hook camera yet (REC-1)",
-    "marker_homing": "marker homing is REC-7b's",
-    "keyframe_homing": "keyframe homing is REC-7b's",
 }
 
 (CHECKS, TRANSIT, ACQUIRE, SEARCH, APPROACH, CENTRE, CONE_DESCENT, ENGAGE, LIFT, VERIFY_ATTACH, CLIMB, RETURN, SET_DOWN, CLEAR, COMPLETE) = (
@@ -142,6 +141,14 @@ NO_POSITION_S = 1.0  # without a position for this long: the mission fails (or l
 LAND_RETRY_S = 2.0  # a landing asked for and not yet seen is asked for again this often
 RTL_AGAIN_AFTER_S = 2.0  # a pose and a fix for this long before a failure's abort is RTL again
 CARRY_LAND_LIMIT_S = 120.0  # a carrying fault's landing not seen for this long: the mission fails, and the executor's abort takes over
+HOMING_MAX_CORRECTION_M = 4.0  # a homing fix further than this (and the drift allowed for) from where the return point was thought to be is not believed
+HOMING_RELATCH_M = 0.3  # fixes within this of one another are one place; one further than this from the place taken is another place
+HOMING_AGREE_S = 1.0  # a place is taken only after fixes have agreed on it for this long: one sighting decides nothing
+HOMING_KEEP_S = 8.0  # a place taken and not seen again for this long on the way back is given up: the way back is by the coordinates again
+HOMING_MAX_TAKES = 3  # places taken in one way back, at most (each begins the way back anew)
+HOMING_GAP_S = 0.6  # fixes agreeing on a place must keep coming: a gap longer than this and the agreement is counted from the start again
+HOMING_WAIT_S = 3.0  # arrived at the coordinates with fixes still agreeing on a place: the set-down waits this long, at most, for the place to be taken
+HOMING_MAX_LEG_CHANGES = 8  # changes of the way back to or from a place taken; past this, homing is off for this way back (not a fault)
 MAX_RETURN_LEGS = 5  # the way back is begun again (the goal or its frame changed) at most this often
 GEOFENCE_MARGIN_M = 5.0  # the pickup and the search stay this far inside the flight boundary, when one is given
 MAX_TICK_S = 0.2  # a longer gap between ticks walks a setpoint no further than this much time
@@ -174,6 +181,7 @@ class Plan:
     swing_shaping: bool = False
     pendulum_m: float = 0.7  # the hinge to the middle of what hangs, for the shaping
     gps_untrusted: bool = False
+    homing: bool = False  # REC-7b: take a homing fix for the last metres home
     return_target: back.ReturnTarget = back.ReturnTarget(back.TAKEOFF)
     engage: grip.EngagePlan = grip.EngagePlan()
     footprint_per_metre: float = 0.9  # the picture's shorter side on the ground, per metre of height
@@ -229,6 +237,7 @@ class Readings:
     landed: Optional[bool] = None
     landed_age_s: Optional[float] = None
     fix: Optional[Tuple[float, float]] = None  # a usable GPS fix now: latitude, longitude
+    homing: Optional[back.HomingFix] = None  # the return point as a home marker or the takeoff's keyframes show it now (REC-7b), when the flag is on and it is seen
     gps_trusted: Optional[bool] = None  # the GPS health monitor's word (REC-6): False is UNTRUSTED. None: no monitor, and a fix is trusted as before
     home_up_m: Optional[float] = None  # home's height in the local frame (the local height less the height above home)
     pickup_en: Optional[Tuple[float, float]] = None  # the pickup's coordinates in the local frame, once they can be placed
@@ -287,6 +296,13 @@ class RecoveryFlight:
         self._leg: Any = None
         self._leg_start: Optional[back.Anchor] = None
         self._leg_goal: Optional[back.ReturnGoal] = None
+        self.homed: Optional[Tuple[float, float]] = None  # the place taken for the return point from homing fixes (REC-7b), while one is
+        self.homing_takes = 0
+        self._homing_seen_s = 0.0  # when a fix last agreed with the place taken
+        self._homing_candidate: Optional[Tuple[float, float, float, float]] = None  # (east, north, since, last) of a place fixes are agreeing on
+        self._homing_off = False  # too many changes of the way back by homing: none for the rest of it
+        self._homing_leg_changes = 0
+        self._homing_wait_since: Optional[float] = None  # arrived at the coordinates and waiting for a place to be taken
         self._leg_since_s = 0.0
         self._flown_untrusted_m = 0.0
         self._previous_en: Optional[Tuple[float, float]] = None
@@ -800,14 +816,60 @@ class RecoveryFlight:
             return self._leg.duration_s
         return back.leg_length_m(self._leg_start, self._leg_goal) / self.plan.carry_speed_mps
 
+    def _homing(self, r: Readings, expected: back.ReturnGoal, now: float) -> Optional[back.HomingFix]:
+        """The homing fix the way back goes by (REC-7b), or None: the flag is off, or no place is taken (yet, or any more).
+
+        A fix is believable when it is fresh, within HOMING_MAX_CORRECTION_M (and the drift allowed for) of where the
+        return point was thought to be, and inside the flight boundary. A place is taken only when believable fixes
+        have agreed on it (within HOMING_RELATCH_M) for HOMING_AGREE_S: one sighting decides nothing. The place taken
+        is kept against an estimate's jitter, since every change of goal begins the way back anew. It is given up
+        when a fresh fix is no longer believable (the same track has gone somewhere it cannot be), and when it has
+        not been seen again for HOMING_KEEP_S on the way back; another place is taken by the same rule, and
+        HOMING_MAX_TAKES places at most. recovery_return decides when the place taken becomes the goal (the last ten
+        metres, never more than ten metres from the coordinates), and from SET_DOWN on nothing here is asked.
+        """
+        if not self.plan.homing or self._homing_off:
+            return None
+        fix = r.homing
+        fresh = fix is not None and all(isinstance(value, (int, float)) and math.isfinite(value) for value in (fix.e, fix.n, fix.age_s)) and 0.0 <= fix.age_s <= back.HOMING_MAX_AGE_S
+        if fresh:
+            believable = math.hypot(fix.e - expected.e, fix.n - expected.n) <= HOMING_MAX_CORRECTION_M + expected.uncertainty_m and self._inside(r, (fix.e, fix.n))
+            if not believable:
+                self.homed, self._homing_candidate = None, None  # what is seen now is not where the return point can be: what it said before is not kept either
+            elif self.homed is not None and math.hypot(fix.e - self.homed[0], fix.n - self.homed[1]) <= HOMING_RELATCH_M:
+                self._homing_seen_s, self._homing_candidate = now, None
+            else:
+                candidate = self._homing_candidate  # (east, north, agreeing since, last agreed)
+                if candidate is None or math.hypot(fix.e - candidate[0], fix.n - candidate[1]) > HOMING_RELATCH_M or now - candidate[3] > HOMING_GAP_S:
+                    self._homing_candidate = (float(fix.e), float(fix.n), now, now)
+                elif now - candidate[2] >= HOMING_AGREE_S and self.homing_takes < HOMING_MAX_TAKES:
+                    self.homed, self._homing_seen_s, self._homing_candidate = (float(fix.e), float(fix.n)), now, None
+                    self.homing_takes += 1
+                else:
+                    self._homing_candidate = (candidate[0], candidate[1], candidate[2], now)
+        if self.homed is not None and now - self._homing_seen_s > HOMING_KEEP_S:
+            self.homed = None
+        return None if self.homed is None else back.HomingFix(self.homed[0], self.homed[1], 0.0)
+
     def _return(self, r: Readings, now: float, dt: float) -> Command:
         trusted = self._trusted(r)
         goal = back.return_goal(self.plan.return_target, gps_trusted=trusted, takeoff=self._takeoff, flown_untrusted_m=self._flown_untrusted_m, vehicle_en=(r.e, r.n))
+        homing = self._homing(r, goal, now)
+        if homing is not None:
+            goal = back.return_goal(self.plan.return_target, gps_trusted=trusted, takeoff=self._takeoff, flown_untrusted_m=self._flown_untrusted_m, vehicle_en=(r.e, r.n), homing=homing)
         if goal.frame == GLOBAL and r.home_up_m is None:
-            goal = back.return_goal(self.plan.return_target, gps_trusted=False, takeoff=self._takeoff, flown_untrusted_m=self._flown_untrusted_m, vehicle_en=(r.e, r.n))  # no height to give a global setpoint
+            goal = back.return_goal(self.plan.return_target, gps_trusted=False, takeoff=self._takeoff, flown_untrusted_m=self._flown_untrusted_m, vehicle_en=(r.e, r.n), homing=homing)  # no height to give a global setpoint
         if self._leg_goal is None or goal.frame != self._leg_goal.frame or math.hypot(goal.e - self._leg_goal.e, goal.n - self._leg_goal.n) > 0.05:
-            # A new leg from where the vehicle is: at the start, and whenever the goal or its frame changes.
-            self._legs += 1
+            # A new leg from where the vehicle is: at the start, and whenever the goal or its frame changes. A change to or from a
+            # place taken by homing has its own bound (HOMING_MAX_TAKES) and is not counted here: a marker seen must not be
+            # what turns a carry into a fault.
+            by_homing = self._leg_goal is not None and (goal.homing or self._leg_goal.homing)
+            self._legs += 0 if by_homing else 1
+            if by_homing:
+                self._homing_leg_changes += 1
+                if self._homing_leg_changes > HOMING_MAX_LEG_CHANGES:
+                    # The goal keeps going to and from the place taken (the vehicle at the edge of the last ten metres, say): no homing for the rest.
+                    self._homing_off, self.homed, self._homing_candidate = True, None, None
             if self._legs > MAX_RETURN_LEGS:
                 self._fault(now, f"the way back was begun {MAX_RETURN_LEGS} times over (the goal or its frame kept changing)")
                 return self._carrying_fault(r, now, self.reason)
@@ -828,6 +890,11 @@ class RecoveryFlight:
         point = back.setpoint_along(self._leg_start, self._leg_goal, share)
         up = self._cmd[2] if self._cmd is not None else r.up
         if share >= 1.0 and math.hypot(r.e - self._leg_goal.e, r.n - self._leg_goal.n) <= ARRIVED_BACK_M:
+            if self.plan.homing and not self._leg_goal.homing and self._homing_candidate is not None and now - self._homing_candidate[3] <= HOMING_GAP_S:
+                # Arrived at the coordinates while fixes are agreeing on a place: a short wait, here, for that place to be taken or not.
+                self._homing_wait_since = now if self._homing_wait_since is None else self._homing_wait_since
+                if now - self._homing_wait_since <= HOMING_WAIT_S:
+                    return self._local(self._leg_goal.e, self._leg_goal.n, up)
             if self._attach.baseline_throttle is None or self._attach.loaded_throttle is None or self._touch_range_m is None:
                 self._fault(now, "nothing to feel the set-down by (no hover throttle from the attach check, or no height from the engage)")
                 return self._carrying_fault(r, now, self.reason)
@@ -982,11 +1049,18 @@ def plan_from_config(config: Any, features: Any, get_flag: Any, search_waypoints
     engage = config.get("engage") or {}
     if not isinstance(engage, dict):
         raise ValueError(f"engage must be a block of the engage's settings, got {engage!r}")
-    extra = dict(search_waypoints=tuple(search_waypoints), swing_shaping=bool(get_flag(features, SWING_FLAG)), gps_untrusted=bool(get_flag(features, UNTRUSTED_FLAG)))
+    extra = dict(search_waypoints=tuple(search_waypoints), swing_shaping=bool(get_flag(features, SWING_FLAG)), gps_untrusted=bool(get_flag(features, UNTRUSTED_FLAG)),
+                 homing=any(bool(get_flag(features, flag)) for flag in HOMING_FLAGS))  # fmt: skip
     if footprint_per_metre is not None:
         extra["footprint_per_metre"] = footprint_per_metre
+    return_target = back.parse_return_target(config.get("return_target"))
+    # Each kind of homing knows one place: the keyframes the takeoff point, the marker the place it lies at. Neither is taken for a published point.
+    if get_flag(features, "keyframe_homing") and return_target.kind != back.TAKEOFF:
+        raise ValueError(f"the flag keyframe_homing is on and the return target is {return_target.kind}: the takeoff climb's keyframes know only the takeoff point")
+    if get_flag(features, "marker_homing") and return_target.kind not in (back.TAKEOFF, back.MARKER):
+        raise ValueError(f"the flag marker_homing is on and the return target is {return_target.kind}: a home marker lies at the takeoff point or is the return target itself ({{marker: id, near: [lat, lon]}})")
     try:
-        return Plan(**values, **extra, return_target=back.parse_return_target(config.get("return_target")), engage=grip.EngagePlan(**engage))
+        return Plan(**values, **extra, return_target=return_target, engage=grip.EngagePlan(**engage))
     except TypeError as error:
         raise ValueError(f"the engage's settings are not ones it has ({error})") from error
 

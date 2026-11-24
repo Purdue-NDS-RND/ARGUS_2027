@@ -40,7 +40,7 @@ def test_the_sims_recovery_params_are_the_recovery_abort_mode_with_both_detector
     oracle, surveys = sim["loc_node"]["ros__parameters"], survey["loc_node"]["ros__parameters"]
     assert {key for key in oracle if oracle[key] != surveys[key]} == {"camera_mode", "start_enabled"}
     assert (oracle["camera_mode"], oracle["start_enabled"], oracle["sim_only"], oracle["detector"]) == ("sim_delivery", True, True, "oracle")
-    assert not any(oracle["features"].values()) and sim["recovery_cv"]["ros__parameters"]["features"] == {"recovery_cv": False}
+    assert not any(oracle["features"].values()) and sim["recovery_cv"]["ros__parameters"]["features"] == {"recovery_cv": False, "marker_homing": False, "keyframe_homing": False}
     assert sim["recovery_cv"]["ros__parameters"]["camera_mode"] == "sim_delivery"
     # The launch sends the oracle's boxes to the topic the estimator listens to for a detector of that name.
     from drone_mission_core import detection_contract, estimator_feed

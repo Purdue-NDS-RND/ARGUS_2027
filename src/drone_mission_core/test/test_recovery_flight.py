@@ -335,6 +335,7 @@ def test_the_plan_is_checked_and_flags_with_nothing_behind_them_are_refused():
     made = rf.plan_from_config(config, {rf.FLAG: True, rf.SWING_FLAG: True}, get_feature_flag, SQUARE, 0.8)
     assert made.swing_shaping and not made.gps_untrusted and made.return_target.kind == rr.LATLON and made.engage.plunge_depth_m == 0.04 and made.footprint_per_metre == 0.8
     assert rf.plan_from_config(config, {rf.UNTRUSTED_FLAG: True}, get_feature_flag).gps_untrusted
+    assert set(rf.UNBUILT_FLAGS) == {"recovery_telemetry", "visual_attach_check"}
     for flag in rf.UNBUILT_FLAGS:
         with pytest.raises(ValueError, match=flag):
             rf.plan_from_config(config, {flag: True}, get_feature_flag)
@@ -579,3 +580,215 @@ def test_with_no_position_to_fly_home_on_the_abort_is_a_landing_whatever_is_on_t
     assert flight.abort_mode() == "LAND"
     seen, last = abort_modes(flight, world)
     assert last.status == rf.SUCCESS and set().union(*seen.values()) == {"LAND"}
+
+
+# --- visual homing (REC-7b) ---------------------------------------------------------------------------------
+
+
+def fly_seeing_home(flight, world, fix_for, seconds=900.0):
+    """The flight with a homing fix in its readings: `fix_for(flight, world)` is the fix seen this tick, or None."""
+    import dataclasses
+
+    command = None
+    for _ in range(int(seconds * 20)):
+        command = flight.update(dataclasses.replace(world.readings(), homing=fix_for(flight, world)))
+        world.apply(command)
+        if command.status != rf.RUNNING:
+            break
+    return command
+
+
+def seen_within(place, radius_m=3.0, age_s=0.05, jitter=None):
+    def fix_for(flight, world):
+        if flight.state != rf.RETURN or math.hypot(world.pos[0] - place[0], world.pos[1] - place[1]) > radius_m:
+            return None
+        shift = (0.0, 0.0) if jitter is None else jitter(world.t)
+        return rr.HomingFix(place[0] + shift[0], place[1] + shift[1], age_s)
+
+    return fix_for
+
+
+def test_a_homing_fix_takes_the_set_down_over_in_the_last_metres_and_without_the_flag_it_is_not_looked_at():
+    marker = (1.5, -1.0)  # where the return point really is: 1.8 m from where the takeoff's coordinates say
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+    assert fly_seeing_home(flight, world, seen_within(marker, radius_m=6.0)).status == rf.SUCCESS
+    assert math.hypot(world.bucket[0] - marker[0], world.bucket[1] - marker[1]) < 0.35 and flight.homing_takes == 1
+    assert flight._legs == 1  # a place taken by homing begins the way back anew without spending the legs a carry is allowed
+    off_world, off = World(), rf.RecoveryFlight(plan())
+    assert fly_seeing_home(off, off_world, seen_within(marker, radius_m=6.0)).status == rf.SUCCESS
+    assert math.hypot(*off_world.bucket) < 0.35 and off._legs == 1 and off.homed is None and off.homing_takes == 0  # the takeoff point, as ever
+    made = rf.plan_from_config({"hook_below_m": 0.55, "suspension_length_m": 0.25, "vehicle_kg": 4.0, "load_kg": 1.0}, {rf.FLAG: True, "marker_homing": True}, get_feature_flag, SQUARE, 0.8)
+    assert made.homing and rf.HOMING_FLAGS == ("marker_homing", "keyframe_homing") and not set(rf.HOMING_FLAGS) & set(rf.UNBUILT_FLAGS)
+    base = {"hook_below_m": 0.55, "suspension_length_m": 0.25, "vehicle_kg": 4.0, "load_kg": 1.0}
+    assert rf.plan_from_config(base, {rf.FLAG: True, "keyframe_homing": True}, get_feature_flag, SQUARE, 0.8).homing
+    # Each kind of homing knows one place, and is refused for a return target it does not know.
+    assert rf.plan_from_config({**base, "return_target": {"marker": 0, "near": [LAT, LON]}}, {rf.FLAG: True, "marker_homing": True}, get_feature_flag, SQUARE, 0.8).homing
+    for flag, target, word in (("keyframe_homing", {"latlon": [LAT, LON]}, "know only the takeoff point"), ("keyframe_homing", {"marker": 0, "near": [LAT, LON]}, "know only the takeoff point"),
+                               ("marker_homing", {"latlon": [LAT, LON]}, "a home marker lies at the takeoff point or is the return target itself")):  # fmt: skip
+        with pytest.raises(ValueError, match=word):
+            rf.plan_from_config({**base, "return_target": target}, {rf.FLAG: True, flag: True}, get_feature_flag, SQUARE, 0.8)
+
+
+@pytest.mark.parametrize(
+    "place, age_s, boundary, why",
+    [
+        ((4.5, 1.0), 0.05, None, "further than four metres from where the return point was thought to be"),
+        ((1.5, -1.0), 5.0, None, "an old fix"),
+        ((1.5, -1.0), float("nan"), None, "not a number"),
+        ((-2.0, 0.0), 0.05, ((-6.0, -60.0), (80.0, -60.0), (80.0, 80.0), (-6.0, 80.0)), "under five metres inside the flight boundary"),
+    ],
+)
+def test_a_homing_fix_that_is_far_old_or_outside_the_boundary_is_not_believed(place, age_s, boundary, why):
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+    world.boundary = boundary
+    assert fly_seeing_home(flight, world, seen_within(place, radius_m=8.0, age_s=age_s)).status == rf.SUCCESS, why
+    assert flight.homed is None and math.hypot(*world.bucket) < 0.35, why
+
+
+def test_one_sighting_decides_nothing_and_a_place_is_taken_only_after_a_second_of_agreement():
+    """The flight-safety review: a fix believed on one tick was kept for the rest of the mission."""
+    marker = (1.5, -1.0)
+    for seen_for_s, taken in ((0.05, False), (0.9, False), (1.2, True)):
+        world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+        first = []
+
+        def briefly(flight_, world_):
+            fix = seen_within(marker, radius_m=6.0)(flight_, world_)
+            if fix is None:
+                return None
+            first.append(world_.t)
+            return fix if world_.t - first[0] <= seen_for_s else None
+
+        assert fly_seeing_home(flight, world, briefly).status == rf.SUCCESS
+        assert (flight.homing_takes == 1) is taken, seen_for_s
+        target = marker if taken else (0.0, 0.0)
+        assert math.hypot(world.bucket[0] - target[0], world.bucket[1] - target[1]) < 0.35, seen_for_s
+    assert rf.HOMING_AGREE_S == 1.0
+
+
+def test_a_place_taken_is_given_up_when_it_is_not_seen_again_or_is_seen_where_it_cannot_be():
+    marker = (3.0, -2.0)
+    # Seen for two seconds from nine metres out and never again: eight seconds later the way back is by the coordinates again.
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True, carry_speed_mps=0.5))  # (a slow carry: still on its way when the eight seconds are up)
+    first, given_up = [], []
+
+    def then_gone(flight_, world_):
+        fix = seen_within(marker, radius_m=9.5)(flight_, world_)
+        if fix is not None:
+            first.append(world_.t)
+        if first and flight_.homed is None and flight_.homing_takes == 1 and not given_up:
+            given_up.append(world_.t)
+        return fix if first and world_.t - first[0] <= 2.0 else None
+
+    assert fly_seeing_home(flight, world, then_gone).status == rf.SUCCESS
+    assert flight.homing_takes == 1 and flight.homed is None and math.hypot(*world.bucket) < 0.35
+    assert given_up and given_up[0] - first[0] == pytest.approx(2.0 + rf.HOMING_KEEP_S, abs=0.2) and rf.HOMING_KEEP_S == 8.0
+    # Seen where the return point cannot be (the same track, gone six metres off): what it said before is not kept.
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+    first = []
+
+    def then_wild(flight_, world_):
+        fix = seen_within(marker, radius_m=9.5)(flight_, world_)
+        if fix is None:
+            return None
+        first.append(world_.t)
+        return fix if world_.t - first[0] <= 2.0 else rr.HomingFix(marker[0] + 6.0, marker[1], 0.05)
+
+    assert fly_seeing_home(flight, world, then_wild).status == rf.SUCCESS
+    assert flight.homing_takes == 1 and flight.homed is None and math.hypot(*world.bucket) < 0.35
+
+
+def test_the_place_taken_is_kept_against_jitter_and_an_estimate_that_keeps_moving_cannot_turn_the_carry_into_a_fault():
+    marker = (1.5, -1.0)
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+    jitter = lambda t: (0.1 * math.sin(37.0 * t), 0.1 * math.cos(23.0 * t))  # noqa: E731  (an estimate settling: a tenth of a metre about its place)
+    assert fly_seeing_home(flight, world, seen_within(marker, radius_m=6.0, jitter=jitter)).status == rf.SUCCESS
+    assert flight.homing_takes == 1 and math.hypot(world.bucket[0] - marker[0], world.bucket[1] - marker[1]) < 0.45  # one place, not one a tick
+    # A fix that moves a metre while it is flown to is taken instead, after its own second of agreement.
+    moved_world, moved = World(), rf.RecoveryFlight(plan(homing=True))
+    first_seen = []
+
+    def moving(flight_, world_):
+        fix = seen_within(marker, radius_m=8.0)(flight_, world_)
+        if fix is None:
+            return None
+        first_seen.append(world_.t)
+        return fix if world_.t - first_seen[0] < 2.0 else rr.HomingFix(marker[0] + 1.0, marker[1], 0.05)
+
+    assert fly_seeing_home(moved, moved_world, moving).status == rf.SUCCESS
+    assert moved.homing_takes == 2 and math.hypot(moved_world.bucket[0] - (marker[0] + 1.0), moved_world.bucket[1] - marker[1]) < 0.35
+    # The flight-safety review: an estimate that hops half a metre every second and a half spends three takes and no more, and the
+    # carry ends with the bucket set down (at the last place taken), not in a fault with the bucket on the hook.
+    hop_world, hopping = World(), rf.RecoveryFlight(plan(homing=True, carry_speed_mps=0.3))
+    hop = lambda t: (0.5 * (int(t / 1.5) % 4), 0.0)  # noqa: E731
+    assert fly_seeing_home(hopping, hop_world, seen_within((1.0, -1.0), radius_m=9.0, jitter=hop)).status == rf.SUCCESS
+    assert hopping.homing_takes == rf.HOMING_MAX_TAKES == 3 and hopping._legs == 1 and not hop_world.attached
+    assert rf.HOMING_RELATCH_M == 0.3 and rf.HOMING_MAX_CORRECTION_M == 4.0
+
+
+def test_arrived_at_the_coordinates_with_fixes_still_agreeing_the_set_down_waits_for_the_place_and_no_longer_than_three_seconds():
+    """Found in the sim: the marker came into view two seconds before the coordinates were reached, and the bucket was set down 1.5 m from it
+    while its fixes were still serving their second of agreement."""
+    marker = (-1.2, -0.9)  # a metre and a half beyond the coordinates on the vehicle's own way in: nearest when it arrives
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True))
+    assert fly_seeing_home(flight, world, seen_within(marker, radius_m=1.7)).status == rf.SUCCESS  # in view only from 0.2 m before the coordinates are reached
+    assert flight.homing_takes == 1 and flight._homing_wait_since is not None and math.hypot(world.bucket[0] - marker[0], world.bucket[1] - marker[1]) < 0.35
+    # Fixes that never settle (a place that hops every half second) hold the set-down three seconds and no more: then the coordinates.
+    hop_world, hopping = World(), rf.RecoveryFlight(plan(homing=True))
+    hop = lambda t: (0.5 * (int(t / 0.5) % 2), 0.0)  # noqa: E731
+    arrived = []
+
+    def hopping_fix(flight_, world_):
+        if flight_.state == rf.SET_DOWN and not arrived:
+            arrived.append(world_.t)
+        return seen_within(marker, radius_m=1.7, jitter=hop)(flight_, world_)
+
+    assert fly_seeing_home(hopping, hop_world, hopping_fix).status == rf.SUCCESS
+    assert hopping.homing_takes == 0 and math.hypot(*hop_world.bucket) < 0.35
+    assert arrived[0] - hopping._homing_wait_since == pytest.approx(rf.HOMING_WAIT_S, abs=0.2) and rf.HOMING_WAIT_S == 3.0
+    # Fixes that stop as the vehicle arrives are not waited for.
+    gone_world, gone = World(), rf.RecoveryFlight(plan(homing=True))
+    first = []
+
+    def gone_fix(flight_, world_):
+        fix = seen_within(marker, radius_m=1.7)(flight_, world_)
+        if fix is not None:
+            first.append(world_.t)
+        return fix if first and world_.t - first[0] <= 0.3 else None
+
+    assert fly_seeing_home(gone, gone_world, gone_fix).status == rf.SUCCESS and gone.homing_takes == 0 and math.hypot(*gone_world.bucket) < 0.35
+
+
+def test_fixes_must_keep_coming_to_agree_and_too_many_changes_of_the_way_back_end_homing_without_a_fault(monkeypatch):
+    marker = (3.0, -2.0)
+    # Seen for 0.7 s, not for a second, seen for 0.7 s again: never a second of agreement.
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True, carry_speed_mps=0.5))
+    first = []
+
+    def in_bursts(flight_, world_):
+        fix = seen_within(marker, radius_m=9.5)(flight_, world_)
+        if fix is None:
+            return None
+        first.append(world_.t)
+        since = world_.t - first[0]
+        return fix if since <= 0.7 or 1.7 <= since <= 2.4 else None
+
+    assert fly_seeing_home(flight, world, in_bursts).status == rf.SUCCESS and flight.homing_takes == 0 and math.hypot(*world.bucket) < 0.35
+    assert rf.HOMING_GAP_S == 0.6
+    # The flight-safety review: a goal that keeps going to and from the place taken (the vehicle at the edge of the last ten metres)
+    # began the way back anew each time, uncounted. Past eight such changes homing is off for the rest of the way back.
+    flips = [0]
+    real = rr.return_goal
+
+    def flipping(target, **more):
+        if more.get("homing") is not None:
+            flips[0] += 1
+            if (flips[0] // 20) % 2:  # a second with the place as the goal, a second without, and so on
+                more = {**more, "homing": None}
+        return real(target, **more)
+
+    monkeypatch.setattr(rf.back, "return_goal", flipping)
+    world, flight = World(), rf.RecoveryFlight(plan(homing=True, carry_speed_mps=0.3))
+    assert fly_seeing_home(flight, world, seen_within(marker, radius_m=9.5)).status == rf.SUCCESS
+    assert flight._homing_off and flight.homed is None and flight._legs == 1 and flight._homing_leg_changes > rf.HOMING_MAX_LEG_CHANGES == 8
+    assert math.hypot(*world.bucket) < 0.35 and not world.attached  # set down at the coordinates, not landed with as a fault

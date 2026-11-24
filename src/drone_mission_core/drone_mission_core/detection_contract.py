@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Tuple
 
-CLASSES = ("bullseye", "green_x", "marker", "boundary_marker", "bucket")
+CLASSES = ("bullseye", "green_x", "marker", "boundary_marker", "bucket", "home_marker", "takeoff_point")  # the last two (REC-7b): a home marker as it is seen, and the takeoff point as the climb's keyframes show it
 _DETECTOR_NAME = re.compile(r"[a-z][a-z0-9_]*")
 
 

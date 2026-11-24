@@ -1226,9 +1226,9 @@
       "land": "REC-7b",
       "proven_in": "Sim",
       "note": "Spec is in REC-7's section",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_home_finders.py -> 12, test_recovery_cv_node.py -> 7, test_recovery_flight.py -> 38, test_package_recovery_mission.py -> 26 passed; strict check OK; sim recovery/keyframe_homing on -> OK, the takeoff point taken, bucket 0.04 m from the true takeoff point (five of six flights took it); sim recovery/marker_homing on -> FAIL on the committed rule: the tag is read in almost no frame on the way back and no place is taken (one flight under a first, blocked rule set the bucket down 0.06 m from the marker against 1.49 m without the flags); docs/results/2026-11-24-visual-homing.md. Left: the marker in the sim on the committed rule (look at the camera's frames on the approach), real ground and camera, the organisers' word on placing a marker, the lead's decisions on the 8 s hold and the two new contract classes",
       "blocked_reason": ""
     },
     {

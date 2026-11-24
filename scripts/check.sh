@@ -151,6 +151,7 @@ else
     run_test src/drone_target_cv src/drone_target_cv/test/test_ring_fit_node.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_green_x.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_recovery_cv_node.py
+    run_test src/drone_target_cv src/drone_target_cv/test/test_home_finders.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_flow_odometry.py
     run_test src/drone_target_cv src/drone_target_cv/test/test_flow_odometry_node.py
     run_test "" src/drone_mission_demo/test/test_feature_flags_config.py

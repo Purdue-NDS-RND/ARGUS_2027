@@ -1,0 +1,58 @@
+# REC-7b (P2): keyframe homing in a flight. The recovery of recovery/pickup_detector with the mission flag
+# keyframe_homing on and the detector node's features.keyframe_homing on, and no home marker. Number plates of three
+# sizes lie about the takeoff point: the sim's ground is bare, and keyframes need something on the ground to be
+# found again by. The pictures of the takeoff climb must be kept, the takeoff point found from them on the way
+# back, and the bucket set down where they say. The sim's local frame does not drift, so this flight shows that
+# the place the keyframes give is the true takeoff point (the judge's distance), not that an error is corrected:
+# that is the unit tests' (a return point 1.8 m from where its coordinates say).
+#
+# Flown with --variants on.
+description: The recovery on the real detector with keyframes kept in the takeoff climb - the takeoff point must be found again from them on the way back, and the bucket set down on it.
+mission: recovery
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: sim_package_recovery.yaml
+params: sim_recovery_mission.yaml
+sim_time: true
+sensor_profile: recovery
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  package_recovery: true
+  keyframe_homing: true
+node_flags:
+  recovery_cv:
+    recovery_cv: true
+    keyframe_homing: true
+targets:
+  package_recovery: bucket
+bucket: bucket
+objects:
+  - {name: plate_0, kind: marker, digit: 3, size_m: 0.9, at: {east_m: -2.2, north_m: 1.4}, heading_deg: 0.0}
+  - {name: plate_1, kind: marker, digit: 7, size_m: 0.6, at: {east_m: 1.8, north_m: 2.3}, heading_deg: 47.0}
+  - {name: plate_2, kind: marker, digit: 2, size_m: 1.2, at: {east_m: 2.6, north_m: -1.2}, heading_deg: 94.0}
+  - {name: plate_3, kind: marker, digit: 5, size_m: 0.6, at: {east_m: -1.2, north_m: -2.4}, heading_deg: 141.0}
+  - {name: plate_4, kind: marker, digit: 8, size_m: 0.9, at: {east_m: 0.9, north_m: -3.1}, heading_deg: 188.0}
+  - {name: plate_5, kind: marker, digit: 4, size_m: 0.6, at: {east_m: -3.3, north_m: -0.7}, heading_deg: 235.0}
+  - {name: plate_6, kind: marker, digit: 6, size_m: 0.6, at: {east_m: 3.6, north_m: 1.1}, heading_deg: 282.0}
+  - {name: plate_7, kind: marker, digit: 9, size_m: 1.2, at: {east_m: -0.6, north_m: 3.4}, heading_deg: 329.0}
+  - {name: plate_8, kind: marker, digit: 1, size_m: 0.6, at: {east_m: -3.9, north_m: 2.9}, heading_deg: 16.0}
+  - {name: plate_9, kind: marker, digit: 3, size_m: 0.9, at: {east_m: 4.2, north_m: -3.0}, heading_deg: 63.0}
+  - {name: plate_10, kind: marker, digit: 7, size_m: 1.2, at: {east_m: -4.4, north_m: -3.6}, heading_deg: 110.0}
+  - {name: plate_11, kind: marker, digit: 2, size_m: 0.6, at: {east_m: 0.4, north_m: 1.2}, heading_deg: 157.0}
+  - {name: plate_12, kind: marker, digit: 5, size_m: 0.9, at: {east_m: 5.3, north_m: 3.8}, heading_deg: 204.0}
+  - {name: plate_13, kind: marker, digit: 8, size_m: 0.6, at: {east_m: -5.6, north_m: 0.9}, heading_deg: 251.0}
+  - {name: x_mat, kind: x_mat, at: {east_m: 12.0, north_m: 8.0}}
+  - {name: bucket, kind: bucket, mass_kg: 1.0, at: {east_m: 12.0, north_m: 8.0}}
+expect_log:
+  - "State: CENTRE -> CONE_DESCENT"
+  - "State: CONE_DESCENT -> ENGAGE"
+  - "State: VERIFY_ATTACH -> CLIMB"
+  - "done: the bucket is set down"
+  - "homing: the return point is taken as seen"
+  - "Keyframe homing: a picture kept"
+  - "Keyframe homing: the takeoff point first found"
+wind: {level: calm}

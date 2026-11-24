@@ -55,6 +55,8 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     # The GPS health monitor and the source-set switch (REC-6) are the recovery mission's.
     "ekf_source_switching": ("package_recovery",),
     "recovery_gps_untrusted": ("package_recovery",),
+    "marker_homing": ("package_recovery",),
+    "keyframe_homing": ("package_recovery",),
     # The height estimator (CEN-03) corrects each rangefinder reading with the
     # tilt the vehicle had at that moment, from the pose history (FND-04).
     "use_height_estimator": ("use_frame_time_pose",),
