@@ -48,6 +48,6 @@ In both, the flight controller said `EKF3 IMU0 stopped aiding` and `EKF3 IMU1 st
 
 - A step is found fast, with or without vision.
 - The source-set command reaches the flight controller and is acknowledged in about two hundredths of a second (set 1 in every flight; set 2 in flights 1 and 2).
-- On the committed rule a step with nothing feeding set 2 leaves the flight controller on GPS: its position estimate follows the step, and the mission flew on by the bucket's track and completed. One seed.
+- On the committed rule a step with nothing feeding set 2 leaves the flight controller on GPS, and the mission flew on by the bucket's track and completed. One seed. The flight controller's position estimate did not follow the step in the sim: the bucket was brought back on a global setpoint to 0.006 m from the true return point with the raw GPS still 10 m off. Why the simulated estimator held its place (and whether the aircraft's would) was not looked into; an earlier version of this file said the estimate follows the step, which no flight showed.
 - Going back: the monitor says TRUSTED ten seconds after a step that stays. Nothing on board can see a steady offset. That is recorded for the lead ("Needs a person").
 - Not shown at all: a flight on source set 2 with flow reaching the flight controller (the switch as the spec means it); a drift in a flight; the spec's eight of ten for R3; that the switch gets in before the estimator's failsafe (PLT-08's owed flight); the estimator's own flag (not fed); a real receiver's thirty minutes.
