@@ -134,6 +134,7 @@ def run_result(run_dir: Path) -> dict:
         "failsafe_check": None,
         "watchdog_check": None,
         "preflight_check": None,
+        "attempt_check": None,
         "forbid_log": None,
         "flight_s": None,
         "notes": [],
@@ -303,6 +304,14 @@ def run_result(run_dir: Path) -> dict:
             result.update(status="INVALID", reason="the scenario says what the preflight must say but the run left no check of it (preflight_check.json)")
         elif result["status"] == "OK" and not report.get("passed"):
             result.update(status="FAIL", reason="the preflight check failed: " + (report.get("problem") or "no reason given"))
+    if manifest.get("attempt"):
+        # The attempt's bundle was made after the landing (PLT-12): the run counts only if it is whole.
+        report = _read_json(run_dir / "attempt_check.json")
+        result["attempt_check"] = report
+        if result["status"] == "OK" and report is None:
+            result.update(status="INVALID", reason="the scenario makes an attempt's bundle but the run left no check of it (attempt_check.json)")
+        elif result["status"] == "OK" and not report.get("passed"):
+            result.update(status="FAIL", reason="the attempt's bundle is not whole: " + "; ".join(report.get("problems") or ["no reason given"]))
     tool = (manifest.get("driver") or {}).get("tool")
     if tool in DRIVER_REPORTS:
         # Flown by a check of the flight controller (PLT-08's failsafes, PLT-09's watchdog): the hover judge only says

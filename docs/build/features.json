@@ -1004,9 +1004,9 @@
       "land": "L21",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK (test_bundle_attempt.py 18, test_dataflash_pull.py 6, test_attempt_check.py 7, test_go.py 32 passed); sim/run_scenarios.sh delivery/attempt --variants on -> OK, bundle COMPLETE, pulled dataflash log identical to SITL's file, bag of 14 topics and no image; docs/results/2026-11-23-attempt-bundle.md. Owed: an MCAP bag (the sim's is sqlite3), frames and a judges' list in a bundle (no survey flown as an attempt), and on the aircraft the recorder beside a flight, the pull over a real link and a real attempt's bundle (lead)",
       "blocked_reason": ""
     },
     {

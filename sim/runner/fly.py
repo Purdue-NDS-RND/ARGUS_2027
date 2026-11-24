@@ -54,6 +54,7 @@ TOOLS = {
     "preflight": SIM_DIR / "preflight_check.py",  # beside flights whose scenario says what the preflight must say (PLT-10)
     "recovery_cv_check": SIM_DIR / "recovery_cv_check.py",  # beside flights with the green X and bucket detector on (REC-1)
 }
+ATTEMPT_CHECK_TIMEOUT_S = 600.0  # wall seconds for pulling the flight controller's log and making the bundle after a flight
 CLOCK_MARK_S = 5.0
 STATIC_POSE_S = 1.0  # how often objects that are not moving are recorded
 
@@ -248,6 +249,13 @@ def fly(run_dir: Path) -> dict:
         import preflight_check  # sim/preflight_check.py: the GO command's own preflight, from its log
 
         preflight_check.check_log(manifest, run_dir)
+    if manifest.get("attempt") and outcome == DONE:
+        # The flight is over and the vehicle disarmed, with SITL still up: pull its log and make the attempt's bundle (PLT-12).
+        with open(run_dir / "attempt_check.log", "w") as log:
+            try:
+                subprocess.run([sys.executable, str(SIM_DIR / "attempt_check.py"), str(run_dir)], stdout=log, stderr=subprocess.STDOUT, timeout=ATTEMPT_CHECK_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                log.write(f"attempt check: not done in {ATTEMPT_CHECK_TIMEOUT_S:g} s\n")
     t_end = recorder.now()
     recorder.event("end", outcome=outcome)
     writer.close()

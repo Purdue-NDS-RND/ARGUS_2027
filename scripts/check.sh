@@ -107,6 +107,7 @@ run_test "" scripts/test/test_guardian_read_guard.py
 run_test "" sim/test/test_target_placement.py
 run_test "" tools/test/test_build_ledger.py
 run_test "" tools/test/test_fc_param_check.py
+run_test "" tools/test/test_dataflash_pull.py
 run_test "" tools/test/test_dataflash_params.py
 run_test "" sim/test/test_nightly.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_centring_controller.py
@@ -182,6 +183,7 @@ else
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_go.py
+    run_test "" tools/test/test_bundle_attempt.py
     run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_height_log.py
     run_test "" tools/test/test_ring_fit_try.py
@@ -202,6 +204,7 @@ else
     run_test "" sim/test/test_failsafe_check.py
     run_test "" sim/test/test_watchdog_check.py
     run_test "" sim/test/test_preflight_check.py
+    run_test "" sim/test/test_attempt_check.py
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
     run_test "" sim/test/test_gates.py

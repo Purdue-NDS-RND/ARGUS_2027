@@ -49,9 +49,9 @@ from judge.geometry import point_in_polygon  # noqa: E402
 from target_placement import latlon_for  # noqa: E402
 
 if __package__ in (None, ""):
-    from scenario.spec import DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from scenario.spec import ATTEMPT_MISSIONS, ATTEMPT_PORT, DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 else:
-    from .spec import DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
+    from .spec import ATTEMPT_MISSIONS, ATTEMPT_PORT, DRIVER_PORT, PREFLIGHT_PORT, MIN_REAL_TIME_FACTOR, SENSOR_PROFILES, BuildError, Scenario, load_scenario  # noqa: E402
 
 CONFIG_DIR = REPO / "src" / "drone_mission_demo" / "config"
 LAUNCH_DIR = REPO / "src" / "drone_mission_demo" / "launch"
@@ -478,7 +478,13 @@ def _go(scenario: Scenario, preflight: dict, flags_on: bool, sim_time: bool, seq
         command.append("--no-camera")
     if sim_time:
         command.append("--sim")
-    return {"command": command, "profile": str(profile)}
+    attempt = None
+    if scenario.preflight["go"].get("attempt") is not None:
+        if scenario.mission not in ATTEMPT_MISSIONS:
+            raise BuildError(f"{scenario.path}: preflight.go.attempt is for a competition mission ({', '.join(ATTEMPT_MISSIONS)}), not '{scenario.mission}'")
+        command += ["--record", str(run_dir)]  # the bag at <run folder>/bag, recorded by the GO command itself
+        attempt = {"slot": scenario.preflight["go"]["attempt"], "mission": scenario.mission, "port": ATTEMPT_PORT}
+    return {"command": command, "profile": str(profile), "attempt": attempt}
 
 
 # --- the run folder ------------------------------------------------------------------
@@ -670,6 +676,7 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
             "arguments": launch_arguments,
         },
         "go": go,  # the GO command that starts this flight in place of the launch (PLT-07), or None
+        "attempt": None if go is None else go["attempt"],  # {"slot", "mission", "port"}: the attempt's bundle is made after the landing (PLT-12)
         "driver": _driver(scenario, site_path, run_dir),
         "vehicle": {
             "model": profile["model"],

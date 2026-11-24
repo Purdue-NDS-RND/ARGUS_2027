@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+import re
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -150,6 +151,8 @@ def _mapping(data: dict, key: str, where: str) -> dict:
 PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")  # drone_utils/preflight.py CHECKS
 GO_DETECTORS = ("none", "target_cv")
 PROFILES = Path(__file__).resolve().parents[2] / "profiles"
+ATTEMPT_PORT = 14556  # and one for pulling the flight controller's log after the landing (PLT-12)
+ATTEMPT_MISSIONS = ("localisation", "drop", "delivery", "recovery", "waypoint_navigation", "time_trial")  # tools/bundle_attempt.py EXPECTED
 PREFLIGHT_PORT = 14555  # a MAVLink output of its own, for the preflight's reading of the flight controller's parameters
 
 
@@ -174,11 +177,16 @@ def _preflight(data: dict, where: str) -> dict:
         # The flight is started by the GO command (tools/go.py, PLT-07), which runs the preflight itself and
         # launches only on GO: {profile: <a committed profile's name>, detector: none | target_cv}.
         go = wanted["go"]
-        if not isinstance(go, dict) or set(go) - {"profile", "detector"} or not isinstance(go.get("profile"), str) or go.get("detector", "none") not in GO_DETECTORS:
+        if not isinstance(go, dict) or set(go) - {"profile", "detector", "attempt"} or not isinstance(go.get("profile"), str) or go.get("detector", "none") not in GO_DETECTORS:
             raise BuildError(f"{where}: preflight.go has profile (a name under profiles/) and detector ({' or '.join(GO_DETECTORS)})")
+        # attempt: <slot>: the GO command records the flight's bag, and after the landing the flight controller's
+        # log is pulled and the attempt's bundle is made and checked (PLT-12; sim/attempt_check.py).
+        slot = go.get("attempt")
+        if slot is not None and not (isinstance(slot, (str, int)) and not isinstance(slot, bool) and re.fullmatch(r"[a-z0-9][a-z0-9_]*", str(slot))):
+            raise BuildError(f"{where}: preflight.go.attempt is the attempt's slot: a number or a short name (lower case, digits, underscores)")
         if not (PROFILES / f"{go['profile']}.yaml").is_file():
             raise BuildError(f"{where}: preflight.go.profile names '{go['profile']}', and there is no profiles/{go['profile']}.yaml")
-        checked["go"] = {"profile": go["profile"], "detector": go.get("detector", "none")}
+        checked["go"] = {"profile": go["profile"], "detector": go.get("detector", "none"), "attempt": None if slot is None else str(slot)}
     return checked
 
 

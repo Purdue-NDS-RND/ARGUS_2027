@@ -4,6 +4,7 @@
   python3 tools/go.py --profile profiles/comp_2026.yaml --sequence package_delivery_live.yaml --params live_target_mission.yaml
   python3 tools/go.py --profile ... --sequence ... --params ... --override "<reason>"     # go ahead on a NO-GO
   python3 tools/go.py --profile ... --sequence ... --params ... --dry-run                  # print the two commands, start nothing
+  python3 tools/go.py --profile ... --sequence ... --params ... --record <folder>          # and record the flight's bag there (PLT-12)
 
 It does these things, in order, and stops at the first that fails:
 
@@ -24,6 +25,11 @@ It does these things, in order, and stops at the first that fails:
      flight's nodes stop, a Ctrl-C stops them as it would under `ros2 launch`,
      and a SIGTERM to this command is passed on to the launch.
 
+With `--record FOLDER` the flight's key topics (sim/replay/topics.py: no
+images) are recorded to FOLDER/bag from GO until the launch ends, and the
+preflight's log goes to FOLDER too unless `--log-dir` says otherwise: FOLDER
+is then what tools/bundle_attempt.py makes the attempt's bundle from.
+
 MAVROS is not started here: on the aircraft it is a boot service
 (platform/jetson, PLT-02), in the sim the sim starts it. With no MAVROS the
 preflight reads nothing and says NO-GO. Nor is the 2027 camera driver, a boot
@@ -43,6 +49,7 @@ their rates, the log folder, the battery's cells) is passed through.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import signal
@@ -70,11 +77,13 @@ class GoError(ValueError):
 @dataclass(frozen=True)
 class Plan:
     camera: List[str]  # the grabber's command, started before the preflight; empty when the flight starts none
+    record_to: Optional[Path]  # where the flight's bag is recorded (--record FOLDER gives FOLDER/bag), or None
     preflight: List[str]
     launch: List[str]
     flags: str  # the mission flags, for the operator to read
     node_flags: str
     nodes: tuple
+    files: tuple = ()  # (profile, sequence, params) as flown: written beside a recording for the attempt's bundle
 
 
 def installed_share() -> Optional[Path]:
@@ -139,6 +148,13 @@ def plan(args, share: Optional[Path] = None) -> Plan:
     except (bringup.BringupError, FeatureFlagError, yaml.YAMLError) as problem:
         raise GoError(str(problem)) from problem
 
+    record_to = None
+    if args.record:
+        record_to = Path(args.record).resolve() / "bag"
+        if record_to.exists():
+            raise GoError(f"{record_to} exists already: every flight's recording gets a folder of its own")
+        if args.log_dir is None:
+            args.log_dir = str(record_to.parent)  # one folder for the flight: the preflight's log beside the bag
     preflight = ["ros2", "run", "drone_utils", "preflight", "--profile", str(profile), "--sequence", str(sequence), "--baseline", str(args.baseline)]
     for option, value in (("--param-dump", args.param_dump), ("--fc-url", args.fc_url), ("--log-dir", args.log_dir), ("--engine", args.engine), ("--engine-sha256", args.engine_sha256),
                           ("--clock-source", args.clock_source), ("--cells", args.cells), ("--min-cell-v", args.min_cell_v), ("--min-free-gb", args.min_free_gb), ("--override", args.override)):  # fmt: skip
@@ -174,7 +190,20 @@ def plan(args, share: Optional[Path] = None) -> Plan:
         preflight.append("--sim-time")
     if args.no_camera:
         preflight.append("--no-camera")
-    return Plan(camera, preflight, launch, made.feature_overrides, made.node_flags_argument(), made.nodes)
+    return Plan(camera, record_to, preflight, launch, made.feature_overrides, made.node_flags_argument(), made.nodes, (str(profile.resolve()), str(sequence), str(params)))
+
+
+def recorder_command(out: Path, sim: bool, storage: Optional[str] = None) -> List[str]:
+    """The `ros2 bag record` command for the flight's bag: the recorder's own topic list (no images, no taps).
+
+    MCAP where rosbag2's MCAP plugin is installed, sqlite3 otherwise, as the sim's recorder chooses.
+    """
+    sys.path.insert(0, str(ROOT / "sim"))
+    from replay import record_run
+
+    if storage is None:
+        storage = record_run.choose_storage(record_run.mcap_installed())
+    return record_run.record_command(out, storage, sim, tapped_images=())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -189,6 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start-camera", choices=("none", "mipi", "usb"), help="the 2026 grabber to start, over the profile's start.camera")
     parser.add_argument("--detector", choices=("none", "target_cv"), help="the detector to start, over the profile's start.detector")
     parser.add_argument("--camera-wait-s", type=float, default=5.0, help="how long a grabber started here is given before the preflight looks at it")
+    parser.add_argument("--record", metavar="FOLDER", help="record the flight's key topics to FOLDER/bag (no images); the preflight's log goes to FOLDER too")
     group = parser.add_argument_group("passed to the preflight")
     group.add_argument("--baseline", default=str(BASELINE))
     group.add_argument("--param-dump")
@@ -264,7 +294,7 @@ def _stop(process, waits=((signal.SIGINT, 5.0), (signal.SIGTERM, 3.0), (signal.S
     process.poll()
 
 
-def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_grabber, sleep=time.sleep, launch=_launch, stop=_stop) -> int:
+def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_grabber, sleep=time.sleep, launch=_launch, stop=_stop, bag_storage: Optional[str] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         made = plan(args, installed_share())
@@ -280,9 +310,11 @@ def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_gra
         if made.camera:
             print("camera:    " + shlex.join(made.camera))
         print("preflight: " + shlex.join(made.preflight))
+        if made.record_to is not None:
+            print("record:    " + shlex.join(recorder_command(made.record_to, args.sim, bag_storage or "mcap")))
         print("launch:    " + shlex.join(made.launch))
         return 0
-    grabber = None
+    grabber, recorder = None, None
 
     def ended(_signum, _frame) -> None:
         raise SystemExit(143)  # a SIGTERM while the grabber or the preflight runs: leave through the `finally` below
@@ -297,11 +329,22 @@ def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_gra
             print(NO_GO, flush=True)
             return 1
         print(GO, flush=True)
+        if made.record_to is not None:
+            # From GO to the end of the launch, in a process group of its own: the recorder closes its file on the
+            # interrupt it is stopped with, after the flight's nodes have gone.
+            made.record_to.parent.mkdir(parents=True, exist_ok=True)
+            # What was flown, in the flight's own folder: tools/bundle_attempt.py takes the config from here.
+            flown = {"profile": made.files[0], "sequence": made.files[1], "params": made.files[2], "mission_flags": made.flags, "node_flags": made.node_flags,
+                     "nodes": list(made.nodes), "launch": made.launch}  # fmt: skip
+            (made.record_to.parent / "go.json").write_text(json.dumps(flown, indent=2) + "\n", encoding="utf-8")
+            print(f"record: the flight's bag goes to {made.record_to}", flush=True)
+            recorder = start(recorder_command(made.record_to, args.sim, bag_storage))
         return launch(made.launch)
     finally:
         signal.signal(signal.SIGTERM, before)
-        if grabber is not None:
-            stop(grabber)
+        for process in (recorder, grabber):
+            if process is not None:
+                stop(process)
 
 
 if __name__ == "__main__":

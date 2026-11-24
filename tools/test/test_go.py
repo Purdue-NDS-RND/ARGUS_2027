@@ -124,8 +124,9 @@ class Runner:
     launch = __call__
 
     def start(self, command):
-        self.calls.append("camera")
-        self.commands["camera"] = command
+        kind = "recorder" if command[:3] == ["ros2", "bag", "record"] else "camera"
+        self.calls.append(kind)
+        self.commands[kind] = command
         runner = self
 
         class Grabber:
@@ -133,7 +134,7 @@ class Runner:
                 return None
 
             def terminate(self):
-                runner.calls.append("camera stopped")
+                runner.calls.append(f"{kind} stopped")
 
             def wait(self, timeout=None):
                 return 0
@@ -434,3 +435,38 @@ def test_a_sigterm_while_the_preflight_runs_still_stops_the_grabber():
         go.main([*BASE, "--start-camera", "mipi", "--camera", "/camera/image=30"], run=killed, start=runner.start, sleep=runner.sleep, launch=runner.launch, stop=lambda grabber: grabber.terminate())
     assert stopped.value.code == 143 and runner.calls == ["camera", "wait 5 s", "preflight", "camera stopped"]
     assert go.signal.getsignal(go.signal.SIGTERM) is go.signal.SIG_DFL  # and the handler is put back
+
+
+def test_record_starts_the_bag_at_go_and_closes_it_after_the_launch_with_the_preflights_log_beside_it(tmp_path):
+    """PLT-12: the attempt's bag, of key topics and no images, and one folder for the flight."""
+    runner = Runner()
+    folder = tmp_path / "2027-05-21_2_delivery"
+    code = go.main([*BASE, "--camera", "/camera/image=30", "--start-camera", "mipi", "--record", str(folder), "--sim"], run=runner, start=runner.start, sleep=runner.sleep, launch=runner.launch,
+                   stop=lambda process: process.terminate(), bag_storage="mcap")  # fmt: skip
+    assert code == 0 and runner.calls == ["camera", "wait 5 s", "preflight", "recorder", "launch", "recorder stopped", "camera stopped"]
+    command = runner.commands["recorder"]
+    assert command[:6] == ["ros2", "bag", "record", "--storage", "mcap", "--output"] and command[6] == str(folder / "bag") and "--use-sim-time" in command
+    topics = [item for item in command if item.startswith("/")][1:]  # after the output path
+    assert "/mavros/local_position/pose" in topics and "/mavros/state" in topics
+    assert not any("image" in topic and "camera_info" not in topic and "image_size" not in topic for topic in topics), topics  # no images, and no taps on them
+    preflight = runner.commands["preflight"]
+    assert preflight[preflight.index("--log-dir") + 1] == str(folder)
+    # What was flown is written in the flight's own folder, for the attempt's bundle.
+    import json
+
+    flown = json.loads((folder / "go.json").read_text())
+    assert flown["profile"] == str(REPO / "profiles" / "comp_2026.yaml") and flown["sequence"].endswith("config/sequences/package_delivery_demo.yaml")
+    assert flown["params"].endswith("config/params/sim_target_mission.yaml") and flown["mission_flags"] == "" and flown["launch"] == runner.commands["launch"]
+
+
+def test_a_no_go_records_nothing_and_a_folder_that_has_a_bag_is_refused(tmp_path):
+    runner = Runner(preflight_code=1)
+    folder = tmp_path / "attempt"
+    assert go.main([*BASE, "--record", str(folder)], run=runner, start=runner.start, sleep=runner.sleep, launch=runner.launch, stop=lambda process: process.terminate(), bag_storage="mcap") == 1
+    assert runner.calls == ["preflight"]
+    (folder / "bag").mkdir(parents=True)
+    with pytest.raises(go.GoError, match="exists already"):
+        made("--record", str(folder))
+    explicit = made("--record", str(tmp_path / "other"), "--log-dir", "/mnt/argus-logs")
+    assert explicit.preflight[explicit.preflight.index("--log-dir") + 1] == "/mnt/argus-logs" and explicit.record_to == tmp_path / "other" / "bag"
+    assert made().record_to is None

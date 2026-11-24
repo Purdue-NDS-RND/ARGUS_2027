@@ -56,3 +56,6 @@ sim/.ws/
 # The 2027 build plan and the /build skill (the build/ rule above is for colcon output)
 !docs/build/
 !.claude/skills/build/
+
+# One folder per competition attempt (tools/bundle_attempt.py): bags, flight logs and frames, never committed.
+attempts/
