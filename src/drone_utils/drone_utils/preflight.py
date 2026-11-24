@@ -33,6 +33,7 @@ The checks, in the spec's order:
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -42,6 +43,34 @@ from typing import Any, Dict, List, Optional, Tuple
 
 GO, NO_GO = "GO", "NO-GO"
 CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")
+# For each check: what GO means, in a person's words with the limit's own name in braces (filled from Limits), and
+# what to do about a NO-GO. The field documents (tools/ops_documents.py: the checklist, the SOP) are written from
+# these and from CHECKS, so that the paper and the command cannot say different things.
+GUIDE = {
+    "params": ("The flight controller's parameters are the 2027 baseline's (`platform/fcu/argus_2027.param`), read from it or from a dump under {max_param_dump_age_h:g} h old.",
+               "Load the baseline and upload the fence (`platform/fcu/README.md`), save a new dump, run the preflight again."),  # fmt: skip
+    "fence": ("The fence is enabled and healthy, and its polygon is stored.", "Upload the site's fence (`sim/fence_upload.py --site field/<name>/site.yaml`). Never fly without it."),
+    "gps": ("A 3D fix or better, HDOP {max_hdop:g} or less, {min_satellites} satellites or more, in a reading under {max_reading_age_s:g} s old (as every reading here must be).", "Wait in the open, away from the tents and vehicles. An override here costs the missions that fly on GPS."),
+    "ekf": ("The position estimate is healthy and the flight controller's own pre-arm checks pass.", "Read the ground station's pre-arm message; it names what is wrong. Do not override."),
+    "rangefinder": ("The downward rangefinder gives a reading and the flight controller says it has data.", "Check its cable and its window. The drop and the delivery need it; a waypoint flight can be overridden."),
+    "cameras": ("Each camera named is publishing at {min_camera_rate_share:.0%} of its mode's rate or more.", "Check the ribbon cable and the camera service (`systemctl status argus-camera`), or the grabber the flight starts."),
+    "engine": ("When the flight names an engine (`--engine`), the file is the one in the model registry (its sha256). With none named, nothing is compared and the line is GO.",
+               "Copy the registered engine again; an engine built on another machine is not used. A flight that uses a trained model must name its engine."),  # fmt: skip
+    "timesync": ("The companion and the flight controller agree on the time (an estimate under {max_timesync_age_s:g} s old; nine in ten of its steps {max_timesync_jitter_ms:g} ms or less and none over "
+                 "{max_timesync_step_ms:g} ms), and the companion follows the ground laptop's clock when one is named (`--clock-source`).",
+                 "Check the laptop's chrony and the network (`platform/jetson/clock_sync.py`). Stamped data on a clock that jumps is not flown on."),  # fmt: skip
+    "disk": ("{min_free_gb:g} GB or more free where the logs go.", "Move old attempts off the disk (they are bundled: `attempts/`), not delete them on the field."),
+    "battery": ("{min_cell_v:g} V a cell or more, resting, on a {cells}-cell pack.", "Change the pack. Never override: a pack that starts low does not finish a slot."),
+    "profile": ("The flag profile fits the sequence: every flag declared, every dependency met.", "Fix the profile or pick the sequence it was written for; `tools/go.py --dry-run` shows the same refusal."),
+}
+
+
+def guide(limits: "Limits" = None) -> Dict[str, tuple]:
+    """GUIDE with the limits written in: {check: (what GO means, what to do about a NO-GO)}, in CHECKS' order."""
+    values = dataclasses.asdict(limits or Limits())
+    return {name: (GUIDE[name][0].format(**values), GUIDE[name][1]) for name in CHECKS}
+
+
 # MAV_SYS_STATUS_SENSOR bits (MAVLink common): what SYS_STATUS says is present, enabled and healthy.
 SENSOR_AHRS = 0x200000
 SENSOR_GEOFENCE = 0x100000

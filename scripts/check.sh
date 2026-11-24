@@ -108,6 +108,7 @@ run_test "" sim/test/test_target_placement.py
 run_test "" tools/test/test_build_ledger.py
 run_test "" tools/test/test_fc_param_check.py
 run_test "" tools/test/test_dataflash_pull.py
+run_test "" tools/test/test_ops_documents.py
 run_test "" tools/test/test_dataflash_params.py
 run_test "" sim/test/test_nightly.py
 run_test src/drone_mission_core src/drone_mission_core/test/test_centring_controller.py

@@ -1109,9 +1109,9 @@
       "land": "L23",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; tools/test/test_ops_documents.py 8 passed; python3 tools/ops_documents.py --check -> documents: as generated; spec-auditor round 2 COMPLETE. The people's parts are a draft for the lead and safety pilot to read (Needs a person)",
       "blocked_reason": ""
     },
     {
