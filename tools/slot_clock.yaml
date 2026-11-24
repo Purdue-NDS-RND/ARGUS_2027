@@ -1,0 +1,11 @@
+# The slot's time budget (OPS-05): what tools/slot_clock.py counts against.
+# Every number here is the session's working value until the organisers answer
+# question 2 (how many slots, and how long each is) and the team has timed a
+# rehearsal (OPS-08). Change them here; nothing else holds them.
+slot_min: 20            # assumption: the length of a slot, from the call to the field to off it
+phases:                 # in order, minutes; together no longer than the slot
+  setup: 4              # carry out, battery, payload, the by-hand checklist
+  preflight: 2          # the GO command up to GO
+  flight: 10            # arming to disarmed
+  pack_up: 4            # pull the log, bundle the attempt, clear the field
+list_due_after_slot_min: 30   # the rules (Rev 1): the localisation list is due within 30 minutes after the slot

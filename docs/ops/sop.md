@@ -27,8 +27,9 @@ How the team flies a slot. The checklists (`checklists.md`) are the lines read a
 
 ## Each flight
 
-1. The "by hand" checklist.
-2. The operator starts the flight with one command, which runs the preflight and starts nothing on NO-GO:
+1. When the team is called: the operator starts the slot clock (`python3 tools/slot_clock.py start --slot <n>`). Its line is the time left in the slot and until the list is due; the GO command prints the same line before the preflight and at GO, and warns when less of the slot is left than a flight is budgeted. It stops nothing: flying late is the lead's call.
+2. The "by hand" checklist.
+3. The operator starts the flight with one command, which runs the preflight and starts nothing on NO-GO:
 
    ```bash
    python3 tools/go.py --profile <profile> --sequence field/<name>/sequences/<sequence>.yaml --params live_target_mission.yaml \
@@ -37,9 +38,9 @@ How the team flies a slot. The checklists (`checklists.md`) are the lines read a
 
    The preflight's checks, in order: `params`, `fence`, `gps`, `ekf`, `rangefinder`, `cameras`, `engine`, `timesync`, `disk`, `battery`, `profile`. Each is a line of the checklist.
    A flight that uses a trained model adds `--engine <file>`: without it the `engine` check compares nothing.
-3. On `GO` the aircraft arms and flies the sequence. From arming to disarming nobody touches the transmitter's sticks or the ground station: any input is found by the audit and loses the bonus.
-4. The safety pilot takes over at any doubt. A takeover is never wrong.
-5. After the landing: the "After each flight" checklist. The attempt's folder is the record.
+4. On `GO` the aircraft arms and flies the sequence. From arming to disarming nobody touches the transmitter's sticks or the ground station: any input is found by the audit and loses the bonus.
+5. The safety pilot takes over at any doubt. A takeover is never wrong.
+6. After the landing: the "After each flight" checklist. The attempt's folder is the record.
 
 ## Between flights
 

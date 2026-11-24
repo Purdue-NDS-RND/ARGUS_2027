@@ -1294,9 +1294,9 @@
       "land": "OPS-05",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_slot_clock.py -> 22, test_go.py -> 33, test_ops_documents.py -> 8 passed; strict check OK. The budget's numbers are working values until the organisers say how long a slot is and a rehearsal has been timed (Needs a person)",
       "blocked_reason": ""
     },
     {

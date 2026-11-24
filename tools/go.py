@@ -57,6 +57,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -217,6 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sim", action="store_true", help="the flight is in the sim: every node on sim time")
     parser.add_argument("--override", metavar="REASON", help="go ahead on a NO-GO, for this reason (logged by the preflight)")
     parser.add_argument("--dry-run", action="store_true", help="print the preflight and launch commands and start nothing")
+    parser.add_argument("--slot", help="the competition slot this flight is in, for the slot clock's line")
+    parser.add_argument("--slot-start", metavar="TIME", help="when the slot began (HH:MM[:SS] on this computer's clock, or the ISO time with its zone that slot_clock.py start prints); without it the running slot of tools/slot_clock.py is used, if there is one")
     parser.add_argument("--no-session-log", action="store_true", help="do not start the session logger")
     parser.add_argument("--start-camera", choices=("none", "mipi", "usb"), help="the 2026 grabber to start, over the profile's start.camera")
     parser.add_argument("--detector", choices=("none", "target_cv"), help="the detector to start, over the profile's start.detector")
@@ -297,7 +300,30 @@ def _stop(process, waits=((signal.SIGINT, 5.0), (signal.SIGTERM, 3.0), (signal.S
     process.poll()
 
 
-def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_grabber, sleep=time.sleep, launch=_launch, stop=_stop, bag_storage: Optional[str] = None) -> int:
+def slot_line(args, now=None, state: Optional[Path] = None, budget: Optional[Path] = None) -> Optional[dict]:
+    """The slot clock (OPS-05) as the launcher shows it: printed, and returned for the flight's record. None when no slot is running.
+
+    It tells and never stops a flight: too little of the slot left is a warning, and the lead's call.
+    """
+    import slot_clock
+
+    try:
+        more = {**({} if state is None else {"state": state}), **({} if budget is None else {"budget_file": budget})}
+        found = slot_clock.for_go(args.slot_start, args.slot, now or datetime.now(timezone.utc), **more)
+    except slot_clock.ClockError as problem:
+        print(f"slot clock: {problem} (the flight goes on without it)", flush=True)
+        return None
+    if found is None:
+        return None
+    line, warning, record = found
+    print(line, flush=True)
+    if warning:
+        print(warning, flush=True)
+    return record
+
+
+def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_grabber, sleep=time.sleep, launch=_launch, stop=_stop, bag_storage: Optional[str] = None,
+         slot_state: Optional[Path] = None, slot_budget: Optional[Path] = None) -> int:  # fmt: skip
     args = build_parser().parse_args(argv)
     try:
         made = plan(args, installed_share())
@@ -317,6 +343,7 @@ def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_gra
             print("record:    " + shlex.join(recorder_command(made.record_to, args.sim, bag_storage or "mcap")))
         print("launch:    " + shlex.join(made.launch))
         return 0
+    slot_line(args, state=slot_state, budget=slot_budget)  # before the preflight: what is left of the slot
     grabber, recorder = None, None
 
     def ended(_signum, _frame) -> None:
@@ -332,13 +359,14 @@ def main(argv: Optional[List[str]] = None, run=subprocess.call, start=_start_gra
             print(NO_GO, flush=True)
             return 1
         print(GO, flush=True)
+        slot = slot_line(args, state=slot_state, budget=slot_budget)  # and at GO: the flight starts here
         if made.record_to is not None:
             # From GO to the end of the launch, in a process group of its own: the recorder closes its file on the
             # interrupt it is stopped with, after the flight's nodes have gone.
             made.record_to.parent.mkdir(parents=True, exist_ok=True)
             # What was flown, in the flight's own folder: tools/bundle_attempt.py takes the config from here.
             flown = {"profile": made.files[0], "sequence": made.files[1], "params": made.files[2], "mission_flags": made.flags, "node_flags": made.node_flags,
-                     "nodes": list(made.nodes), "launch": made.launch}  # fmt: skip
+                     "nodes": list(made.nodes), "launch": made.launch, "slot_clock": slot}  # fmt: skip
             (made.record_to.parent / "go.json").write_text(json.dumps(flown, indent=2) + "\n", encoding="utf-8")
             print(f"record: the flight's bag goes to {made.record_to}", flush=True)
             recorder = start(recorder_command(made.record_to, args.sim, bag_storage))

@@ -139,7 +139,7 @@ def test_what_the_documents_name_is_in_the_repo():
     assert emergency.count("`abort_and_rtl`") == 2 and emergency.count("`continue_to_next`") == 2
     # Every option a command line of the documents uses is one its tool takes.
     for tool, options in (("tools/field_setup.py", ["--for-flight"]), ("sim/fence_upload.py", ["--site", "--url"]), ("tools/dataflash_pull.py", ["--fc-url", "--out"]),
-                          ("tools/bundle_attempt.py", ["--slot", "--mission", "--from-run"]), ("tools/freeze_check.py", ["--worktree"]),
+                          ("tools/bundle_attempt.py", ["--slot", "--mission", "--from-run"]), ("tools/freeze_check.py", ["--worktree"]), ("tools/slot_clock.py", ["--slot", "--watch"]),
                           ("tools/go.py", ["--profile", "--sequence", "--params", "--camera", "--param-dump", "--clock-source", "--record", "--override"])):  # fmt: skip
         source = (REPO / tool).read_text()
         for option in options:

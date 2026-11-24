@@ -15,6 +15,7 @@ Read aloud, one line at a time, by the operator; the safety pilot answers. A lin
 
 ## Before each flight: by hand
 
+- [ ] The slot clock is running: `python3 tools/slot_clock.py start --slot <n>` on the ground laptop when the team is called (`show --watch` keeps its line on the screen), and the start time it prints is given to the aircraft.
 - [ ] Props tight and undamaged; arms locked; nothing loose.
 - [ ] Battery strapped, its plug seated; a fresh pack for every slot.
 - [ ] The payload (or the hook) is the one for this mission, and is held.

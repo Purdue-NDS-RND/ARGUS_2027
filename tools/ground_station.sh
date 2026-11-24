@@ -4,6 +4,7 @@
 #   tools/ground_station.sh judges_list_view.py attempts/<attempt>/judges_list.csv --site field/<name>/site.yaml
 #   tools/ground_station.sh attempt_download.py pilot@aircraft --list      (runs on the laptop itself: see below)
 #   tools/ground_station.sh post_flight.py attempts/<attempt>
+#   tools/ground_station.sh slot_clock.py show --watch
 #   tools/ground_station.sh ros2 bag info attempts/<attempt>/bag
 #   tools/ground_station.sh --print <the same>        print the docker command and run nothing
 #

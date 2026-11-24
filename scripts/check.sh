@@ -193,6 +193,7 @@ else
     run_test src/vision_pipeline src/vision_pipeline/test/test_logger_node.py
     run_test "" tools/test/test_flag_profile.py
     run_test "" tools/test/test_go.py
+    run_test "" tools/test/test_slot_clock.py
     run_test "" tools/test/test_bundle_attempt.py
     run_test "" tools/test/test_field_setup.py
     run_test "" tools/test/test_readiness_kit.py

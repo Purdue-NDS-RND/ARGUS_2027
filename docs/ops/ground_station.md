@@ -1,6 +1,6 @@
 # The ground station (PLT-14)
 
-The ground laptop does three things in a slot: it shows the aircraft (QGroundControl), brings the attempt's bundle down after the landing, and lets a person read the judges' list before it is handed in. Everything here runs on the club's Jazzy laptops through the repository's own Humble container, so that every laptop runs the same thing:
+The ground laptop does four things in a slot: it shows the aircraft (QGroundControl), keeps the clock (the slot clock), brings the attempt's bundle down after the landing, and lets a person read the judges' list before it is handed in. Everything here runs on the club's Jazzy laptops through the repository's own Humble container, so that every laptop runs the same thing:
 
 ```bash
 sim/run_sim.sh --build                                   # once per laptop: makes the image argus-sim:humble
@@ -20,6 +20,15 @@ QGroundControl runs on the laptop itself, not in the container.
 - **Before the flight:** the fence drawn on the map is the day's (`field/<name>/fence.plan` is the file to compare with); the parameters are saved to a file for the preflight's `--param-dump`.
 - **What to watch:** the mode, the battery, the messages. The stack's own lines arrive as status text: `LOC list: <n> markers` (and how many are found and not yet read) during a survey; the preflight's and the missions' lines are in the launch's own terminal on the aircraft.
 - **Radio frequencies and powers** allowed at the competition are organiser question 22: the radios are the current ones until that is answered.
+
+## The slot clock
+
+```bash
+tools/ground_station.sh slot_clock.py start --slot 2
+tools/ground_station.sh slot_clock.py show --watch
+```
+
+The line it prints is where the team is in its slot and how long until the localisation list is due. `start` prints the command that gives the aircraft the same start time.
 
 ## After the landing: the bundle
 
