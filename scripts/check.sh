@@ -262,6 +262,7 @@ else
     run_test "" src/argus_localisation/test/test_digit_vote.py
     run_test "" src/argus_localisation/test/test_judges_list.py
     run_test "" src/argus_localisation/test/test_second_pass.py
+    run_test "" tools/test/test_second_pass_tool.py
 
     # The detector must find the target that bullseye_try.py itself generates.
     echo "== tools/bullseye_try.py"
