@@ -77,3 +77,15 @@ On the bench, each with nothing typed after the reboot:
 ## Tests
 
 `platform/jetson/test/test_setup.py` and `test_services.py` run the scripts against a fake Jetson: a temporary root (`ARGUS_SYSROOT`) and stand-in system commands (`ARGUS_SETUP_BIN`) that record what they were asked. With `ARGUS_SYSROOT` set a script refuses to run without the stand-ins.
+
+## The 2026 fallback workspace (OPS-06)
+
+```bash
+platform/jetson/fallback.sh --check
+platform/jetson/fallback.sh --apply
+platform/jetson/fallback.sh launch package_delivery_live.launch.py
+```
+
+`fallback.sh` keeps a second workspace, `~/ARGUS_2026_fallback`: a clone of this checkout at the tag `comp-2026`, with its own build, sharing nothing with the 2027 workspace. `--apply` clones, checks out the tag and builds; it is run as the flight user, not as root, and it never discards anything (a fallback with local changes is reported and left alone). `launch` runs the 2026 launch file from the fallback's own install, and starts nothing unless the fallback is a clean clone at the tag with a build of that commit. When to use it, and the quicker way back that comes first: `docs/ops/freeze_and_rollback.md`.
+
+Tests: `platform/jetson/test/test_fallback.py` runs the script against a fake machine with a real small git repository.

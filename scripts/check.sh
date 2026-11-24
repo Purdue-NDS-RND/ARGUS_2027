@@ -128,6 +128,7 @@ run_test "" tools/test/test_cen_loop_sim.py
 run_test "" platform/jetson/test/test_setup.py
 run_test "" platform/jetson/test/test_services.py
 run_test "" platform/jetson/test/test_clock_sync.py
+run_test "" platform/jetson/test/test_fallback.py
 
 # The 2027 build ledger must stay valid (see docs/build/SESSION.md).
 echo "== docs/build/features.json"
@@ -190,6 +191,7 @@ else
     run_test "" tools/test/test_readiness_kit.py
     run_test "" tools/test/test_post_flight.py
     run_test "" tools/test/test_score_model.py
+    run_test "" tools/test/test_freeze_check.py
     run_test "" tools/test/test_sim_sequence_copies.py
     run_test "" tools/test/test_height_log.py
     run_test "" tools/test/test_ring_fit_try.py

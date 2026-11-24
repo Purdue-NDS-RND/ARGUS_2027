@@ -1092,9 +1092,9 @@
       "land": "L23",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; tools/test/test_freeze_check.py 15 passed, platform/jetson/test/test_fallback.py 12 passed (the real script, real git, a fake machine); python3 tools/freeze_check.py -> exit 2, no tag comp-2027-rc1 yet. Left: the tag at the freeze, and fallback.sh --apply and a timed launch on the Jetson (lead)",
       "blocked_reason": ""
     },
     {
