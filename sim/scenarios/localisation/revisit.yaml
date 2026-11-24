@@ -1,0 +1,70 @@
+# LOC-4: the survey of localisation/gate_field with the re-visit on. When the
+# three tracks are flown the mission asks the tracker's tracks which markers
+# need another look (a digit the vote did not give, or fewer than 8
+# sightings), flies to each, nearest first, inside the time budget and the
+# flight boundary, and holds 3 s within a metre of it at the survey height
+# with the pipeline still running. The template reader abstains on 6 and 9
+# (they are each other upside down), so at least those two are re-visited.
+# The list is judged as in gate_field: the re-visit must not cost a row.
+#
+# Flown with --variants on. Variant off is gate_field without the flag.
+description: Gate G4's field with the re-visit on - after the tracks the survey flies back over the markers it could not read and hovers 3 s over each.
+mission: localisation
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: search_pattern_demo.yaml
+params: sim_survey_mission.yaml
+sim_time: true
+sensor_profile: survey
+dds_profile: large_frames
+truth_poses: true
+flags:
+  use_frame_time_pose: true
+  use_height_estimator: true
+  survey_search: true
+  survey_revisit: true
+survey:
+  mission: search_pattern
+  boundary: true
+  area:
+    - {east_m: 20.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 10.0}
+    - {east_m: 80.0, north_m: 50.0}
+    - {east_m: 20.0, north_m: 50.0}
+node_flags:
+  loc_node:
+    loc_node: true
+    sim_oracle_detector: true
+    marker_tracker: true
+    loc_median_position: true
+    digit_reader: true
+    template_digit_classifier: true
+    digit_vote: true
+    judges_list: true
+config:
+  search_pattern:
+    localisation_required: true
+objects:
+  - {name: marker_0, kind: marker, digit: 0, size_m: 0.6, heading_deg: 0.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_1, kind: marker, digit: 1, size_m: 0.6, heading_deg: 37.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_2, kind: marker, digit: 2, size_m: 0.6, heading_deg: 90.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_3, kind: marker, digit: 3, size_m: 0.6, heading_deg: 123.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_4, kind: marker, digit: 4, size_m: 0.6, heading_deg: 180.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_5, kind: marker, digit: 5, size_m: 0.6, heading_deg: 200.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_6, kind: marker, digit: 6, size_m: 0.6, heading_deg: 270.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_7, kind: marker, digit: 7, size_m: 0.6, heading_deg: 333.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_8, kind: marker, digit: 8, size_m: 0.6, heading_deg: 61.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: marker_9, kind: marker, digit: 9, size_m: 0.6, heading_deg: 245.0, at: {random: {area: {east_m: [23.0, 77.0], north_m: [13.0, 47.0]}, min_separation_m: 6.0, margin_m: 0.0}}}
+  - {name: corner_sw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 10.0}}
+  - {name: corner_se, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 10.0}}
+  - {name: corner_ne, kind: marker, size_m: 1.2, at: {east_m: 80.0, north_m: 50.0}}
+  - {name: corner_nw, kind: marker, size_m: 1.2, at: {east_m: 20.0, north_m: 50.0}}
+expect_log:
+  - "localisation pipeline started"
+  - "survey finished: 3 of 3 tracks flown"
+  - "re-visit 1 of"
+  - "hovered 3 s over track"
+  - "re-visit round over:"
+  - "localisation pipeline stopped after"
+wind: {level: calm}

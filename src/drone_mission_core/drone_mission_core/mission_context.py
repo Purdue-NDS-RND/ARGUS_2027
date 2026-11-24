@@ -487,6 +487,16 @@ class MissionContext:
             future.add_done_callback(done_callback)
         return future
 
+    def marker_tracks(self):
+        """The tracker's newest tracks as (revisit.TrackView list, age in seconds), or None.
+
+        None with the survey_revisit flag off, or before the tracker has published any (LOC-4).
+        """
+        feed = getattr(self._node, "_marker_tracks", None)
+        if feed is None:
+            return None
+        return feed.newest(self._now_ns())
+
     def localisation_control_ready(self) -> bool:
         """Whether the localisation pipeline's on/off service can be called. False with the survey_search flag off."""
         client = getattr(self._node, "_localisation_control_client", None)

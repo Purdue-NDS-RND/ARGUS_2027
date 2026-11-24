@@ -32,6 +32,7 @@ from .set_down import attach_throttle
 from .recovery_flight import attach_home_height
 from .gps_route import attach_mission_upload
 from .survey_search import attach_localisation_control
+from .revisit import attach_tracks
 from .time_guard import attach_time_health
 from .takeover import attach_takeover, takeover_tick
 from .actuation_lock import attach_actuation_lock, lock_violations
@@ -155,6 +156,11 @@ class MissionExecutorNode(Node):
         # None unless a mission has the survey_search flag on: then the client
         # that starts and stops the localisation pipeline (LOC-3).
         self._localisation_control_client = attach_localisation_control(
+            self, [mission.spec for mission in self._sequence]
+        )
+        # None unless a mission has the survey_revisit flag on: then the
+        # tracker's tracks, for the survey's re-visit round (LOC-4).
+        self._marker_tracks = attach_tracks(
             self, [mission.spec for mission in self._sequence]
         )
         # None unless a mission has the use_target_estimator flag on: then the

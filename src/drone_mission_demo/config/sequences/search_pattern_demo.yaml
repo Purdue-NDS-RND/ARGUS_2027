@@ -11,6 +11,7 @@ mission_sequence:
     time_health_guard: false # Treat a stale pose, a stale frame or a time-sync jump as no target: hold, no descent (time_health.py).
     use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
     survey_search: false # The search_pattern mission flies its survey: planned tracks at the survey height, the height guard, the localisation pipeline started and stopped (search_pattern_mission.py, LOC-3). Needs use_height_estimator. Off: the mission is skipped.
+    survey_revisit: false # After the tracks, fly back over markers the tracker is unsure of and hover 3 s over each (revisit.py). Needs survey_search.
   missions:
     - type: takeoff                                # Mission type registered in the mission framework.
       name: takeoff                                # Human-readable mission instance name for logs.

@@ -62,6 +62,7 @@ import math
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple
 
+from drone_mission_core import revisit as revisit_rule
 from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.registry import register_mission
@@ -95,6 +96,8 @@ ANSWER_WAIT_S = 5.0  # how long a service call is waited for
 STOP_WAIT_S = 3.0  # how long the end waits for the pipeline to say it has stopped
 END_CLIMB_S = 30.0  # and for the climb back, when the guard ended the survey
 LOG_EVERY_S = 2.0
+REVISIT_RESERVE_S = 10.0  # of the time budget, kept for the end of the survey when the re-visit round is planned
+REVISIT_LOG_LINES = 10  # no more lines than this about tracks left out of the round: the round is planned inside one tick
 RANGEFINDER = "rangefinder"
 
 
@@ -134,6 +137,8 @@ class SearchPatternMission(BaseMission):
     def __init__(self, spec) -> None:
         super().__init__(spec)
         self._enabled = bool(get_feature_flag(spec.features, SEARCH_FLAG))
+        # LOC-4: after the tracks, fly back over the markers the tracker is unsure of. Off: the survey ends as it did.
+        self._revisit_enabled = self._enabled and bool(get_feature_flag(spec.features, revisit_rule.FLAG))
         self.plan: Any = None  # the coverage planner's CoveragePlan, once planned
         self.camera = None
         if not self._enabled:
@@ -211,6 +216,9 @@ class SearchPatternMission(BaseMission):
         self._stop_requested_at = None
         self._stop_done = False
         self._last_log_s: dict = {}
+        self._area_local: Optional[List[Tuple[float, float]]] = None
+        self._boundary_local: Optional[List[Tuple[float, float]]] = None
+        self._revisit: Any = None  # the re-visit round (LOC-4), once the tracks are flown
 
     def on_exit(self, context: Any) -> None:
         if not self._enabled:
@@ -357,6 +365,7 @@ class SearchPatternMission(BaseMission):
                     )
                     return MissionStatus.FAILURE
         self.plan = plan
+        self._area_local, self._boundary_local = area, boundary
         self.yaw_deg = plan.yaw_deg - self._image_top_yaw_deg
         self._guard = survey_height.SurveyHeightGuard(self._survey_height_m)
         note = ""
@@ -478,6 +487,8 @@ class SearchPatternMission(BaseMission):
             climb = None if answer.climb_to_m is None or height is None else up + (answer.climb_to_m - float(height.value_m))
             return self._end(context, answer.reason, failed=answer.climb_to_m is None, climb_to_m=climb)
         if answer.action == survey_height.RECOVER:
+            if self._revisit is not None:
+                self._revisit.restart_leg()  # the guard has the vehicle: the re-visit leg's time and its check start again after it
             if not self.recovering:
                 self.recovering = True
                 self._hold_point = (east, north)
@@ -514,6 +525,9 @@ class SearchPatternMission(BaseMission):
         target_up = None if on_the_rangefinders_ground else self._up_for(context, self._survey_height_m)
         if target_up is not None:
             self._target_up_m += 0.05 * (target_up - self._target_up_m)
+        if self._revisit is not None:
+            # The re-visit round (LOC-4): under the same height guard, time budget and height hold as the tracks.
+            return self._fly_revisit(context, (east, north), now_s)
         waypoint = self.plan.waypoints[self.track_index]
         self._go(context, waypoint[0], waypoint[1], self._target_up_m)
         if math.dist((east, north), waypoint) <= WAYPOINT_RADIUS_M:
@@ -525,7 +539,48 @@ class SearchPatternMission(BaseMission):
                     f"[{self.name}] survey finished: {self.tracks_flown} of {self.plan.tracks} tracks flown in "
                     f"{context.seconds_since(self._started):.0f} s, {self._guard.recoveries} climb(s) back to the survey height"
                 )
+                if self._revisit_enabled and self._begin_revisit(context, (east, north)):
+                    return MissionStatus.RUNNING
                 return self._end(context, "the tracks are flown", warn=False)
+        return MissionStatus.RUNNING
+
+    def _begin_revisit(self, context: Any, here: Tuple[float, float]) -> bool:
+        """Plan the re-visit round from the tracker's newest tracks. False when there is nothing to fly back to."""
+        found = context.marker_tracks()
+        if found is None or found[1] > revisit_rule.TRACKS_FRESH_S:
+            why = "the tracker has published no tracks" if found is None else f"the tracker's tracks are {found[1]:.0f} s old"
+            context.logger.warn(f"[{self.name}] no re-visit: {why}")
+            return False
+        # Where a re-visit may go is the survey's own search area and flight boundary, never the tracker's say-so.
+        bounds = revisit_rule.Bounds(self._area_local, self._boundary_local)
+        left_s = self._time_budget_s - context.seconds_since(self._started) - REVISIT_RESERVE_S
+        visits, left_out = revisit_rule.choose(found[0], here, left_s, float(self._speed_mps), bounds)
+        for line in left_out[:REVISIT_LOG_LINES]:
+            context.logger.info(f"[{self.name}] re-visit leaves out {line}")
+        if len(left_out) > REVISIT_LOG_LINES:
+            context.logger.info(f"[{self.name}] re-visit leaves out {len(left_out) - REVISIT_LOG_LINES} more")
+        if not visits:
+            context.logger.info(f"[{self.name}] no re-visit: no track to fly back to ({len(found[0])} track(s) heard)")
+            return False
+        self._revisit = revisit_rule.Revisit(visits, float(self._speed_mps), bounds)
+        context.logger.info(f"[{self.name}] re-visit: {len(visits)} track(s) to look at again: " + ", ".join(f"{visit.track_id} ({visit.why})" for visit in visits))
+        return True
+
+    def _fly_revisit(self, context: Any, here: Tuple[float, float], now_s: float) -> MissionStatus:
+        found = context.marker_tracks()
+        if found is None or found[1] > revisit_rule.TRACKS_FRESH_S:
+            # The tracker has gone quiet: nothing is looking at what the vehicle would hover over.
+            age = "none" if found is None else f"{found[1]:.0f} s old"
+            return self._end(context, f"the tracker's tracks stopped during the re-visit ({age}) after {len(self._revisit.hovered)} of {len(self._revisit.visits)} track(s)")
+        step = self._revisit.update(here, now_s, found[0])
+        if step.say:
+            context.logger.info(f"[{self.name}] {step.say}")
+        if step.done:
+            round_ = self._revisit
+            missed = f", {len(round_.passed_over)} passed over" if round_.passed_over else ""
+            context.logger.info(f"[{self.name}] re-visit round over: hovered over {len(round_.hovered)} of {len(round_.visits)} track(s){missed}")
+            return self._end(context, "the tracks are flown and the uncertain markers re-visited", warn=False)
+        self._go(context, step.target[0], step.target[1], self._target_up_m)
         return MissionStatus.RUNNING
 
     def _on_stop(self, future: Any) -> None:

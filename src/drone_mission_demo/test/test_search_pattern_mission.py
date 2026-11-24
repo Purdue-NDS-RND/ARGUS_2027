@@ -601,3 +601,135 @@ def test_every_path_logs_as_rclpy_allows():
     text = "\n".join(context.logger.lines)
     for expected in ("climbing back", "no height above the ground", "survey finished"):
         assert expected in text, expected
+
+
+# --- LOC-4: the re-visit of uncertain markers after the tracks ---------------------------------------------
+
+REVISIT_ON = {**ON, "survey_revisit": True}
+
+
+def marker(track_id, east, north, digit=7, sightings=20, alive=True, outside=False):
+    from drone_mission_core import revisit
+
+    return revisit.TrackView(track_id, east, north, digit, sightings, alive, outside)
+
+
+def revisiting(tracks, age_s=0.2, features=REVISIT_ON, **config):
+    """A survey with the re-visit flag on and a tracker that has these tracks, flown to the end of its tracks' part."""
+    context = Context()
+    context.tracks, context.tracks_age_s = tracks, age_s
+    context.marker_tracks = lambda: None if context.tracks is None else (list(context.tracks), context.tracks_age_s)
+    mission = mission_for(context, features=features, **config)
+    context.run(mission, 60.0, until=lambda m, _s: m.state == SearchState.SURVEY)
+    return context, mission
+
+
+def test_the_re_visit_flag_needs_the_survey_and_ships_off():
+    from drone_mission_core import revisit
+
+    assert FLAG_REQUIRES[revisit.FLAG] == (FLAG,)
+    sequence = (Path(__file__).resolve().parents[1] / "config" / "sequences" / "search_pattern_demo.yaml").read_text()
+    assert "survey_revisit: false" in sequence and "survey_revisit: true" not in sequence
+
+
+def test_after_the_tracks_the_survey_hovers_three_seconds_over_each_uncertain_marker_with_the_pipeline_still_on():
+    tracks = [marker(1, 30.0, 20.0), marker(2, 70.0, 40.0, digit=-1), marker(3, 40.0, 30.0, sightings=3), marker(4, 60.0, 15.0, digit=-1, outside=True)]
+    context, mission = revisiting(tracks)
+    stopped_at, hovers = [], {2: [], 3: []}
+
+    def watch(m, status):
+        if context.loc_calls[-1:] == [False] and not stopped_at:
+            stopped_at.append(context._now_ns)
+        for track_id, (east, north) in ((2, (70.0, 40.0)), (3, (40.0, 30.0))):
+            if math.dist(context.position[:2], (east, north)) <= 1.0 and not stopped_at:
+                hovers[track_id].append((context._now_ns * 1.0e-9, context.position[2]))
+        return status != MissionStatus.RUNNING
+
+    statuses = context.run(mission, 600.0, until=watch)
+    assert statuses[-1] == MissionStatus.SUCCESS and mission.state == SearchState.COMPLETE
+    said = " | ".join(context.infos)
+    assert "survey finished: 3 of 3 tracks flown" in said and "re-visit: 2 track(s) to look at again" in said
+    assert "hovered 3 s over track 2" in said and "hovered 3 s over track 3" in said and "re-visit round over: hovered over 2 of 2 track(s)" in said
+    assert "track 1" not in said.split("re-visit:")[1].split("|")[0] and "track 4" not in said  # read and seen often; outside the field
+    for track_id, seen in hovers.items():
+        times = [t for t, _up in seen]
+        assert times[-1] - times[0] >= 3.0 - 0.1, track_id  # three seconds within a metre of it
+        assert all(abs(up - HEIGHT) < 0.5 for _t, up in seen), track_id  # at the survey height
+    assert context.loc_calls == [True, False]  # the pipeline was on through the round and stopped once, after it
+    assert said.index("hovered 3 s over track") < said.index("State: SURVEY -> ENDING")
+
+
+def test_with_the_flag_off_or_nothing_uncertain_the_survey_ends_as_it_did():
+    tracks = [marker(2, 70.0, 40.0, digit=-1)]
+    context, mission = revisiting(tracks, features=ON)  # the tracker has an unread marker, and the flag is off
+    statuses = context.run(mission, 400.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert statuses[-1] == MissionStatus.SUCCESS and not any("re-visit" in text for text in context.infos + context.warnings)
+    off_points = [(round(e, 2), round(n, 2)) for e, n, _u, _y in context.setpoints]
+    plain = Context()
+    plain_mission = mission_for(plain)
+    plain.run(plain_mission, 460.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert off_points == [(round(e, 2), round(n, 2)) for e, n, _u, _y in plain.setpoints]  # setpoint for setpoint the survey of LOC-3
+    # The flag on and every marker read: no round, said once.
+    context, mission = revisiting([marker(1, 30.0, 20.0)])
+    statuses = context.run(mission, 400.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert statuses[-1] == MissionStatus.SUCCESS and any("no re-visit: no track to fly back to (1 track(s) heard)" in text for text in context.infos)
+
+
+def test_tracks_that_are_not_there_or_are_old_mean_no_round_and_the_survey_still_ends_cleanly():
+    for tracks, age_s, word in ((None, 0.0, "no re-visit: the tracker has published no tracks"), ([marker(2, 70.0, 40.0, digit=-1)], 30.0, "no re-visit: the tracker's tracks are 30 s old")):
+        context, mission = revisiting(tracks, age_s=age_s)
+        statuses = context.run(mission, 400.0, until=lambda m, s: s != MissionStatus.RUNNING)
+        assert statuses[-1] == MissionStatus.SUCCESS and context.loc_calls == [True, False]
+        assert any(word in text for text in context.warnings)
+
+
+def test_the_round_keeps_to_the_time_budget_and_the_flight_boundary_and_the_height_guard_still_rules():
+    # Little time left when the tracks are flown: the far marker is left out, and said.
+    probe_context, probe = revisiting([])
+    probe_context.run(probe, 400.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    tracks_s = probe_context.seconds_since(probe._started)
+    near_end = probe.plan.waypoints[-1]
+    close = marker(5, near_end[0] - 4.0, near_end[1], sightings=2)
+    far = marker(6, near_end[0] - 55.0 if near_end[0] > 50 else near_end[0] + 55.0, 30.0, digit=-1)
+    context, mission = revisiting([close, far], time_budget_s=tracks_s + 10.0 + 9.0)
+    statuses = context.run(mission, 600.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    said = " | ".join(context.infos)
+    assert statuses[-1] == MissionStatus.SUCCESS and "hovered 3 s over track 5" in said and "re-visit leaves out track 6 (digit not read (20 sightings)): no time for it" in said
+    # A marker by the fence is not flown to.
+    boundary = [corner(-10.0, -10.0), corner(82.0, -10.0), corner(82.0, 60.0), corner(-10.0, 60.0)]  # home is inside it; its east edge is 2 m past the area's
+    context, mission = revisiting([marker(7, 79.0, 30.0, digit=-1)], flight_boundary=boundary)  # in the search area, and 3 m from the boundary
+    context.run(mission, 400.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert any("re-visit leaves out track 7" in text and "not 5 m inside the flight boundary" in text for text in context.infos)
+    assert max(east for east, _n, _u, _y in context.setpoints) < 78.0
+    # The flight guardian's blocker: the shipped sequence has no flight boundary, and a track far outside the search area is still not flown to.
+    context, mission = revisiting([marker(9, 900.0, -300.0, digit=-1), marker(10, 50.0, 30.0, sightings=1)])
+    statuses = context.run(mission, 600.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    said = " | ".join(context.infos)
+    assert statuses[-1] == MissionStatus.SUCCESS and "re-visit leaves out track 9 (digit not read (20 sightings)): 877 m outside the search area" in said and "hovered 3 s over track 10" in said
+    assert max(east for east, _n, _u, _y in context.setpoints) < 82.0 and min(north for _e, north, _u, _y in context.setpoints) > -1.0
+    # The height guard ends a round as it ends a track: low ground under the hover.
+    context, mission = revisiting([marker(8, 50.0, 30.0, digit=-1)])
+    context.run(mission, 400.0, until=lambda m, _s: any("re-visit 1 of 1" in text for text in context.infos))
+    context.ground_up = HEIGHT - 7.0  # the ground comes up to 7 m under the vehicle: under the abort height
+    statuses = context.run(mission, 120.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert any("survey ended early" in text for text in context.warnings) and context.loc_calls[-1] is False
+    assert not any("hovered 3 s over track 8" in text for text in context.infos)
+
+
+def test_a_tracker_that_goes_quiet_in_mid_round_ends_the_round_and_a_climb_back_does_not_cost_the_leg():
+    context, mission = revisiting([marker(2, 70.0, 40.0, digit=-1), marker(3, 30.0, 20.0, digit=-1)])
+    context.run(mission, 400.0, until=lambda m, _s: any("re-visit 1 of 2" in text for text in context.infos))
+    context.tracks_age_s = 30.0  # the localisation node has stopped publishing
+    statuses = context.run(mission, 120.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    assert statuses[-1] == MissionStatus.SUCCESS and context.loc_calls == [True, False]
+    assert any("the tracker's tracks stopped during the re-visit (30 s old)" in text for text in context.warnings)
+    assert not any("hovered 3 s over track 3" in text for text in context.infos) or any("hovered 3 s over track 2" in text for text in context.infos)
+    # The height guard takes the vehicle off a leg (a dip under the survey's lower line): after the climb back the leg goes on and is not passed over.
+    context, mission = revisiting([marker(8, 22.0, 12.0, digit=-1)])
+    context.run(mission, 400.0, until=lambda m, _s: any("re-visit 1 of 1" in text for text in context.infos))
+    context.ground_up = HEIGHT - 8.0  # the ground comes up to 8 m under the vehicle: the guard stops the track and climbs
+    context.run(mission, 3.0)
+    assert any("survey waiting" in text for text in context.warnings)  # the guard took the vehicle and climbed it back
+    statuses = context.run(mission, 200.0, until=lambda m, s: s != MissionStatus.RUNNING)
+    said = " | ".join(context.infos)
+    assert statuses[-1] == MissionStatus.SUCCESS and "hovered 3 s over track 8" in said and "passed over" not in said

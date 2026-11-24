@@ -17,6 +17,7 @@
   <exec_depend>vision_msgs</exec_depend>
   <exec_depend>drone_utils</exec_depend>
   <exec_depend>argus_camera</exec_depend>
+  <exec_depend>argus_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 

@@ -169,6 +169,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_estimator_feed.py
     run_test "" src/drone_mission_core/test/test_executor_target_estimator.py
     run_test "" src/drone_mission_core/test/test_survey_search.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_revisit.py
     run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_height_estimator.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py

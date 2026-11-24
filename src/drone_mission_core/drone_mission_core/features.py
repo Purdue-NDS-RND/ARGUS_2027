@@ -38,6 +38,8 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     "delivery_soft_set_down": ("use_target_estimator", "centre_on_estimator", "use_height_estimator"),
     # The survey mission (LOC-3) keeps its height with the guard (LOC-1), which watches the height estimator's height.
     "survey_search": ("use_height_estimator",),
+    # The re-visit of uncertain markers (LOC-4) is a part of the survey mission.
+    "survey_revisit": ("survey_search",),
     # Smart re-acquisition (CEN-06) climbs by the lost track's uncertainty, over where the centring last had it.
     "smart_reacquire": ("use_target_estimator", "centre_on_estimator"),
     # Centring on the estimator (CEN-01) steers on its track of the target.

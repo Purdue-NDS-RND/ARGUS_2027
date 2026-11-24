@@ -1174,9 +1174,9 @@
       "land": "LOC-4",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "DONE",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "CHECK_STRICT=1 scripts/check.sh -> OK; test_revisit.py 12 passed, test_search_pattern_mission.py 49 passed; sim/run_scenarios.sh localisation/revisit --variants on -> OK, 10.00 points, 8 of 10 correct, both unread markers hovered over for 3 s (second flight, on the reworked rule); flight-guardian round 2 CONCERNS (no blocker; its one new concern fixed with a unit test after the flight); docs/results/2026-11-23-revisit.md",
       "blocked_reason": ""
     },
     {
