@@ -1393,9 +1393,9 @@
       "land": "SIM-12",
       "proven_in": "Unit",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest sim/test/test_splat_twin.py -> 6 passed; strict check OK; stand-in render set end to end: target detected in 35 of 35 whole-target frames (docs/build/notes/SIM-12.md). Left: capture the field, train a splat when the hold allows, render along a flight's poses (a person; the spec's first cut).",
       "blocked_reason": ""
     },
     {

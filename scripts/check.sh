@@ -231,6 +231,7 @@ else
     run_test "" sim/test/test_preflight_check.py
     run_test "" sim/test/test_attempt_check.py
     run_test "" sim/test/test_statustext_from_tlog.py
+    run_test "" sim/test/test_splat_twin.py
     run_test "" sim/test/test_flow_check.py
     run_test "" sim/test/test_scenario.py
     run_test "" sim/test/test_runner.py
