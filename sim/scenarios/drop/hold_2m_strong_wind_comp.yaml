@@ -1,0 +1,41 @@
+# CEN-07: the hold of drop/hold_2m_strong with the mission flag wind_compensation on as well. The same wind, seed and
+# judge: the true error while holding, to be put beside drop/hold_2m_strong's flown the same day
+# (docs/results/2026-11-24-wind-compensation.md).
+#
+# Flown with --variants on.
+description: Hold over the bullseye at 2 m for 20 s in strong wind; the true error while holding is reported - with wind compensation on.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  wind_compensation: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+config:
+  package_drop:
+    drop_altitude_m: 2.2          # with the tolerance, never commanded under 1.9 m: above the 1.83 m floor
+    drop_altitude_tolerance_m: 0.3
+    drop_column_handoff_altitude_m: 0.0
+    centering_dwell_s: 20.0
+    drop_hover_dwell_s: 0.0
+judge:
+  hold_height_m: 2.0
+targets:
+  package_drop: drop_target
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 1.0     # smaller than the calm holds' 1.5 m: in wind the vehicle tilts, and at 2 m that moves the
+    rings: 2        # camera's view by a few tenths of a metre; a target cut by the image's edge is not tracked
+    at: {east_m: 10.0, north_m: 15.0}
+wind: {level: strong, direction_deg: 225.0}

@@ -46,6 +46,7 @@ FLAG_REQUIRES: Dict[str, Tuple[str, ...]] = {
     "centre_on_estimator": ("use_target_estimator",),
     # The retuned centring controller (CEN-02) is fed the estimator's error.
     "centring_retune": ("centre_on_estimator",),
+    "wind_compensation": ("centring_retune",),
     # The near-field ring fit (CEN-13) is a second source of the bullseye for the estimator.
     "use_ring_fit": ("use_target_estimator",),
     # The recovery mission (REC-2) flies on the estimator's track of the bucket and on the height estimator's height.

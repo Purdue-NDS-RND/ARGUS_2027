@@ -11,7 +11,10 @@ from drone_mission_core.centring_controller import (
     RETUNE_FLAG,
     CentringController,
     CentringGains,
+    speed_cap,
 )
+from drone_mission_core.wind_compensation import FLAG as WIND_FLAG
+from drone_mission_core.wind_compensation import WindCompensation, WindGains
 from drone_mission_core.features import get_feature_flag
 from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
@@ -148,6 +151,14 @@ class RedBullseyeMissionBase(BaseMission):
             self._centring_controller = CentringController(
                 CentringGains.from_config(spec.config)
             )
+        # Wind compensation (CEN-07), only with the wind_compensation flag on
+        # (which needs centring_retune): the push a steady wind adds is taken
+        # off the retuned controller's command, and an integral of the error
+        # takes out what is left. Its gains are read here too, so a bad one
+        # stops the executor on the ground.
+        self._wind_compensation: WindCompensation | None = None
+        if self._centring_controller is not None and get_feature_flag(spec.features, WIND_FLAG):
+            self._wind_compensation = WindCompensation(WindGains.from_config(spec.config))
 
     def _load_common_vision_config(self, config: dict) -> None:
         self._target_latitude = float(config.get("target_latitude", 0.0))
@@ -486,6 +497,8 @@ class RedBullseyeMissionBase(BaseMission):
                 # The mission holds still on a lost target: what was being
                 # commanded is no guide to the next command.
                 self._centring_controller.reset()
+                if self._wind_compensation is not None:
+                    self._wind_compensation.reset()  # what was learnt of the wind is not carried over a lost target
             return None
         if self._centring_controller is not None:
             # centring_retune (CEN-02).
@@ -533,14 +546,29 @@ class RedBullseyeMissionBase(BaseMission):
             cap_height_m = height.value_m
             if height.source != "rangefinder":
                 cap_height_m = max(0.0, cap_height_m - BARO_HEIGHT_MARGIN_M)
+        now_s = context.now().nanoseconds * 1.0e-9
+        velocity = context.vehicle_velocity()
         command = self._centring_controller.step(
             solution.east_m,
             solution.north_m,
             cap_height_m,
-            context.now().nanoseconds * 1.0e-9,
+            now_s,
             speed_limit_mps=max_centering_speed_mps,
-            velocity_en_mps=context.vehicle_velocity(),
+            velocity_en_mps=velocity,
         )
+        if self._wind_compensation is not None:
+            # wind_compensation (CEN-07): the same cap and the same slew limit the controller's own command was held to hold the sum.
+            cap = speed_cap(cap_height_m, self._centring_controller.gains)
+            if max_centering_speed_mps is not None and math.isfinite(max_centering_speed_mps):
+                cap = min(cap, max(0.0, float(max_centering_speed_mps)))
+            mode = getattr(getattr(context, "mavros_state", None), "mode", None)
+            if isinstance(mode, str) and mode != "GUIDED":
+                # Somebody else is flying (the pilot, a failsafe): the vehicle's velocity is theirs, not the wind's.
+                self._wind_compensation.reset()
+            # Only a track seen on this frame teaches anything: the error to a remembered (COASTING) track is not the wind's.
+            command = self._wind_compensation.step(
+                command, (solution.east_m, solution.north_m), velocity, now_s, cap, self._centring_controller.gains.slew_mps2, learn=solution.state == "CONFIRMED"
+            )
         if not self._centring_controller.lead_applied:
             last = self._last_centring_lead_log
             if last is None or context.seconds_since(last) >= 2.0:

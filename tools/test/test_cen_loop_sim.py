@@ -111,3 +111,10 @@ def test_the_command_line_prints_the_comparison_and_a_sweep(tmp_path):
     one = run("--kp", "0.9", "--height", "2.4", "--wind", "strong", "--seconds", "30")
     assert one.returncode == 0 and "kp 0.90" in one.stdout
     assert run("--kp", "0").returncode == 2 and run("--kp", "1.4").returncode == 2  # what a sequence would be refused
+    # A steady push (CEN-07): the retune without and with wind compensation, one line each, and the rows in the file.
+    pushed = run("--steady-wind", "0.3", "--seconds", "60", "--out", out)
+    assert pushed.returncode == 0, pushed.stderr
+    lines = [line for line in pushed.stdout.splitlines() if "0.3 m/s steady" in line]
+    assert len(lines) == 2 and "wind compensation" in lines[1] and "wind compensation" not in lines[0]
+    rows = json.loads(out.read_text())["runs"]
+    assert [row["steady_wind_mps"] for row in rows] == [0.3, 0.3] and rows[1]["hold_p95_m"] < 0.2 < rows[0]["hold_p95_m"]

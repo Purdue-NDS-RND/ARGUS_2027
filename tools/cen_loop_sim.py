@@ -53,6 +53,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src" / "drone_mission_core"))
 
 from drone_mission_core.centring_controller import CentringController, CentringGains  # noqa: E402
+from drone_mission_core.centring_controller import speed_cap  # noqa: E402
+from drone_mission_core.wind_compensation import WindCompensation, WindGains  # noqa: E402
 from drone_mission_core.tracking_projection import ground_offset_to_velocity  # noqa: E402
 
 TICK_S = 0.05  # the executor's 20 Hz
@@ -82,6 +84,17 @@ def controller_2027(gains: Optional[CentringGains] = None) -> Loop:
     controller = CentringController(gains)
     kp = controller.gains.kp
     return Loop(f"2027 retune, kp {kp:.2f}", lambda east, north, height, now, velocity: controller.step(east, north, height, now, velocity_en_mps=velocity), controller)
+
+
+def controller_2027_wind(gains: Optional[CentringGains] = None, wind_gains: Optional[WindGains] = None) -> Loop:
+    """The 2027 controller with wind compensation (CEN-07) on its command, as the mission applies it."""
+    controller, wind = CentringController(gains), WindCompensation(wind_gains)
+
+    def step(east: float, north: float, height: float, now: float, velocity: Tuple[float, float]) -> Tuple[float, float]:
+        command = controller.step(east, north, height, now, velocity_en_mps=velocity)
+        return wind.step(command, (east, north), velocity, now, speed_cap(height, controller.gains), controller.gains.slew_mps2)
+
+    return Loop(f"2027 retune, kp {controller.gains.kp:.2f}, wind compensation", step, controller)
 
 
 def controller_2026(gain: float, deadband_m: float, alpha: float, max_speed_mps: float, name: str = "2026") -> Loop:
@@ -144,8 +157,13 @@ def simulate(
     gust_sigma_mps: float = 0.0,
     delay_ticks: int = DELAY_TICKS,
     seed: int = 1,
+    steady_push_mps: Sequence[float] = (0.0, 0.0),
 ) -> Result:
-    """Fly the loop: the vehicle starts at rest with the target `initial_error_m` (east, north) away."""
+    """Fly the loop: the vehicle starts at rest with the target `initial_error_m` (east, north) away.
+
+    `steady_push_mps` is a wind that does not let up: the vehicle moves over the ground at its own velocity plus this
+    (and the gusts), which is what a flight controller that does not quite hold the velocity it is asked for looks like."""
+    steady = (float(steady_push_mps[0]), float(steady_push_mps[1]))
     rng = random.Random(seed)
     noise = _Wander(noise_sigma_m, NOISE_MEMORY_S, rng)
     gust = _Wander(gust_sigma_mps, GUST_MEMORY_S, rng)
@@ -168,7 +186,7 @@ def simulate(
         estimates.append((-position[0] + wander[0], -position[1] + wander[1]))
         seen = estimates[tick - delay_ticks] if tick - delay_ticks >= 0 else None
         # The velocity the controller is told is the vehicle's own report: what it is doing now, wind and all.
-        command = (0.0, 0.0) if seen is None else tuple(loop.step(seen[0], seen[1], height_m, now, (velocity[0] + pushed[0], velocity[1] + pushed[1])))
+        command = (0.0, 0.0) if seen is None else tuple(loop.step(seen[0], seen[1], height_m, now, (velocity[0] + pushed[0] + steady[0], velocity[1] + pushed[1] + steady[1])))
         commands.append(command)
         max_change = max(max_change, math.hypot(command[0] - previous[0], command[1] - previous[1]) / TICK_S)
         previous = command
@@ -178,7 +196,7 @@ def simulate(
                 accel = (command[axis] - velocity[axis]) / VEHICLE_LAG_S
                 accel = max(-VEHICLE_MAX_ACCEL_MPS2, min(VEHICLE_MAX_ACCEL_MPS2, accel))
                 velocity[axis] += accel * dt
-                position[axis] += (velocity[axis] + push[axis]) * dt
+                position[axis] += (velocity[axis] + push[axis] + steady[axis]) * dt
         errors.append(math.hypot(*position))
         if start_length > 0.0:
             along = -(position[0] * start[0] + position[1] * start[1]) / start_length  # positive once past the target
@@ -247,6 +265,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--sweep-kp", help="comma-separated gains: a step response for each, with no noise or wind")
     parser.add_argument("--height", type=float, default=6.0, help="height above the ground in metres (default 6)")
     parser.add_argument("--wind", choices=sorted(GUST_SIGMA_MPS), default="calm")
+    parser.add_argument("--steady-wind", type=float, help="a steady push of this many m/s (to the east): the 2027 controller without and with wind compensation (CEN-07)")
     parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--out", type=Path, help="also write the rows as JSON")
@@ -259,6 +278,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 settle = "never" if row["settle_s"] is None else f"{row['settle_s']:5.1f} s"
                 print(f"kp {row['kp']:.2f}  {args.height:.1f} m  settles {settle}  overshoot {row['overshoot_m']:.2f} m{'  rings' if row['rings'] else ''}")
             report["sweep"] = rows
+        elif args.steady_wind is not None:
+            gains = CentringGains.from_config({"centring_kp": args.kp} if args.kp is not None else {})
+            rows = []
+            for loop in (controller_2027(gains), controller_2027_wind(gains)):
+                result = simulate(loop, height_m=args.height, seconds=args.seconds, gust_sigma_mps=GUST_SIGMA_MPS[args.wind], seed=args.seed, steady_push_mps=(args.steady_wind, 0.0))
+                print(_line(result, f"{args.wind}, {args.steady_wind:g} m/s steady"))
+                rows.append({**result.row(), "wind": args.wind, "steady_wind_mps": args.steady_wind})
+            report["runs"] = rows
         elif args.kp is not None:
             gains = CentringGains.from_config({"centring_kp": args.kp})
             result = simulate(controller_2027(gains), height_m=args.height, seconds=args.seconds, gust_sigma_mps=GUST_SIGMA_MPS[args.wind], seed=args.seed)

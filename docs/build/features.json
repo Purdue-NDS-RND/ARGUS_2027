@@ -1341,9 +1341,9 @@
       "land": "CEN-07",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_wind_compensation.py, test_centring_missions.py, tools/test/test_cen_loop_sim.py -> pass; strict check OK; loop sim: 0.3 m/s steady push, hold p95 0.56 m -> 0.05 m; sim holds in strong wind, one seed each: p95 0.341 m with the flag against 0.280 m without at 6 m, 0.292 against 0.272 m at 2 m (docs/results/2026-11-24-wind-compensation.md). Not shown to help in the sim; left: a field hold in steady wind on the retune alone, then keep or cut (lead).",
       "blocked_reason": ""
     },
     {

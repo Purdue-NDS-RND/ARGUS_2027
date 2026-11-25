@@ -16,6 +16,7 @@ mission_sequence:
         use_height_estimator: false # Height above ground from the rangefinder, the barometer otherwise, with its source (height_estimator.py). Needs use_frame_time_pose.
         centre_on_estimator: false # Drop and delivery centre the payload on the estimator's bullseye track, not the raw detection (centring.py). Needs use_target_estimator.
         centring_retune: false # Centring uses the 2027 controller: soft deadband, Kp 0.6, speed cap by height, slew limit (centring_controller.py). Needs centre_on_estimator.
+        wind_compensation: false # Take a steady wind's push off the 2027 controller's command, with an integral of the error (wind_compensation.py, CEN-07). Needs centring_retune.
         use_ring_fit: false # The estimator also takes the near-field ring fit's bullseye centres, /perception/ring_fit/detections (ring_fit.py). Needs use_target_estimator.
         smart_reacquire: false # A lost target is looked for from the height that shows three sigma of its track plus 2.5 m, over its last estimate, for up to 10 s (reacquire.py, CEN-06). Needs use_target_estimator, centre_on_estimator.
         drop_release_gates: false # The drop descends on the estimator to its release height and lets go when the release gates hold (release_gates.py, drop_final_align.py). Needs centre_on_estimator.

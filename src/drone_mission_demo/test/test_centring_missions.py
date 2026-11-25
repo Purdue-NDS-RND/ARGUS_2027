@@ -548,3 +548,72 @@ def test_retune_off_centring_on_the_estimator_keeps_the_2026_gain(kind):
     context.see(0.33, 0.0)
     context.tick(mission)
     assert context.local_velocity_commands[-1][:2] == pytest.approx((GAIN * 0.33, 0.0))
+
+
+# --- wind compensation (CEN-07) ----------------------------------------------------------------------------
+
+WIND = "wind_compensation"
+WIND_ON = {**RETUNE_ON, WIND: True}
+
+
+def test_the_wind_flag_needs_the_retuned_controller_and_is_declared_off_beside_it():
+    import yaml as real_yaml
+
+    from drone_mission_core import wind_compensation
+
+    assert wind_compensation.FLAG == WIND and FLAG_REQUIRES[WIND] == (RETUNE,)
+    for path in sorted((SRC / "drone_mission_demo" / "config" / "sequences").glob("*.yaml")):
+        features = real_yaml.safe_load(path.read_text())["mission_sequence"]["features"]
+        assert (features.get(WIND, "missing") is False) == (features.get(RETUNE, "missing") is False), path.name  # wherever the retune is declared, and off
+
+
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_wind_compensation_on_a_vehicle_held_downwind_is_commanded_harder_and_never_over_the_cap(kind):
+    def held(features):
+        context = Context(vehicle=(0.0, 0.0, 6.0))
+        context.height = target_access.HeightAgl(6.0, "rangefinder")
+        context.velocity = (0.0, 0.0, 0.0)  # standing 0.4 m west of the target for all the controller's asking: the wind's push
+        mission = make(kind, context, features=features)
+        context.see(0.4, 0.0)
+        return context, mission, settle(context, mission, ticks=400)
+
+    _context, plain_mission, plain = held(RETUNE_ON)
+    assert plain[:2] == pytest.approx((0.6 * 0.37, 0.0)) and plain_mission._wind_compensation is None  # the flag off: the retuned controller's own command
+    context, mission, with_wind = held(WIND_ON)
+    mission_held = mission
+    assert mission._wind_compensation is not None
+    # Asked for 0.22 m/s east and standing still: the push is learnt (0.22 m/s against it, and growing as more is asked) and the error is summed.
+    assert with_wind[0] > plain[0] + 0.15 and with_wind[1] == pytest.approx(0.0, abs=1e-9)
+    assert math.hypot(with_wind[0], with_wind[1]) <= 0.48 + 1e-9  # the cap at 6 m: 0.08 x 6
+    for _ in range(2000):
+        context.tick(mission)
+    assert math.hypot(*context.local_velocity_commands[-1][:2]) == pytest.approx(0.48)  # held to it however long the wind lasts
+    # The controller's slew limit holds the command the mission sends, the wind's terms included: a velocity report that jumps
+    # about moves the observer fast, and the command still changes by no more than 0.5 m/s2 over a 50 ms tick.
+    jumpy, mission = Context(vehicle=(0.0, 0.0, 6.0)), None
+    jumpy.height = target_access.HeightAgl(6.0, "rangefinder")
+    mission = make(kind, jumpy, features=WIND_ON)
+    jumpy.see(0.4, 0.0)
+    for tick in range(300):
+        jumpy.velocity = (5.0, -5.0, 0.0) if (tick // 20) % 2 else (-4.0, 3.0, 0.0)
+        jumpy.tick(mission)
+    sent = [command[:2] for command in jumpy.local_velocity_commands]
+    steps = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(sent, sent[1:])]
+    assert len(steps) > 250 and 0.02 < max(steps) <= 0.5 * 0.05 + 1e-9
+    # A track that is only remembered (COASTING) teaches nothing, and a mode that is not autonomy's drops what was learnt.
+    before = (mission_held._wind_compensation.push, mission_held._wind_compensation.integral)
+    context.see(0.4, 0.0, state="COASTING", age_s=0.4)
+    for _ in range(10):
+        context.tick(mission_held)
+    assert (mission_held._wind_compensation.push, mission_held._wind_compensation.integral) == before
+    # The target lost: what was learnt of the wind is not carried over.
+    context.track = None
+    context.tick(mission_held)
+    assert mission_held._wind_compensation.push == (0.0, 0.0) and mission_held._wind_compensation.integral == (0.0, 0.0)
+
+
+def test_a_wind_gain_that_is_not_a_gain_stops_the_mission_being_made():
+    context = Context(vehicle=(0.0, 0.0, 6.0))
+    with pytest.raises(ValueError, match="wind_ki must be from 0 to 0.5"):
+        make("drop", context, features=WIND_ON, wind_ki=3.0)
+    assert make("drop", context, features=RETUNE_ON, wind_ki=3.0)._wind_compensation is None  # with the flag off its keys are not read
