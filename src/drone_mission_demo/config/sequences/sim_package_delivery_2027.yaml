@@ -22,6 +22,7 @@ mission_sequence:
     centre_on_estimator: false # Drop and delivery centre the payload on the estimator's bullseye track, not the raw detection (centring.py). Needs use_target_estimator.
     centring_retune: false # Centring uses the 2027 controller: soft deadband, Kp 0.6, speed cap by height, slew limit (centring_controller.py). Needs centre_on_estimator.
     wind_compensation: false # Take a steady wind's push off the 2027 controller's command, with an integral of the error (wind_compensation.py, CEN-07). Needs centring_retune.
+    precision_loiter_bridge: false # Send the estimator's bullseye track to ArduPilot's precision landing as LANDING_TARGET (precision_loiter.py, CEN-09): a benchmark only. Needs use_target_estimator.
     use_ring_fit: false # The estimator also takes the near-field ring fit's bullseye centres, /perception/ring_fit/detections (ring_fit.py). Needs use_target_estimator.
     smart_reacquire: false # A lost target is looked for from the height that shows three sigma of its track plus 2.5 m, over its last estimate, for up to 10 s (reacquire.py, CEN-06). Needs use_target_estimator, centre_on_estimator.
     delivery_soft_set_down: false # Delivery comes down on the estimator to the ground: holds position below 0.6 m, descends at 0.12 m/s, releases on contact (set_down.py, CEN-05). Needs use_target_estimator, centre_on_estimator, use_height_estimator.

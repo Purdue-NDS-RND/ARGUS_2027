@@ -34,6 +34,7 @@ from .gps_route import attach_mission_upload
 from .survey_search import attach_localisation_control
 from .revisit import attach_tracks
 from .gps_health import attach_gps_health
+from .precision_loiter import attach_precision_loiter
 from .time_guard import attach_time_health
 from .takeover import attach_takeover, takeover_tick
 from .actuation_lock import attach_actuation_lock, lock_violations
@@ -176,6 +177,15 @@ class MissionExecutorNode(Node):
             [mission.spec for mission in self._sequence],
             self._pose_buffer,
             self._ground_height,
+        )
+        # None unless a mission has the precision_loiter_bridge flag on: then
+        # the estimator's bullseye track goes to MAVROS's landing_target plugin
+        # for ArduPilot's own precision loiter (CEN-09: a benchmark).
+        self._precision_loiter = attach_precision_loiter(
+            self,
+            [mission.spec for mission in self._sequence],
+            self._target_estimator,
+            self._pose_buffer,
         )
         # None unless a mission has the time_health_guard flag on: then the
         # stale-data guard's monitor, fed by its own subscriptions.

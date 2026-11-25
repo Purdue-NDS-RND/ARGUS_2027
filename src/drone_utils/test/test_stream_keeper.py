@@ -46,7 +46,9 @@ NOT_TOPICS = {"argus_mavros", "install_geographiclib_datasets", "param"}
 # the AUTO mission's upload (PLT-13, flag time_trial_auto); with no `waypoint` plugin the time trial flies in GUIDED.
 # /mavros/optical_flow is where the flow odometry sends its samples (REC-5, node flag flow_odometry); with no
 # `optical_flow` plugin the node still publishes its velocity on its own topics and the flight controller hears nothing.
-FLAG_ONLY_NOT_ALLOWED = {"mission": "waypoint", "optical_flow": "optical_flow"}
+# /mavros/landing_target/raw is where the precision-loiter bridge sends the estimator's target (CEN-09, mission flag
+# precision_loiter_bridge: a benchmark); with no `landing_target` plugin (and its `listen_lt` true) nobody listens.
+FLAG_ONLY_NOT_ALLOWED = {"mission": "waypoint", "optical_flow": "optical_flow", "landing_target": "landing_target"}
 
 
 # --- the config file -----------------------------------------------------------------------------

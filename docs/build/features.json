@@ -1376,9 +1376,9 @@
       "land": "CEN-09",
       "proven_in": "Sim",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest src/drone_mission_core/test/test_precision_loiter.py -> 10 passed; strict check OK. Bridge only; spec audit INCOMPLETE (comparison in the A/B harness and PLND parameters missing), flight review: blocker fixed, concerns recorded (docs/build/notes/CEN-09.md). Left: the sim comparison and its set-up, and a check of ArduPilot's reading of the message (lead decides whether to fly it).",
       "blocked_reason": ""
     },
     {

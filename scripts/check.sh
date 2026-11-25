@@ -178,6 +178,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_gps_health.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_wind_compensation.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_release_offset.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_precision_loiter.py
     run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_height_estimator.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
