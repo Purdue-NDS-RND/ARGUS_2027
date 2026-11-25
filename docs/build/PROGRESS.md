@@ -460,6 +460,7 @@ Choices the specs did not settle, with the reason. Newest first.
 
 One line per finished feature, gate run or stop, newest first: `- YYYY-MM-DD <ID> DONE: <one line>`, `- YYYY-MM-DD G0: PASS ...`, `- STOP YYYY-MM-DD: <what is needed>`.
 
+- 2026-11-25 G0
 - 2026-11-25 G2
 - 2026-11-25 SIM-12
 - 2026-11-25 CEN-09
