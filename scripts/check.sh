@@ -177,10 +177,12 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_revisit.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_gps_health.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_wind_compensation.py
+    run_test src/drone_mission_core src/drone_mission_core/test/test_release_offset.py
     run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_height_estimator.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
     run_test "" src/drone_mission_demo/test/test_centring_missions.py
+    run_test "" src/drone_mission_demo/test/test_release_offset_mission.py
     run_test "" src/drone_mission_demo/test/test_drop_release_gates.py
     run_test "" src/drone_mission_demo/test/test_delivery_set_down.py
     run_test "" src/drone_mission_demo/test/test_smart_reacquire.py
@@ -201,6 +203,7 @@ else
     run_test "" tools/test/test_readiness_kit.py
     run_test "" tools/test/test_post_flight.py
     run_test "" tools/test/test_release_confirm.py
+    run_test "" tools/test/test_release_offset_fit.py
     run_test "" tools/test/test_judges_list_view.py
     run_test "" tools/test/test_attempt_download.py
     run_test "" tools/test/test_score_model.py

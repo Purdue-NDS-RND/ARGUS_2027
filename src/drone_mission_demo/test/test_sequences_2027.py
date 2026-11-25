@@ -74,8 +74,9 @@ def test_the_2027_settings_are_the_specs_values_and_every_flag_the_missions_know
     assert {key: config[key] for key in SETTINGS_2027} == SETTINGS_2027
     declared = set(root(name)["features"])
     other = "delivery_soft_set_down" if "drop" in name else "drop_release_gates"
+    drop_only = set() if "drop" in name else {"release_offset_model"}  # (nothing falls in a delivery: the package is set down)
     recovery = {"package_recovery", "swing_shaping", "recovery_gps_untrusted", "ekf_source_switching", "marker_homing", "keyframe_homing"}  # (the recovery's flags belong to its own sequence, as the survey's does)
-    assert set(FLAG_REQUIRES) - {other, "survey_search", "survey_revisit"} - recovery <= declared  # (the survey's flags belong to its own sequence)
+    assert set(FLAG_REQUIRES) - {other, "survey_search", "survey_revisit"} - recovery - drop_only <= declared  # (the survey's flags belong to its own sequence)
     if "delivery" in name:
         # What the rangefinder reads with the package on the ground: nobody has measured it, and nothing is guessed.
         assert config["package_height_m"] is None

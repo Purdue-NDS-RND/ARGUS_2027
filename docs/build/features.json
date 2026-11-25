@@ -1359,9 +1359,9 @@
       "land": "CEN-08",
       "proven_in": "Sim, Field",
       "note": "",
-      "status": "TODO",
+      "status": "PARTIAL",
       "attempts": 0,
-      "evidence": "",
+      "evidence": "pytest test_release_offset.py, test_release_offset_mission.py, tools/test/test_release_offset_fit.py -> pass; strict check OK; sim: drop/release_offset_wind seeds 1-3 (K 0) 0.08, 0.45, 0.40 m, fit K 1.61; drop/release_offset_wind_fitted seeds 1-3 (K 1.61) 1.09, 0.44, 1.46 m: the model failed in the sim (docs/results/2026-11-25-release-offset.md). No K shipped, flag off. Left: field drops (at least ten, two heights), fit, held-out drops, then keep or cut (lead, flight team).",
       "blocked_reason": ""
     },
     {

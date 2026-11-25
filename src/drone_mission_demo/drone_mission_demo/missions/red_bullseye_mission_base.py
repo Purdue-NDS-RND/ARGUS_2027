@@ -79,6 +79,8 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 class RedBullseyeMissionBase(BaseMission):
     """Common targeting and centering helpers for payload missions."""
 
+    RELEASES_BY_FALL = False  # the drop mission's is True: its package falls, and the release offset model (CEN-08) is for that
+
     def __init__(self, spec) -> None:
         super().__init__(spec)
         # Projection v2 (FND-05), only with the use_frame_time_pose flag on:
@@ -156,6 +158,15 @@ class RedBullseyeMissionBase(BaseMission):
         # off the retuned controller's command, and an integral of the error
         # takes out what is left. Its gains are read here too, so a bad one
         # stops the executor on the ground.
+        # The release offset model (CEN-08): only for a mission whose package falls (the drop), with release_offset_model on,
+        # which needs centre_on_estimator and drop_release_gates: the gated release is the one made from a known height
+        # with the lean of that moment. None otherwise, and then nothing below uses it. A bad K stops the executor on the ground.
+        self._release_offset = None
+        self._release_offset_said = False
+        if self.RELEASES_BY_FALL and get_feature_flag(spec.features, "release_offset_model") and get_feature_flag(spec.features, "drop_release_gates") and self._estimator_centring is not None:
+            from drone_mission_core.release_offset import OffsetSettings, ReleaseOffset
+
+            self._release_offset = ReleaseOffset(OffsetSettings.from_config(spec.config))
         self._wind_compensation: WindCompensation | None = None
         if self._centring_controller is not None and get_feature_flag(spec.features, WIND_FLAG):
             self._wind_compensation = WindCompensation(WindGains.from_config(spec.config))
@@ -461,6 +472,8 @@ class RedBullseyeMissionBase(BaseMission):
             return None
         near = context.latlon_to_local_enu(self._target_latitude, self._target_longitude)
         solution = centring.solve(context, near)
+        if self._release_offset is not None and solution is not None:
+            solution = self._aim_upwind(context, solution)
         if solution is not None and solution.error_m > self._max_projection_distance_m:
             return None
         if solution is None and centring.track_id is not None and centring.last_refusal:
@@ -469,6 +482,50 @@ class RedBullseyeMissionBase(BaseMission):
                 self._last_centring_refusal_log = context.now()
                 context.logger.warn(f"[{self.name}] no target to centre on: {centring.last_refusal}")
         return solution
+
+    def _release_height_m(self, context: MissionContext) -> float | None:
+        """The height a release now would be from, for the release offset model, or None: the context's height above the ground,
+        which it gives only on a pose of this moment. With no height nothing is shifted and the lean is not followed."""
+        height = context.height_agl(getattr(self, "_ground_below_home_m", 0.0))
+        return None if height is None else float(height.value_m)
+
+    def _aim_upwind(self, context: MissionContext, solution):
+        """release_offset_model (CEN-08): the solution with its aim point moved upwind by the drift the model predicts for a release from this height.
+
+        The error, and so every rule that reads it (centred, the descent, the release gates), is then to the aim point. The descend
+        permission is the track's own and is not changed. With K at 0 nothing moves.
+        """
+        offset = self._release_offset
+        now_s = context.now().nanoseconds * 1.0e-9
+        height_m = self._release_height_m(context)
+        if height_m is None:
+            return solution  # no pose of this moment: its attitude is not one to learn the lean from either
+        q = context.local_pose.pose.orientation
+        offset.update((q.x, q.y, q.z, q.w), now_s)
+        east, north = offset.shift(height_m, now_s)
+        if east == 0.0 and north == 0.0:
+            return solution
+        from dataclasses import replace
+
+        east_m, north_m = solution.east_m + east, solution.north_m + north
+        return replace(solution, east_m=east_m, north_m=north_m, error_m=math.hypot(east_m, north_m))
+
+    def _log_release_offset(self, context: MissionContext) -> None:
+        """Once, at the release: the height and the lean the model went by, and the shift it gave (tools/release_offset_fit.py reads the line)."""
+        offset = self._release_offset
+        if offset is None or self._release_offset_said:
+            return
+        self._release_offset_said = True
+        now_s = context.now().nanoseconds * 1.0e-9
+        height = self._release_height_m(context)
+        if offset.lean is None or height is None or not offset.fresh(now_s):
+            context.logger.warn(f"[{self.name}] release offset: no lean or no height at the release, nothing was shifted")
+            return
+        east, north = offset.shift(height, now_s)
+        context.logger.info(
+            f"[{self.name}] release offset: height {height:.2f} m, lean ({offset.lean[0]:.4f}, {offset.lean[1]:.4f}), "
+            f"aim shifted ({east:.3f}, {north:.3f}) m (K {offset.settings.k:g})"
+        )
 
     def _estimator_tracking_solution(
         self,

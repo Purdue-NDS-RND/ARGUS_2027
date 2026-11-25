@@ -1,0 +1,49 @@
+# drop/release_offset_wind with the K fitted from its own three drops (CEN-08): the aim point is moved upwind by
+# K x height x lean, half a metre at most, and the judge scores where the package comes to rest.
+# This is the run that showed the model does NOT hold in the sim: on seeds 1 to 3 the package landed 1.09, 0.44
+# and 1.46 m from the target, against 0.08, 0.45 and 0.40 m with K 0 (docs/results/2026-11-25-release-offset.md).
+# It is kept so that the result can be flown again, not as a setting to copy.
+description: Drop a real 0.2 kg package in strong wind with the release offset model on and the K the sim's first three drops gave, so the aim point is moved upwind.
+mission: drop
+site: apollo_xi
+seed: 1
+timeout_s: 600
+sequence: package_drop_demo.yaml
+params: sim_target_mission.yaml
+sim_time: true
+flags:
+  use_frame_time_pose: true
+  use_target_estimator: true
+  use_height_estimator: true
+  centre_on_estimator: true
+  centring_retune: true
+  use_ring_fit: true
+  drop_release_gates: true
+  release_offset_model: true
+node_flags:
+  target_cv:
+    stamp_from_image: true
+    detection_contract: true
+  ring_fit:
+    ring_fit: true
+config:
+  package_drop:
+    fake_drop: false
+    release_offset_k: 1.61      # fitted from drop/release_offset_wind, seeds 1 to 3, and shown not to help on the same seeds (docs/results/2026-11-25-release-offset.md)
+    airframe: sim_iris_parcel   # the parcel hangs 0.13 m left of the vehicle's centre: it, not the vehicle, is put over the target
+targets:
+  package_drop: drop_target
+payload: parcel
+objects:
+  - name: drop_target
+    kind: bullseye
+    size_m: 5.0
+    at: {east_m: 10.0, north_m: 15.0}
+  - name: parcel
+    kind: payload
+    mass_kg: 0.2   # not 0.5: with half a kilogram on it the sim's Iris cannot hold its height in this wind, flags on or off (docs/results/2026-11-20-gate-G2.md)
+    size_m: [0.10, 0.10, 0.10]
+    carried: true
+wind: {level: strong, direction_deg: 225.0}
+expect_log:
+  - "release offset: height"

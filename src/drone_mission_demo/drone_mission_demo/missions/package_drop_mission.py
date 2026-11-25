@@ -36,6 +36,8 @@ class PackageDropState(Enum):
 class PackageDropMission(RedBullseyeMissionBase):
     """Fly to a GPS target, visually track it, descend, and release payload."""
 
+    RELEASES_BY_FALL = True
+
     def on_enter(self, context: MissionContext) -> None:
         config = self.spec.config
         self._load_common_vision_config(config)
@@ -60,6 +62,10 @@ class PackageDropMission(RedBullseyeMissionBase):
         self._final_align = None
         self._ground_below_home_m = 0.0
         self._gated_command_sent = False
+        if self._release_offset is not None:
+            # The release offset model (CEN-08): a new drop starts with no lean learnt and its line not yet said.
+            self._release_offset.reset()
+            self._release_offset_said = False
         if get_feature_flag(self.spec.features, GATES_FLAG):
             from .drop_final_align import FinalAlign
 
@@ -354,6 +360,7 @@ class PackageDropMission(RedBullseyeMissionBase):
             self._transition_to(PackageDropState.FINAL_ALIGN, context)
             return MissionStatus.RUNNING
         if self._fake_drop:
+            self._log_release_offset(context)
             context.logger.info(f"[{self.name}] Fake drop complete")
             self._transition_to(PackageDropState.COMPLETE, context)
             return MissionStatus.SUCCESS
@@ -363,6 +370,7 @@ class PackageDropMission(RedBullseyeMissionBase):
             self._final_align.gates_again()
             self._transition_to(PackageDropState.FINAL_ALIGN, context)
             return MissionStatus.RUNNING
+        self._log_release_offset(context)  # (CEN-08: said on the tick the release is commanded, not before)
         context.logger.info(f"[{self.name}] Closing sprayer for payload drop")
         self._actuator_requested = True
         self._gated_command_sent = True
