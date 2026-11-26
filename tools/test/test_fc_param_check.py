@@ -119,7 +119,7 @@ def test_the_sims_recovery_parameters_and_the_aircrafts_agree_where_they_are_the
 
 BASELINE = REPO / "platform" / "fcu" / "argus_2027.param"
 COMP_2026 = REPO / "platform" / "fcu" / "comp_2026.param"
-BASELINE_RULES = ["fence", "battery_failsafe", "rc_failsafe", "gcs_failsafe", "ekf_failsafe", "failsafe", "gripper", "rangefinder", "ekf_source_options", "second_gps", "radio_switches"]
+BASELINE_RULES = ["fence", "battery_failsafe", "rc_failsafe", "gcs_failsafe", "ekf_failsafe", "failsafe", "gripper", "sprayer", "rangefinder", "ekf_source_options", "second_gps", "radio_switches"]
 
 
 def baseline():
@@ -143,7 +143,7 @@ def test_the_2026_aircraft_fails_exactly_the_rules_the_baseline_was_written_for(
     """In June 2026: no fence, no failsafe with an action but the EKF's, the gripper off, no rangefinder,
     the EKF free to change its source set, and a second GPS configured that was not fitted."""
     flown = tool.read_params(COMP_2026)
-    assert baseline_failed(flown) == {"fence", "battery_failsafe", "rc_failsafe", "gcs_failsafe", "gripper", "rangefinder", "ekf_source_options", "second_gps"}
+    assert baseline_failed(flown) == {"fence", "battery_failsafe", "rc_failsafe", "gcs_failsafe", "gripper", "sprayer", "rangefinder", "ekf_source_options", "second_gps"}
     # With the baseline loaded over it, every rule holds; and nothing else of the aircraft's is touched.
     assert baseline_failed({**flown, **baseline()}) == set()
     assert len(flown) > 1000 and len(baseline()) < 40
@@ -174,6 +174,12 @@ def test_the_2026_file_is_what_the_log_in_the_repo_says():
         ({"FS_OPTIONS": 48}, "failsafe"),  # bit 5: a failsafe would drop the payload
         ({"GRIP_ENABLE": 0}, "gripper"),
         ({"SERVO7_FUNCTION": 0}, "gripper"),
+        ({"SPRAY_ENABLE": 0}, "sprayer"),  # the 2026 value: the drop's command is acknowledged and nothing moves
+        ({"SERVO8_FUNCTION": 0}, "sprayer"),  # enabled, with no output to move
+        ({"SERVO6_FUNCTION": 22}, "sprayer"),  # the pump on two outputs
+        ({"SERVO8_FUNCTION": 0, "SERVO9_FUNCTION": 22}, "sprayer"),  # not one of the spare outputs
+        ({"SPRAY_SPEED_MIN": 100}, "sprayer"),  # ArduPilot's default: no spraying under 1 m/s, and the drop is made from a hover
+        ({"SPRAY_PUMP_MIN": 0}, "sprayer"),  # ArduPilot's default: in a hover the pump's output would not move
         ({"RNGFND1_TYPE": 0}, "rangefinder"),
         ({"EK3_SRC_OPTIONS": 1}, "ekf_source_options"),
         ({"GPS2_TYPE": 2}, "second_gps"),
@@ -185,8 +191,26 @@ def test_each_baseline_rule_fails_on_what_it_is_for(change, rule):
 
 
 def test_a_baseline_with_a_line_missing_fails_that_rule():
-    for name, rule in (("FS_GCS_ENABLE", "gcs_failsafe"), ("BATT_CRT_VOLT", "battery_failsafe"), ("FENCE_ALT_MAX", "fence"), ("FS_OPTIONS", "failsafe")):
+    for name, rule in (("FS_GCS_ENABLE", "gcs_failsafe"), ("BATT_CRT_VOLT", "battery_failsafe"), ("FENCE_ALT_MAX", "fence"), ("FS_OPTIONS", "failsafe"), ("SPRAY_ENABLE", "sprayer"), ("SPRAY_SPEED_MIN", "sprayer"), ("SPRAY_PUMP_MIN", "sprayer"), ("SERVO8_FUNCTION", "sprayer")):
         assert baseline_failed({k: v for k, v in baseline().items() if k != name}) == {rule}
+
+
+def test_the_baseline_sets_the_drops_sprayer_as_the_sim_does():
+    """The drop releases with MAV_CMD_DO_SPRAYER (mission_context.py), which ArduPilot 4.6.3 acknowledges even with
+    SPRAY_ENABLE 0. The sim's flights set the sprayer up before they drop; the aircraft's file must set the same."""
+    sys.path.insert(0, str(REPO / "sim"))
+    import payload_bridge
+
+    sprayer = {name: float(value) for name, value in payload_bridge.SITL_PARAMS.items() if name.startswith("SPRAY_") or value == tool.SPRAYER_PUMP_FUNCTION}
+    assert sprayer == {"SPRAY_ENABLE": 1.0, "SPRAY_SPEED_MIN": 0.0, "SPRAY_PUMP_MIN": 100.0, "SERVO8_FUNCTION": 22.0}
+    assert {name: baseline()[name] for name in sprayer} == sprayer
+    assert tool.read_params(COMP_2026)["SPRAY_ENABLE"] == 0  # how it flew in June 2026
+    # The file says whose number the output is.
+    text = BASELINE.read_text()
+    block = text[text.index("# --- The drop's release") : text.index("SPRAY_ENABLE,1")]
+    assert "mechanical team" in block and "MAV_CMD_DO_SPRAYER" in block
+    # Gripper and sprayer are on different outputs, both spare.
+    assert baseline()["SERVO7_FUNCTION"] == tool.GRIPPER_FUNCTION and baseline()["SERVO8_FUNCTION"] == tool.SPRAYER_PUMP_FUNCTION
 
 
 def test_the_baseline_and_the_recovery_profile_agree_where_both_speak():
@@ -209,7 +233,7 @@ def test_the_battery_thresholds_fit_the_pack_the_2026_logs_show():
 def test_the_diff_lists_what_the_baseline_changes_from_2026(capsys):
     assert tool.main([str(BASELINE), "--rules", "baseline", "--diff", str(COMP_2026)]) == 0
     out = capsys.readouterr().out
-    for line in ("diff FENCE_ENABLE: 0 -> 1", "diff FS_THR_ENABLE: 0 -> 1", "diff FS_GCS_ENABLE: 0 -> 1", "diff BATT_FS_LOW_ACT: 0 -> 2", "diff GRIP_ENABLE: 0 -> 1", "diff EK3_SRC_OPTIONS: 1 -> 0", "diff GPS2_TYPE: 2 -> 0", "diff GRIP_TYPE: not in the other file -> 1"):
+    for line in ("diff FENCE_ENABLE: 0 -> 1", "diff FS_THR_ENABLE: 0 -> 1", "diff FS_GCS_ENABLE: 0 -> 1", "diff BATT_FS_LOW_ACT: 0 -> 2", "diff GRIP_ENABLE: 0 -> 1", "diff EK3_SRC_OPTIONS: 1 -> 0", "diff GPS2_TYPE: 2 -> 0", "diff GRIP_TYPE: not in the other file -> 1", "diff SPRAY_ENABLE: 0 -> 1", "diff SERVO8_FUNCTION: 0 -> 22"):
         assert line in out, line
     # What 2026 already had is not in the list: the EKF's action, and FS_OPTIONS.
     assert "diff FS_EKF_ACTION" not in out and "diff FS_OPTIONS" not in out

@@ -42,6 +42,10 @@ sitl_params:                  # the 2027 baseline (platform/fcu/argus_2027.param
   GRIP_GRAB: 1900.0
   GRIP_RELEASE: 1100.0
   GRIP_NEUTRAL: 1500.0
+  SPRAY_ENABLE: 1.0           # the drop's release, as the baseline and sim/payload_bridge.py set it
+  SPRAY_SPEED_MIN: 0.0
+  SPRAY_PUMP_MIN: 100.0
+  SERVO8_FUNCTION: 22.0
   EK3_SRC_OPTIONS: 0.0
   GPS2_TYPE: 0.0
 preflight:

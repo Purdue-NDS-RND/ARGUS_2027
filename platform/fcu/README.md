@@ -4,11 +4,11 @@ ArduCopter 4.6 on the Pixhawk 6C.
 
 | File | What it is |
 | --- | --- |
-| `argus_2027.param` | The 2027 baseline: the settings 2027 needs changed or added, each with its reason. 29 parameters, loaded over what the aircraft has. |
+| `argus_2027.param` | The 2027 baseline: the settings 2027 needs changed or added, each with its reason. 33 parameters, loaded over what the aircraft has. |
 | `comp_2026.param` | How the aircraft was set at the June 2026 competition, all 1055 parameters, read out of that flight's own log (`src/vision_pipeline/vision_pipeline/LOGS/00000031.BIN`) by `tools/dataflash_params.py`. Reference only: do not load it (it carries that day's calibration). |
 | `docs/fc/recovery.parm` | What a recovery flight needs on top of the baseline (REC-9). |
 
-In 2026 the fence was off, no failsafe but the EKF's had an action, the gripper was disabled and no rangefinder was fitted. The baseline turns the fence on, gives the battery, radio and ground-station failsafes an action, keeps the EKF's, enables the gripper on a spare output with `FS_OPTIONS` bit 5 clear (a failsafe never drops the payload), fits the rangefinder, and sets `EK3_SRC_OPTIONS` and `GPS2_TYPE` to 0.
+In 2026 the fence was off, no failsafe but the EKF's had an action, the gripper was disabled and no rangefinder was fitted. The baseline turns the fence on, gives the battery, radio and ground-station failsafes an action, keeps the EKF's, enables the gripper on a spare output with `FS_OPTIONS` bit 5 clear (a failsafe never drops the payload), enables the sprayer's pump output that the drop releases with, fits the rangefinder, and sets `EK3_SRC_OPTIONS` and `GPS2_TYPE` to 0.
 
 ```
 python3 tools/fc_param_check.py platform/fcu/argus_2027.param --rules baseline            # the file against its rules
@@ -24,6 +24,7 @@ The file marks these "to confirm"; they are the session's working values.
 
 - **Battery.** `BATT_LOW_VOLT 21` and `BATT_CRT_VOLT 19.8` are 3.5 and 3.3 V a cell for the 6S pack the 2026 logs show (25.6 V full, 22.4 V the lowest in flight). Set them for the pack that will fly, and `BATT_CAPACITY` with it (still ArduPilot's default 3300).
 - **Gripper.** Output 7 and PWMs 1900, 1100, 1500 are the sim's. The mechanical team's output and PWMs replace them, here, in `docs/fc/recovery.parm` and in `sim/payload_bridge.py`.
+- **The drop's release.** The drop mission releases with `MAV_CMD_DO_SPRAYER`, which ArduPilot 4.6.3 acknowledges even with `SPRAY_ENABLE 0` (the 2026 value): the mission is told "accepted" and nothing moves. The file sets `SPRAY_ENABLE 1`, `SPRAY_SPEED_MIN 0`, `SPRAY_PUMP_MIN 100` and `SERVO8_FUNCTION 22`, as the sim does. Output 8 is the sim's: the mechanical team's output replaces it, here and in `sim/payload_bridge.py`, with the mechanism's travel (`SERVOn_MIN`, `SERVOn_MAX`).
 - **Rangefinder.** `RNGFND1_TYPE 20` is a TFmini on a serial port; the port's `SERIALn_PROTOCOL 9` and `SERIALn_BAUD 115` are not in the file because the port is not chosen.
 - **Ground-station failsafe.** `FS_GCS_ENABLE 1` brings the aircraft home 5 s after the telemetry link to the laptop is lost, even in the middle of a mission (the companion computer is not the ground station). Check that against the competition's rule on lost links and the range of the telemetry radio over the field.
 - **The fence's ceiling.** `FENCE_ALT_MAX 120` is the site file's `max_altitude_agl_m`, which is itself a placeholder until the organisers' map is checked.

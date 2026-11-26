@@ -60,3 +60,7 @@ In all three the gripper's output stayed at its grab value: `docs/results/2026-1
 - `mav.parm` from the 2026 team is still not collected; the log's 1055 parameters stand in for it, and `--diff` compares against whichever arrives.
 - The EKF failsafe is not tripped in the sim: its action (Land) is 2026's and unchanged. The review the spec asks for is written in the parameter file beside it.
 - MAVROS's `rc_io` plugin (servo outputs in recordings), which SIM-06 left for this row, is not added: a plugin in the list runs with every flag off, so it is the lead's to add ("Needs a person").
+
+## After the build (2026-11-25)
+
+- The drop's release: the drop mission sends `MAV_CMD_DO_SPRAYER`, which ArduPilot 4.6.3 acknowledges with the sprayer disabled, so the file as first written left the aircraft's drop doing nothing. It now sets `SPRAY_ENABLE 1`, `SPRAY_SPEED_MIN 0`, `SPRAY_PUMP_MIN 100` and `SERVO8_FUNCTION 22`, the sim's set (`sim/payload_bridge.py`), and the baseline's rules have `sprayer` (`tools/fc_param_check.py`, `_sprayer`). Output 8 is the sim's number: the mechanical team's replaces it. 33 parameters, twelve rules; the 2026 set fails nine of them.

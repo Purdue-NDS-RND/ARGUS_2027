@@ -67,6 +67,18 @@ GRIP_GRAB,1900
 GRIP_RELEASE,1100
 GRIP_NEUTRAL,1500
 
+# --- The drop's release: the sprayer's pump output (2026: SPRAY_ENABLE 0, no output assigned). The drop
+# mission releases with MAV_CMD_DO_SPRAYER, and ArduPilot 4.6.3 acknowledges that command even with the
+# sprayer disabled: without these four the mission is told "accepted" and nothing on the aircraft moves.
+# On at any ground speed (the drop is made from a hover; ArduPilot's default waits for 1 m/s) and fully
+# (the pump's output goes to its end). These are the sim's set (sim/payload_bridge.py). The output's
+# number waits for the mechanical team: 8 is the sim's, not the aircraft's wiring, and the mechanism's
+# travel (SERVO8_MIN, SERVO8_MAX) comes with it.
+SPRAY_ENABLE,1
+SPRAY_SPEED_MIN,0
+SPRAY_PUMP_MIN,100
+SERVO8_FUNCTION,22
+
 # --- The rangefinder, looking down (CEN-03): a Benewake TFmini on a serial port (2026: none fitted).
 # Which port it is wired to, and that port's SERIALn_PROTOCOL 9 and SERIALn_BAUD 115, are the aircraft's to set.
 RNGFND1_TYPE,20

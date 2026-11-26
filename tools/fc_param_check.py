@@ -40,6 +40,11 @@ list for PLT-08):
   rc_failsafe         FS_THR_ENABLE not 0: losing the radio does something
   gcs_failsafe        FS_GCS_ENABLE not 0: losing the ground station does
   ekf_failsafe        FS_EKF_ACTION not 0
+  sprayer             the drop's release (MAV_CMD_DO_SPRAYER): enabled, the pump
+                      on exactly one spare output, on at any speed
+                      (SPRAY_SPEED_MIN 0) and fully (SPRAY_PUMP_MIN 100).
+                      ArduPilot acknowledges the command with the sprayer
+                      disabled, and then nothing moves
   failsafe, gripper, rangefinder, ekf_source_options, second_gps,
   radio_switches      as above
 
@@ -61,6 +66,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 GRIPPER_FUNCTION = 28  # SERVOn_FUNCTION
+SPRAYER_PUMP_FUNCTION = 22  # SERVOn_FUNCTION: the output MAV_CMD_DO_SPRAYER moves, which is the drop's release
 SPARE_OUTPUTS = (5, 6, 7, 8)  # unassigned on the 2026 aircraft; 1 to 4 are the motors
 FS_RELEASE_GRIPPER_BIT = 5
 RC_OPTION_GRIPPER, RC_OPTION_EKF_SOURCE = 19, 90
@@ -124,6 +130,21 @@ def _gripper(params) -> Optional[str]:
     grab, release = params.get("GRIP_GRAB"), params.get("GRIP_RELEASE")
     if grab is None or release is None or grab == release:
         return f"GRIP_GRAB ({grab}) and GRIP_RELEASE ({release}) must both be set and differ"
+    return None
+
+
+def _sprayer(params) -> Optional[str]:
+    if _whole(params, "SPRAY_ENABLE") != 1:
+        return f"SPRAY_ENABLE is {params.get('SPRAY_ENABLE', 'not set')}: the drop's MAV_CMD_DO_SPRAYER is acknowledged and nothing moves"
+    outputs = sorted(int(_SERVO.match(name).group(1)) for name, value in params.items() if _SERVO.match(name) and value == SPRAYER_PUMP_FUNCTION)
+    if len(outputs) != 1:
+        return f"the sprayer's pump (SERVOn_FUNCTION {SPRAYER_PUMP_FUNCTION}) is on {'no output' if not outputs else 'outputs ' + ', '.join(map(str, outputs))}: it must be on exactly one"
+    if outputs[0] not in SPARE_OUTPUTS:
+        return f"the sprayer's pump is on output {outputs[0]}, which is not one of the spare outputs {SPARE_OUTPUTS[0]} to {SPARE_OUTPUTS[-1]}"
+    if params.get("SPRAY_SPEED_MIN") != 0:
+        return f"SPRAY_SPEED_MIN is {params.get('SPRAY_SPEED_MIN', 'not set')}, not 0: the drop is made from a hover, below the speed the sprayer waits for"
+    if params.get("SPRAY_PUMP_MIN") != 100:
+        return f"SPRAY_PUMP_MIN is {params.get('SPRAY_PUMP_MIN', 'not set')}, not 100: in a hover the pump's output would not go to its end"
     return None
 
 
@@ -234,6 +255,7 @@ BASELINE_RULES: List[tuple] = [
     ("ekf_failsafe", _acts("FS_EKF_ACTION", "an EKF failure")),
     ("failsafe", _failsafe),
     ("gripper", _gripper),
+    ("sprayer", _sprayer),
     ("rangefinder", _rangefinder),
     ("ekf_source_options", _ekf_source_options),
     ("second_gps", _second_gps),
