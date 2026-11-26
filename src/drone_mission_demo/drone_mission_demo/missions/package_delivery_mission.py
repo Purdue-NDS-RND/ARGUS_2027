@@ -9,8 +9,6 @@ from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.registry import register_mission
-from drone_mission_core.safety_limits import set_down_release_allowed
-from drone_mission_core.set_down import AFTER_RELEASE_WAIT_S, BARO_MARGIN_M, SET_DOWN_FLAG
 from rclpy.time import Time
 from .red_bullseye_mission_base import (
     HOLD_YAW_DEG,
@@ -37,6 +35,11 @@ class PackageDeliveryState(Enum):
     FINAL_SET_DOWN = auto()  # 2027, delivery_soft_set_down only: in place of FINAL_FIXED_COLUMN_DESCENT (delivery_set_down.py)
 
 
+# The fallback (see red_bullseye_mission_base.py): the 2027 flag this file reads, by name. Its modules are
+# imported in the constructor, where the flag is on.
+SET_DOWN_FLAG = "delivery_soft_set_down"  # set_down.py
+
+
 @register_mission("package_delivery")
 class PackageDeliveryMission(RedBullseyeMissionBase):
     """Fly to a GPS target, land on it in GUIDED, deliver, and relaunch."""
@@ -47,9 +50,16 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
         # on. Checked when the sequence is built, as the camera's calibration
         # is, so that a sequence without it stops the executor on the ground
         # and not the delivery in the air with the package on the hook.
+        self._set_down_module = None  # set_down.py, safety_limits.py and delivery_set_down.py: there only with the flag on
+        self._safety_limits = None
+        self._delivery_set_down = None
         if get_feature_flag(spec.features, SET_DOWN_FLAG):
+            from drone_mission_core import safety_limits, set_down
             from drone_mission_core.set_down import ContactDetector
 
+            from . import delivery_set_down
+
+            self._set_down_module, self._safety_limits, self._delivery_set_down = set_down, safety_limits, delivery_set_down
             try:
                 ContactDetector(spec.config.get("package_height_m"))
             except ValueError as error:
@@ -101,10 +111,8 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
         self._ground_below_home_m = 0.0
         self._released_at: Time | None = None
         if get_feature_flag(self.spec.features, SET_DOWN_FLAG):
-            from .delivery_set_down import SoftSetDown
-
             self._ground_below_home_m = float(config.get("ground_below_home_m", 0.0))
-            self._set_down = SoftSetDown(self, config.get("package_height_m"))
+            self._set_down = self._delivery_set_down.SoftSetDown(self, config.get("package_height_m"))
 
         self._enter_common_mission(context)
 
@@ -383,8 +391,7 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
 
     def _handle_final_set_down(self, context: MissionContext) -> MissionStatus:
         """delivery_soft_set_down only (CEN-05): delivery_set_down.py does the work, this turns its answer into a state."""
-        from . import delivery_set_down
-
+        delivery_set_down = self._delivery_set_down
         if context.local_pose is None or context.global_gps is None:
             return MissionStatus.WAITING
         if self._set_down.holding and self._time_is_unhealthy(context):
@@ -420,8 +427,8 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
             landed = context.landing_state_available() and context.vehicle_is_landed()
             against_ceiling_m = math.nan
             if height is not None:
-                against_ceiling_m = height.value_m + (0.0 if height.source == "rangefinder" else BARO_MARGIN_M)
-            if not set_down_release_allowed(against_ceiling_m, landed):
+                against_ceiling_m = height.value_m + (0.0 if height.source == "rangefinder" else self._set_down_module.BARO_MARGIN_M)
+            if not self._safety_limits.set_down_release_allowed(against_ceiling_m, landed):
                 context.logger.warn(
                     f"[{self.name}] not releasing: the height is "
                     f"{'unknown' if height is None else f'{height.value_m:.2f} m'}, "
@@ -452,7 +459,7 @@ class PackageDeliveryMission(RedBullseyeMissionBase):
             return MissionStatus.RUNNING
         if self._released_at is None:
             self._released_at = context.now()
-        if context.seconds_since(self._released_at) < AFTER_RELEASE_WAIT_S:
+        if context.seconds_since(self._released_at) < self._set_down_module.AFTER_RELEASE_WAIT_S:
             return MissionStatus.RUNNING
         self._transition_to(PackageDeliveryState.GUIDED_RELAUNCH, context)
         return MissionStatus.RUNNING

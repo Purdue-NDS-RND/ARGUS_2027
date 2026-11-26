@@ -12,6 +12,26 @@ from .mission_api import BaseMission, MissionFailurePolicy, MissionSpec
 
 
 MISSION_REGISTRY: dict[str, Type[BaseMission]] = {}
+# The fallback: a mission package that offers 2027 missions beside the 2026 ones records here, {module: why}, each
+# 2027 mission module it could not import, in place of failing: the 2026 missions still load. A sequence that
+# names such a mission does not start (create_mission), and the executor says each one when it starts.
+IMPORT_FAILURES: dict[str, str] = {}
+
+
+def import_optional_mission(module_name: str) -> Any:
+    """Import a mission module that the fallback must not depend on. None, with the failure recorded, if it cannot be imported.
+
+    A module registers its mission where its class is defined, which may be before the line that fails: whatever it
+    registered is taken back, so that no sequence is started on a module that did not finish loading.
+    """
+    before = set(MISSION_REGISTRY)
+    try:
+        return importlib.import_module(module_name)
+    except Exception as error:  # noqa: BLE001  (whatever a broken module raises when it is loaded, not only ImportError)
+        for type_name in set(MISSION_REGISTRY) - before:
+            del MISSION_REGISTRY[type_name]
+        IMPORT_FAILURES[module_name] = f"{type(error).__name__}: {error}"
+        return None
 
 
 def register_mission(type_name: str):
@@ -39,8 +59,9 @@ def create_mission(spec: MissionSpec) -> BaseMission:
     mission_cls = MISSION_REGISTRY.get(spec.type_name)
     if mission_cls is None:
         known = ", ".join(sorted(MISSION_REGISTRY.keys()))
+        failed = "".join(f" {module} could not be imported ({why})." for module, why in sorted(IMPORT_FAILURES.items()))
         raise ValueError(
-            f"Unknown mission type '{spec.type_name}'. Registered mission types: {known}"
+            f"Unknown mission type '{spec.type_name}'. Registered mission types: {known}" + ("." + failed if failed else "")
         )
     return mission_cls(spec)
 

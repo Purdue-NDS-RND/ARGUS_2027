@@ -8,7 +8,6 @@ from drone_mission_core.features import get_feature_flag
 from drone_mission_core.mission_api import MissionStatus
 from drone_mission_core.mission_context import MissionContext
 from drone_mission_core.registry import register_mission
-from drone_mission_core.release_gates import GATES_FLAG
 from rclpy.time import Time
 from .red_bullseye_mission_base import (
     HOLD_YAW_DEG,
@@ -16,6 +15,11 @@ from .red_bullseye_mission_base import (
     RedBullseyeMissionBase,
     haversine_distance,
 )
+
+
+# The fallback (see red_bullseye_mission_base.py): the 2027 flag this file reads, by name. Its modules are
+# imported in the constructor, where the flag is on.
+GATES_FLAG = "drop_release_gates"  # release_gates.py
 
 
 class PackageDropState(Enum):
@@ -37,6 +41,18 @@ class PackageDropMission(RedBullseyeMissionBase):
     """Fly to a GPS target, visually track it, descend, and release payload."""
 
     RELEASES_BY_FALL = True
+
+    def __init__(self, spec) -> None:
+        super().__init__(spec)
+        # The gated release (CEN-04), only with the drop_release_gates flag on: its modules are loaded when the
+        # sequence is built, so one that cannot be imported stops the executor on the ground, not the drop in the air.
+        self._drop_final_align = None
+        if get_feature_flag(spec.features, GATES_FLAG):
+            from drone_mission_core import release_gates  # noqa: F401  (drop_final_align.py's own; loaded here with it)
+
+            from . import drop_final_align
+
+            self._drop_final_align = drop_final_align
 
     def on_enter(self, context: MissionContext) -> None:
         config = self.spec.config
@@ -67,9 +83,7 @@ class PackageDropMission(RedBullseyeMissionBase):
             self._release_offset.reset()
             self._release_offset_said = False
         if get_feature_flag(self.spec.features, GATES_FLAG):
-            from .drop_final_align import FinalAlign
-
-            self._final_align = FinalAlign(self)
+            self._final_align = self._drop_final_align.FinalAlign(self)
             self._ground_below_home_m = float(config.get("ground_below_home_m", 0.0))
 
         self._enter_common_mission(context)
@@ -319,8 +333,7 @@ class PackageDropMission(RedBullseyeMissionBase):
 
     def _handle_final_align(self, context: MissionContext) -> MissionStatus:
         """drop_release_gates only (CEN-04): drop_final_align.py does the work, this turns its answer into a state."""
-        from . import drop_final_align
-
+        drop_final_align = self._drop_final_align
         if context.local_pose is None:
             return MissionStatus.WAITING
         answer = self._final_align.update(context)

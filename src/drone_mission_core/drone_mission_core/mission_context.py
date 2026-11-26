@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from geometry_msgs.msg import PointStamped, PoseStamped
 from mavros_msgs.msg import (
@@ -21,23 +21,23 @@ from rclpy.time import Time
 from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
-from .gps_health import SET_EKF_SOURCE_SET
-from .target_access import (
-    ACTUATION_DELAY_S,
-    ESTIMATOR_OFF,
-    FIX_MAX_AGE_S,
-    FIX_POSE_MAX_APART_S,
-    POSE_MAX_AGE_S,
-    Permission,
-    descent_permission,
-    from_estimate,
-    height_agl,
-    latlon_to_local_enu,
-    release_permission,
-    within,
-)
+if TYPE_CHECKING:
+    from .target_access import Permission
 
-ACTUATION_DELAY_NS = int(ACTUATION_DELAY_S * 1.0e9)
+
+def _target_access():
+    """target_access.py, a 2027 module, for the 2027 methods below.
+
+    The fallback: this file is June 2026's, and loading it imports no 2027 module, so that one which cannot be
+    imported on the aircraft cannot stop a 2026 mission. Only flag-on code calls the methods that come here, and
+    the executor imports this module when it starts with any flag on (mission_executor.py), so this is never a
+    first import in the air.
+    """
+    from . import target_access
+
+    return target_access
+
+
 ABORT_MODES_A_MISSION_MAY_NAME = ("LAND",)
 
 
@@ -141,7 +141,7 @@ class MissionContext:
 
     def actuation_time_ns(self) -> int:
         """The time a command given now takes effect: now + 0.08 s. The estimator's outputs are given for this time."""
-        return self._now_ns() + ACTUATION_DELAY_NS
+        return self._now_ns() + int(_target_access().ACTUATION_DELAY_S * 1.0e9)
 
     def primary_target(self, class_id: str, *, near=None):
         """The track of a class to act on, as a `target_access.PrimaryTarget`: position, covariance, age and state.
@@ -155,7 +155,7 @@ class MissionContext:
         if feed is None:
             return None
         estimate = feed.primary(class_id, self._now_ns(), near)
-        return None if estimate is None else from_estimate(estimate)
+        return None if estimate is None else _target_access().from_estimate(estimate)
 
     def tracked_target(self, class_id: str, track_id: int):
         """The track with this id, of this class, as a `target_access.PrimaryTarget`, or None when it is gone or the estimator is off.
@@ -169,19 +169,19 @@ class MissionContext:
             return None
         for estimate in feed.estimates(self._now_ns(), class_id):
             if estimate.track_id == track_id:
-                return from_estimate(estimate)
+                return _target_access().from_estimate(estimate)
         return None
 
     def _target_to_judge(self, class_id: str, near, track_id: Optional[int]):
         """(the track a rule is asked about, or None; why there is none)."""
         feed = getattr(self._node, "_target_estimator", None)
         if feed is None:
-            return None, ESTIMATOR_OFF
+            return None, _target_access().ESTIMATOR_OFF
         if track_id is None:
             return self.primary_target(class_id, near=near), ""
         for estimate in feed.estimates(self._now_ns(), class_id):
             if estimate.track_id == track_id:
-                return from_estimate(estimate), ""
+                return _target_access().from_estimate(estimate), ""
         return None, f"{class_id} track {track_id} is gone"
 
     def may_descend(self, class_id: str, *, near=None, track_id: Optional[int] = None) -> Permission:
@@ -193,15 +193,15 @@ class MissionContext:
         """
         target, why_none = self._target_to_judge(class_id, near, track_id)
         if target is None and why_none:
-            return Permission(False, why_none, track_id)
-        return descent_permission(target)
+            return _target_access().Permission(False, why_none, track_id)
+        return _target_access().descent_permission(target)
 
     def may_release(self, class_id: str, *, near=None, track_id: Optional[int] = None) -> Permission:
         """Releasing needs a CONFIRMED track no older than 0.3 s. False, with the reason, otherwise. `track_id` as for `may_descend`."""
         target, why_none = self._target_to_judge(class_id, near, track_id)
         if target is None and why_none:
-            return Permission(False, why_none, track_id)
-        return release_permission(target)
+            return _target_access().Permission(False, why_none, track_id)
+        return _target_access().release_permission(target)
 
     @staticmethod
     def _stamp_ns(message) -> Optional[int]:
@@ -228,7 +228,8 @@ class MissionContext:
         """
         pose = self._node._local_pose
         now_ns = self._now_ns()
-        if pose is None or not within(self._stamp_ns(pose), now_ns, POSE_MAX_AGE_S):
+        access = _target_access()
+        if pose is None or not access.within(self._stamp_ns(pose), now_ns, access.POSE_MAX_AGE_S):
             return None
         pose_age_s = (now_ns - self._stamp_ns(pose)) * 1.0e-9
         estimator = getattr(self._node, "_height_estimator", None)
@@ -239,7 +240,7 @@ class MissionContext:
             )
         ground_height = getattr(self._node, "_ground_height", None)
         ground = None if ground_height is None else ground_height.ground_up(now_ns)
-        return height_agl(pose.pose.position.z, ground, pose_age_s, ground_below_home_m)
+        return access.height_agl(pose.pose.position.z, ground, pose_age_s, ground_below_home_m)
 
     def rangefinder_range(self):
         """The rangefinder's newest reading as (range in metres, age in seconds), or None.
@@ -304,16 +305,17 @@ class MissionContext:
         if getattr(getattr(fix, "status", None), "status", 0) < 0:  # sensor_msgs/NavSatStatus: -1 is no fix
             return None
         fix_ns = self._stamp_ns(fix)
-        if not within(fix_ns, self._now_ns(), FIX_MAX_AGE_S):
+        access = _target_access()
+        if not access.within(fix_ns, self._now_ns(), access.FIX_MAX_AGE_S):
             return None
         at_fix = self.pose_at(fix_ns)
         if at_fix is not None:
             here_east, here_north = at_fix.position[0], at_fix.position[1]
-        elif within(self._stamp_ns(pose), fix_ns, FIX_POSE_MAX_APART_S):
+        elif access.within(self._stamp_ns(pose), fix_ns, access.FIX_POSE_MAX_APART_S):
             here_east, here_north = pose.pose.position.x, pose.pose.position.y
         else:
             return None
-        return latlon_to_local_enu(latitude, longitude, fix.latitude, fix.longitude, here_east, here_north)
+        return access.latlon_to_local_enu(latitude, longitude, fix.latitude, fix.longitude, here_east, here_north)
 
     def seconds_since(self, start_time: Time) -> float:
         return (self.now() - start_time).nanoseconds / 1e9
@@ -467,6 +469,8 @@ class MissionContext:
         """Ask the flight controller for one of its EKF source sets (MAV_CMD_SET_EKF_SOURCE_SET; 1 is the GPS set, 2 the one without GPS). REC-6."""
         request = CommandLong.Request()
         request.broadcast = False
+        from .gps_health import SET_EKF_SOURCE_SET  # a 2027 module: this method is REC-6's, called only with its flag on
+
         request.command = SET_EKF_SOURCE_SET
         request.confirmation = 0
         request.param1 = float(int(source_set))

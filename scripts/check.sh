@@ -181,6 +181,7 @@ else
     run_test src/drone_mission_core src/drone_mission_core/test/test_precision_loiter.py
     run_test "" src/drone_mission_core/test/test_context_target_access.py
     run_test src/drone_mission_core src/drone_mission_core/test/test_height_estimator.py
+    run_test "" src/drone_mission_demo/test/test_fallback_imports.py
     run_test "" src/drone_mission_demo/test/test_frame_time_missions.py
     run_test "" src/drone_mission_demo/test/test_centring_missions.py
     run_test "" src/drone_mission_demo/test/test_release_offset_mission.py

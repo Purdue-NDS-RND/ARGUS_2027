@@ -5,26 +5,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from drone_mission_core.centring import CENTRE_FLAG, EstimatorCentring
-from drone_mission_core.centring_controller import (
-    BARO_HEIGHT_MARGIN_M,
-    RETUNE_FLAG,
-    CentringController,
-    CentringGains,
-    speed_cap,
-)
-from drone_mission_core.wind_compensation import FLAG as WIND_FLAG
-from drone_mission_core.wind_compensation import WindCompensation, WindGains
 from drone_mission_core.features import get_feature_flag
-from drone_mission_core.frame_time import FRAME_TIME_FLAG
 from drone_mission_core.mission_api import BaseMission, MissionStatus
 from drone_mission_core.mission_context import MissionContext
-from drone_mission_core.reacquire import REACQUIRE_FLAG
-from drone_mission_core.time_guard import (
-    DEFAULT_HOLD_TIMEOUT_S,
-    TIME_HEALTH_FLAG,
-    TimeGuard,
-)
 from drone_mission_core.tracking_projection import (
     DEFAULT_CAMERA_CALIBRATION_HEIGHT_PX,
     DEFAULT_CAMERA_CALIBRATION_WIDTH_PX,
@@ -39,6 +22,16 @@ from rclpy.time import Time
 
 
 EARTH_RADIUS_M = 6_371_000.0
+# The fallback: this file is June 2026's, and with every flag off it imports no 2027 module, so that one which
+# cannot be imported on the aircraft cannot stop a 2026 mission. The 2027 flags it reads are named here (a test
+# holds each name to its module's own constant), and a flag's module is imported in the constructor, where that
+# flag is on: when the sequence is built, on the ground, never in a state's code.
+FRAME_TIME_FLAG = "use_frame_time_pose"  # frame_time.py
+CENTRE_FLAG = "centre_on_estimator"  # centring.py
+RETUNE_FLAG = "centring_retune"  # centring_controller.py
+WIND_FLAG = "wind_compensation"  # wind_compensation.py
+REACQUIRE_FLAG = "smart_reacquire"  # reacquire.py
+TIME_HEALTH_FLAG = "time_health_guard"  # time_guard.py
 # Projection v2 only (use_frame_time_pose): a frame older than this gives no
 # tracking solution. A remembered ground point would otherwise let the vehicle
 # reach "centred" by its own movement, with no fresh image to say so.
@@ -92,9 +85,11 @@ class RedBullseyeMissionBase(BaseMission):
         self._target_offset = None
         self._last_frame_time_refusal_log: Time | None = None
         self._frame_time_max_age_s = DEFAULT_FRAME_TIME_MAX_AGE_S
+        self._target_offset_class = None
         if get_feature_flag(spec.features, FRAME_TIME_FLAG):
-            from drone_mission_core.frame_projection import camera_from_config
+            from drone_mission_core.frame_projection import TargetOffset, camera_from_config
 
+            self._target_offset_class = TargetOffset
             self._frame_camera = camera_from_config(spec.config, spec.name)
             self._frame_time_max_age_s = float(
                 spec.config.get("frame_time_max_age_s", DEFAULT_FRAME_TIME_MAX_AGE_S)
@@ -104,11 +99,12 @@ class RedBullseyeMissionBase(BaseMission):
         # payload's release point. The offset is read when the sequence is
         # built, so an airframe nobody has measured stops the executor on the
         # ground.
-        self._estimator_centring: EstimatorCentring | None = None
+        self._estimator_centring = None  # an EstimatorCentring (centring.py)
         self._last_centring_log: Time | None = None
         self._last_centring_refusal_log: Time | None = None
         if get_feature_flag(spec.features, CENTRE_FLAG):
             from drone_mission_core import frame_projection
+            from drone_mission_core.centring import EstimatorCentring
 
             self._estimator_centring = EstimatorCentring(
                 frame_projection.payload_offset_from_config(spec.config, spec.name)
@@ -147,12 +143,18 @@ class RedBullseyeMissionBase(BaseMission):
         # Its gains are read (the spec's, or the sequence's `centring_` keys)
         # when the sequence is built, so a bad one stops the executor on the
         # ground.
-        self._centring_controller: CentringController | None = None
+        self._centring_controller = None  # a CentringController (centring_controller.py)
+        self._centring_speed_cap = None  # its speed_cap and BARO_HEIGHT_MARGIN_M, kept with it
+        self._centring_baro_margin_m = None
         self._last_centring_lead_log: Time | None = None
         if get_feature_flag(spec.features, RETUNE_FLAG):
-            self._centring_controller = CentringController(
-                CentringGains.from_config(spec.config)
+            from drone_mission_core import centring_controller
+
+            self._centring_controller = centring_controller.CentringController(
+                centring_controller.CentringGains.from_config(spec.config)
             )
+            self._centring_speed_cap = centring_controller.speed_cap
+            self._centring_baro_margin_m = centring_controller.BARO_HEIGHT_MARGIN_M
         # Wind compensation (CEN-07), only with the wind_compensation flag on
         # (which needs centring_retune): the push a steady wind adds is taken
         # off the retuned controller's command, and an integral of the error
@@ -167,9 +169,21 @@ class RedBullseyeMissionBase(BaseMission):
             from drone_mission_core.release_offset import OffsetSettings, ReleaseOffset
 
             self._release_offset = ReleaseOffset(OffsetSettings.from_config(spec.config))
-        self._wind_compensation: WindCompensation | None = None
+        self._wind_compensation = None  # a WindCompensation (wind_compensation.py)
         if self._centring_controller is not None and get_feature_flag(spec.features, WIND_FLAG):
+            from drone_mission_core.wind_compensation import WindCompensation, WindGains
+
             self._wind_compensation = WindCompensation(WindGains.from_config(spec.config))
+        # The stale-data guard (FND-03), only with the time_health_guard flag on: its class and its default
+        # timeout are read here; the guard itself is made afresh each time the mission is entered.
+        self._time_guard_class = None
+        self._time_guard_default_hold_timeout_s = None
+        self._time_guard = None
+        if get_feature_flag(spec.features, TIME_HEALTH_FLAG):
+            from drone_mission_core import time_guard
+
+            self._time_guard_class = time_guard.TimeGuard
+            self._time_guard_default_hold_timeout_s = time_guard.DEFAULT_HOLD_TIMEOUT_S
 
     def _load_common_vision_config(self, config: dict) -> None:
         self._target_latitude = float(config.get("target_latitude", 0.0))
@@ -233,10 +247,10 @@ class RedBullseyeMissionBase(BaseMission):
             config.get("recovery_alt_tolerance_m", self._arrival_alt_tolerance_m)
         )
         self._failed = self._target_latitude == 0.0 and self._target_longitude == 0.0
-        # Only read with the time_health_guard flag on (FND-03).
-        self._time_guard_hold_timeout_s = float(
-            config.get("time_guard_hold_timeout_s", DEFAULT_HOLD_TIMEOUT_S)
-        )
+        # Only used with the time_health_guard flag on (FND-03). A number in the config is read either way, as
+        # it always was; with none, the guard's own default stands, which is there only with the flag on.
+        hold_timeout_s = config.get("time_guard_hold_timeout_s", self._time_guard_default_hold_timeout_s)
+        self._time_guard_hold_timeout_s = None if hold_timeout_s is None else float(hold_timeout_s)
 
     def _initialize_common_vision_state(self) -> None:
         self._actuator_requested = False
@@ -250,7 +264,9 @@ class RedBullseyeMissionBase(BaseMission):
         self._filtered_tracking_east_m: float | None = None
         self._filtered_tracking_north_m: float | None = None
         self._last_velocity_log_time: Time | None = None
-        self._time_guard = TimeGuard(self.name, self._time_guard_hold_timeout_s)
+        self._time_guard = None
+        if self._time_guard_class is not None:
+            self._time_guard = self._time_guard_class(self.name, self._time_guard_hold_timeout_s)
         self._time_guard_hold: tuple[float, float, float] | None = None
         if self._estimator_centring is not None:
             self._estimator_centring.forget()
@@ -602,7 +618,7 @@ class RedBullseyeMissionBase(BaseMission):
         if height is not None:
             cap_height_m = height.value_m
             if height.source != "rangefinder":
-                cap_height_m = max(0.0, cap_height_m - BARO_HEIGHT_MARGIN_M)
+                cap_height_m = max(0.0, cap_height_m - self._centring_baro_margin_m)
         now_s = context.now().nanoseconds * 1.0e-9
         velocity = context.vehicle_velocity()
         command = self._centring_controller.step(
@@ -615,7 +631,7 @@ class RedBullseyeMissionBase(BaseMission):
         )
         if self._wind_compensation is not None:
             # wind_compensation (CEN-07): the same cap and the same slew limit the controller's own command was held to hold the sum.
-            cap = speed_cap(cap_height_m, self._centring_controller.gains)
+            cap = self._centring_speed_cap(cap_height_m, self._centring_controller.gains)
             if max_centering_speed_mps is not None and math.isfinite(max_centering_speed_mps):
                 cap = min(cap, max(0.0, float(max_centering_speed_mps)))
             mode = getattr(getattr(context, "mavros_state", None), "mode", None)
@@ -665,13 +681,11 @@ class RedBullseyeMissionBase(BaseMission):
             )
             return None
         if self._target_offset is None:
-            from drone_mission_core.frame_projection import TargetOffset
-
             projector = context.ground_projector(*self._frame_camera)
             if projector is None:
                 self._log_frame_time_refusal(context, "the executor keeps no pose history")
                 return None
-            self._target_offset = TargetOffset(projector)
+            self._target_offset = self._target_offset_class(projector)
         offset = self._target_offset.offset(
             float(detection.point.x),
             float(detection.point.y),

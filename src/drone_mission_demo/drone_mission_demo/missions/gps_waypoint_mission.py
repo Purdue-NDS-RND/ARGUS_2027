@@ -61,6 +61,16 @@ class GpsWaypointMission(BaseMission):
     MODE_WAYPOINT_NAVIGATION = "waypoint_navigation"
     MODE_CIRCUIT_TIME_TRIAL = "circuit_time_trial"
 
+    def __init__(self, spec) -> None:
+        super().__init__(spec)
+        # PLT-13's route (gps_route_2027.py), only with one of its flags on. Loaded when the sequence is built, so
+        # that a module which cannot be imported stops the executor on the ground; with every flag off it is not touched.
+        self._route_2027_class = None
+        if any(get_feature_flag(spec.features, flag) for flag in ROUTE_2027_FLAGS):
+            from .gps_route_2027 import Route2027
+
+            self._route_2027_class = Route2027
+
     def on_enter(self, context: MissionContext) -> None:
         self._state = GpsWaypointState.INIT
         self._current_waypoint_index = 0
@@ -100,9 +110,7 @@ class GpsWaypointMission(BaseMission):
         # PLT-13: with one of the 2027 flags on, the route is flown by gps_route_2027.Route2027.
         self._route_2027 = None
         if not self._failed and any(get_feature_flag(self.spec.features, flag) for flag in ROUTE_2027_FLAGS):
-            from .gps_route_2027 import Route2027
-
-            self._route_2027 = Route2027(self)
+            self._route_2027 = self._route_2027_class(self)
 
     def on_exit(self, context: MissionContext) -> None:
         if getattr(self, "_route_2027", None) is not None:

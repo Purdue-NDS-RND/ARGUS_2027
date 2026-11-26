@@ -20,24 +20,20 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import NavSatFix
 from std_srvs.srv import SetBool
 
-from .estimator_feed import attach_target_estimator
 from .features import apply_feature_overrides
-from .frame_time import attach_ground_height, attach_pose_buffer
-from .height_estimator import attach_height_estimator
 from .mission_api import MissionFailurePolicy, MissionStatus
 from .mission_context import MissionContext
-from .registry import create_mission, import_mission_modules, load_sequence_file
-from .safety_limits import enforced_violations
-from .set_down import attach_throttle
-from .recovery_flight import attach_home_height
-from .gps_route import attach_mission_upload
-from .survey_search import attach_localisation_control
-from .revisit import attach_tracks
-from .gps_health import attach_gps_health
-from .precision_loiter import attach_precision_loiter
-from .time_guard import attach_time_health
-from .takeover import attach_takeover, takeover_tick
-from .actuation_lock import attach_actuation_lock, lock_violations
+from .registry import IMPORT_FAILURES, create_mission, import_mission_modules, load_sequence_file
+
+# The fallback: this file is June 2026's, and with every flag off it imports no 2027 module, so that one which
+# cannot be imported on the aircraft cannot stop a 2026 flight. With any flag on in the sequence, every 2027
+# module the executor uses is imported while it starts (_load_sequence and _attach_2027): on the ground, so a
+# module that cannot be imported then stops the executor before take-off, never in the air.
+
+
+def any_flag_on(specs) -> bool:
+    """Whether any mission of the sequence has any feature flag on, read as get_feature_flag reads one."""
+    return any(bool(value) for spec in specs for value in (spec.features or {}).values())
 
 
 class MissionExecutorNode(Node):
@@ -127,6 +123,61 @@ class MissionExecutorNode(Node):
 
         self._mission_context = MissionContext(self)
         self._sequence = self._load_sequence()
+        # What the 2027 flags attach to the executor: all None with every flag off, as in 2026.
+        self._pose_buffer = None
+        self._ground_height = None
+        self._height_estimator = None
+        self._throttle = None
+        self._home_height = None
+        self._mission_upload = None
+        self._localisation_control_client = None
+        self._marker_tracks = None
+        self._gps_health = None
+        self._target_estimator = None
+        self._precision_loiter = None
+        self._time_health = None
+        self._takeover = None
+        self._takeover_tick = None
+        self._actuation_lock = None
+        if any_flag_on([mission.spec for mission in self._sequence]):
+            self._attach_2027()
+        self._active_index = 0
+        self._active_mission = None
+        self._abort_requested = False
+        self._abort_mode_future = None
+        self._abort_mode_requested = False
+        # None, as in 2026: the abort asks for the abort_rtl_mode parameter. A mission may name another mode
+        # for as long as it holds (MissionContext.set_abort_mode; the recovery mission, with the bucket on its hook).
+        self._abort_mode_override = None
+        self._done_logged = False
+
+        rate = self.get_parameter("loop_rate_hz").get_parameter_value().double_value
+        self._timer = self.create_timer(1.0 / max(rate, 1.0), self._control_loop)
+
+        self.get_logger().info(
+            f"Mission executor initialized with {len(self._sequence)} mission(s)"
+        )
+
+    def _attach_2027(self) -> None:
+        """Only with a flag on in the sequence: import the 2027 modules and attach what each flag asks for.
+
+        Each `attach_` answers None unless its own flag is on, as it did when all of them were called at every start.
+        """
+        from . import gps_health, target_access  # noqa: F401  (target_access is mission_context.py's: loaded here, on the ground)
+        from .actuation_lock import attach_actuation_lock
+        from .estimator_feed import attach_target_estimator
+        from .frame_time import attach_ground_height, attach_pose_buffer
+        from .gps_health import attach_gps_health
+        from .gps_route import attach_mission_upload
+        from .height_estimator import attach_height_estimator
+        from .precision_loiter import attach_precision_loiter
+        from .recovery_flight import attach_home_height
+        from .revisit import attach_tracks
+        from .set_down import attach_throttle
+        from .survey_search import attach_localisation_control
+        from .takeover import attach_takeover, takeover_tick
+        from .time_guard import attach_time_health
+
         # None unless a mission has the use_frame_time_pose flag on: then the
         # last five seconds of pose and velocity, fed by its own subscriptions.
         self._pose_buffer = attach_pose_buffer(
@@ -198,27 +249,12 @@ class MissionExecutorNode(Node):
         self._takeover = attach_takeover(
             self, [mission.spec for mission in self._sequence]
         )
+        self._takeover_tick = takeover_tick
         # None unless a mission has the actuation_lock flag on: then the
         # gripper and the drop servo are commanded only from a release state
         # whose gates hold (actuation_lock.py).
         self._actuation_lock = attach_actuation_lock(
             self, [mission.spec for mission in self._sequence]
-        )
-        self._active_index = 0
-        self._active_mission = None
-        self._abort_requested = False
-        self._abort_mode_future = None
-        self._abort_mode_requested = False
-        # None, as in 2026: the abort asks for the abort_rtl_mode parameter. A mission may name another mode
-        # for as long as it holds (MissionContext.set_abort_mode; the recovery mission, with the bucket on its hook).
-        self._abort_mode_override = None
-        self._done_logged = False
-
-        rate = self.get_parameter("loop_rate_hz").get_parameter_value().double_value
-        self._timer = self.create_timer(1.0 / max(rate, 1.0), self._control_loop)
-
-        self.get_logger().info(
-            f"Mission executor initialized with {len(self._sequence)} mission(s)"
         )
 
     def _load_sequence(self):
@@ -228,6 +264,11 @@ class MissionExecutorNode(Node):
             .string_array_value
         )
         import_mission_modules(module_names)
+        for module, why in sorted(IMPORT_FAILURES.items()):
+            # The fallback: a 2027 mission that cannot be imported is left out and said; the others still load.
+            self.get_logger().error(
+                f"Mission module {module} could not be imported ({why}): its mission is not offered"
+            )
 
         sequence_file = (
             self.get_parameter("sequence_file")
@@ -248,23 +289,27 @@ class MissionExecutorNode(Node):
         specs = apply_feature_overrides(specs, feature_overrides)
         if feature_overrides.strip():
             self.get_logger().info(f"Feature overrides: {feature_overrides.strip()}")
-        # Empty unless the enforce_safety_limits flag is on: then a configured
-        # height that breaks a rule limit stops the executor from starting.
-        violations = enforced_violations(specs)
-        if violations:
-            raise ValueError(
-                "enforce_safety_limits is on and the sequence breaks a safety limit: "
-                + "; ".join(violations)
-            )
-        # Empty unless the actuation_lock flag is on: then a mission that
-        # actuates must have its gated release path on, or its release would
-        # be refused in the air.
-        unlockable = lock_violations(specs)
-        if unlockable:
-            raise ValueError(
-                "actuation_lock is on and the sequence cannot be flown locked: "
-                + "; ".join(unlockable)
-            )
+        if any_flag_on(specs):
+            from .actuation_lock import lock_violations
+            from .safety_limits import enforced_violations
+
+            # Empty unless the enforce_safety_limits flag is on: then a configured
+            # height that breaks a rule limit stops the executor from starting.
+            violations = enforced_violations(specs)
+            if violations:
+                raise ValueError(
+                    "enforce_safety_limits is on and the sequence breaks a safety limit: "
+                    + "; ".join(violations)
+                )
+            # Empty unless the actuation_lock flag is on: then a mission that
+            # actuates must have its gated release path on, or its release would
+            # be refused in the air.
+            unlockable = lock_violations(specs)
+            if unlockable:
+                raise ValueError(
+                    "actuation_lock is on and the sequence cannot be flown locked: "
+                    + "; ".join(unlockable)
+                )
         missions = [create_mission(spec) for spec in specs]
         for mission in missions:
             self.get_logger().info(
@@ -291,7 +336,7 @@ class MissionExecutorNode(Node):
         self._image_size = (int(msg.point.x), int(msg.point.y))
 
     def _control_loop(self) -> None:
-        if self._takeover is not None and takeover_tick(self, self._takeover):
+        if self._takeover is not None and self._takeover_tick(self, self._takeover):
             return  # somebody else has the vehicle: nothing is sent, ticked or asked for
 
         self._mission_context.publish_managed_setpoints()
