@@ -23,12 +23,12 @@ GRIP_NEUTRAL,1500
 FS_OPTIONS,16
 
 # --- The rangefinder, looking down: the release guard and the cone descent need a height above the ground.
-# Type 20 is a Benewake TFmini on a serial port (it reads to 12 m). Which port it is wired to, and that
-# port's SERIALn_PROTOCOL 9, are the aircraft's to set.
+# Type 20 is a Benewake TFmini on a serial port (about 6 m outdoors, by ArduPilot's page for it). Its
+# port's SERIALn_PROTOCOL 9 and SERIALn_BAUD 115 are in the baseline (platform/fcu/argus_2027.param).
 RNGFND1_TYPE,20
 RNGFND1_ORIENT,25
 RNGFND1_MIN_CM,30
-RNGFND1_MAX_CM,1200
+RNGFND1_MAX_CM,600
 
 # --- The EKF's sources. It never changes source set by itself; the mission does, by command (REC-5, REC-6).
 EK3_SRC_OPTIONS,0

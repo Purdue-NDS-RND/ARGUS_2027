@@ -728,8 +728,8 @@ def build_run(scenario_path, out_dir=None, seed: int | None = None, variant: str
     sitl = {**SITL_BASE_PARAMS, **(payload_bridge.SITL_PARAMS if bridge else {}), **recovery, **scripting, **scenario.sitl_params}
     (run_dir / "sitl.parm").write_text("".join(f"{name} {value:g}\n" for name, value in sitl.items()))
     if preflight is not None:
-        sim_baseline = [line for line in FC_BASELINE.read_text().splitlines() if line and not line.startswith(("#", "RNGFND1_"))]
-        (run_dir / "fc_baseline.param").write_text("# platform/fcu/argus_2027.param without the rangefinder's lines: SITL's rangefinder is its own.\n" + "\n".join(sim_baseline) + "\n")
+        sim_baseline = [line for line in FC_BASELINE.read_text().splitlines() if line and not line.startswith(("#", "RNGFND1_", "SERIAL"))]
+        (run_dir / "fc_baseline.param").write_text("# platform/fcu/argus_2027.param without the rangefinder's lines and its serial port's: SITL's rangefinder and ports are its own.\n" + "\n".join(sim_baseline) + "\n")
         on = [flag for flag, value in scenario.flags.items() if value is True] if flags_on else []
         (run_dir / "profile.yaml").write_text("description: this run's flags, as a profile\nenable: [" + ", ".join(on) + "]\n")
     if sequence is not None:

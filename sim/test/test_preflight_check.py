@@ -51,7 +51,7 @@ def test_a_scenario_with_a_preflight_gets_the_baseline_sitl_can_hold_the_profile
     # The baseline it is held to is the committed one, less what SITL cannot take; SITL is started on it.
     sim_baseline = pf.read_param_file(wanted["baseline"])
     committed = pf.read_param_file(REPO / "platform" / "fcu" / "argus_2027.param")
-    assert sim_baseline == {name: value for name, value in committed.items() if not name.startswith("RNGFND1_")} and len(sim_baseline) == len(committed) - 4
+    assert sim_baseline == {name: value for name, value in committed.items() if not name.startswith(("RNGFND1_", "SERIAL"))} and len(sim_baseline) == len(committed) - 6  # the rangefinder and its port
     sitl = {line.split()[0]: float(line.split()[1]) for line in (run / "sitl.parm").read_text().splitlines()}
     for name, value in sim_baseline.items():
         if not name.startswith("FENCE_"):  # the site's upload sets the fence's own, after SITL starts

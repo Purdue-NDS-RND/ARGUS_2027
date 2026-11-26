@@ -64,3 +64,12 @@ In all three the gripper's output stayed at its grab value: `docs/results/2026-1
 ## After the build (2026-11-25)
 
 - The drop's release: the drop mission sends `MAV_CMD_DO_SPRAYER`, which ArduPilot 4.6.3 acknowledges with the sprayer disabled, so the file as first written left the aircraft's drop doing nothing. It now sets `SPRAY_ENABLE 1`, `SPRAY_SPEED_MIN 0`, `SPRAY_PUMP_MIN 100` and `SERVO8_FUNCTION 22`, the sim's set (`sim/payload_bridge.py`), and the baseline's rules have `sprayer` (`tools/fc_param_check.py`, `_sprayer`). Output 8 is the sim's number: the mechanical team's replaces it. 33 parameters, twelve rules; the 2026 set fails nine of them.
+- The rangefinder: `RNGFND1_MAX_CM` 1200 -> 600 (ArduPilot's TFmini page gives about 6 m outdoors), here and in `docs/fc/recovery.parm`; `SERIAL4_PROTOCOL 9` and `SERIAL4_BAUD 115` added, marked `PORT TO CONFIRM (lead)` (4 is the GPS2 connector, unused in 2026). The baseline's `rangefinder` rule now wants a serial port at 115 for a TFmini (`_rangefinder_with_port`). 35 parameters.
+- The load is two passes (`platform/fcu/README.md`): `GRIP_ENABLE`, `RNGFND1_TYPE`, `SPRAY_ENABLE`, `FLOW_TYPE`, `PLND_ENABLED` and `SCR_ENABLE` hide the rest of their groups until they are set and the flight controller rebooted (the 2026 log's parameters show each switch at 0 with nothing else of its group). `fc_param_check <dump> --profile ...` prints `FAIL hidden: <switch> is <value> and the rest of <group>* is not in the file` for any group still hidden (`hidden_groups`).
+
+```
+$ python3 tools/fc_param_check.py platform/fcu/argus_2027.param --rules baseline | tail -1
+PASS: platform/fcu/argus_2027.param (35 parameters)
+$ pytest tools/test/test_fc_param_check.py
+63 passed
+```

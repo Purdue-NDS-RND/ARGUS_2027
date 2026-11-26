@@ -45,8 +45,18 @@ list for PLT-08):
                       (SPRAY_SPEED_MIN 0) and fully (SPRAY_PUMP_MIN 100).
                       ArduPilot acknowledges the command with the sprayer
                       disabled, and then nothing moves
-  failsafe, gripper, rangefinder, ekf_source_options, second_gps,
+  rangefinder         as above, and a TFmini (RNGFND1_TYPE 20) has a serial
+                      port: a SERIALn_PROTOCOL 9 whose SERIALn_BAUD is 115
+  failsafe, gripper, ekf_source_options, second_gps,
   radio_switches      as above
+
+With `--profile` the file is a dump of the aircraft, and a group that is
+still hidden is named ("FAIL hidden"): GRIP_ENABLE, RNGFND1_TYPE, FLOW_TYPE,
+PLND_ENABLED, SCR_ENABLE and SPRAY_ENABLE each hide the rest of their group
+until they are set and the flight controller is rebooted, so a first load
+sets the switch and nothing behind it. A switch with nothing of its group
+beside it, when the switch is on or the profile sets something behind it,
+means: reboot, refresh the parameters, load the file again, save a new dump.
 
 `--diff OTHER` lists every parameter of the file that OTHER has with another
 value, or does not have: what loading the file onto OTHER would change. It
@@ -71,12 +81,18 @@ SPARE_OUTPUTS = (5, 6, 7, 8)  # unassigned on the 2026 aircraft; 1 to 4 are the 
 FS_RELEASE_GRIPPER_BIT = 5
 RC_OPTION_GRIPPER, RC_OPTION_EKF_SOURCE = 19, 90
 RANGEFINDER_DOWN = 25  # RNGFNDn_ORIENT
+RANGEFINDER_TFMINI = 20  # RNGFNDn_TYPE: a Benewake TFmini, on a serial port
+SERIAL_PROTOCOL_RANGEFINDER = 9  # SERIALn_PROTOCOL
+SERIAL_BAUD_115200 = (115, 115200)  # SERIALn_BAUD: ArduPilot takes either spelling
+# A parameter that hides the rest of its group until it is set and the flight controller rebooted: {the switch: the group's prefix}.
+HIDDEN_GROUPS = {"GRIP_ENABLE": "GRIP_", "RNGFND1_TYPE": "RNGFND1_", "FLOW_TYPE": "FLOW_", "PLND_ENABLED": "PLND_", "SCR_ENABLE": "SCR_", "SPRAY_ENABLE": "SPRAY_"}
 SRC_NONE, SRC_OPTICAL_FLOW = 0, 5
 FLOW_TYPE_MAVLINK = 5  # the flow comes from the companion as OPTICAL_FLOW; any other type and the flight controller ignores it
 FENCE_POLYGON_BIT = 2
 FENCE_CEILING_BIT = 0
 _NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _SERVO, _RC = re.compile(r"^SERVO(\d+)_FUNCTION$"), re.compile(r"^RC(\d+)_OPTION$")
+_SERIAL_PROTOCOL = re.compile(r"^SERIAL(\d+)_PROTOCOL$")
 
 
 def read_params(path) -> Dict[str, float]:
@@ -162,6 +178,19 @@ def _rangefinder(params) -> Optional[str]:
         return f"RNGFND1_TYPE is {params.get('RNGFND1_TYPE', 'not set')}: no rangefinder"
     if _whole(params, "RNGFND1_ORIENT") != RANGEFINDER_DOWN:
         return f"RNGFND1_ORIENT is {params.get('RNGFND1_ORIENT', 'not set')}, not {RANGEFINDER_DOWN} (down)"
+    return None
+
+
+def _rangefinder_with_port(params) -> Optional[str]:
+    problem = _rangefinder(params)
+    if problem or _whole(params, "RNGFND1_TYPE") != RANGEFINDER_TFMINI:
+        return problem
+    ports = sorted(int(_SERIAL_PROTOCOL.match(name).group(1)) for name, value in params.items() if _SERIAL_PROTOCOL.match(name) and value == SERIAL_PROTOCOL_RANGEFINDER)
+    if not ports:
+        return f"RNGFND1_TYPE is {RANGEFINDER_TFMINI} (a TFmini on a serial port) and no SERIALn_PROTOCOL is {SERIAL_PROTOCOL_RANGEFINDER} (rangefinder): it has no port to be read on"
+    slow = [port for port in ports if params.get(f"SERIAL{port}_BAUD") not in SERIAL_BAUD_115200]
+    if slow:
+        return f"SERIAL{slow[0]}_BAUD is {params.get(f'SERIAL{slow[0]}_BAUD', 'not set')}, not 115: the TFmini on that port talks at 115200"
     return None
 
 
@@ -256,7 +285,7 @@ BASELINE_RULES: List[tuple] = [
     ("failsafe", _failsafe),
     ("gripper", _gripper),
     ("sprayer", _sprayer),
-    ("rangefinder", _rangefinder),
+    ("rangefinder", _rangefinder_with_port),
     ("ekf_source_options", _ekf_source_options),
     ("second_gps", _second_gps),
     ("radio_switches", _radio_switches),
@@ -282,6 +311,22 @@ def against_profile(params: Dict[str, float], profile: Dict[str, float]) -> List
         elif abs(params[name] - wanted) > 1.0e-6:
             problems.append(f"{name} is {params[name]:g}, the profile has {wanted:g}")
     return problems
+
+
+def hidden_groups(params: Dict[str, float], profile: Dict[str, float]) -> Dict[str, List[str]]:
+    """The groups a dump still has hidden: {the switch: the profile's parameters behind it, which cannot be in the dump}.
+
+    A group counts as hidden when the dump has nothing of it but its switch, and either the switch is on or the
+    profile sets something behind it. With the switch off and nothing asked of the group there is nothing to say.
+    """
+    hidden: Dict[str, List[str]] = {}
+    for switch, prefix in HIDDEN_GROUPS.items():
+        if any(name.startswith(prefix) and name != switch for name in params):
+            continue
+        wanted = sorted(name for name in profile if name.startswith(prefix) and name != switch)
+        if wanted or params.get(switch):
+            hidden[switch] = wanted
+    return hidden
 
 
 def changes(params: Dict[str, float], other: Dict[str, float]) -> List[str]:
@@ -318,12 +363,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     for result in results:
         print(f"{'ok  ' if result.passed else 'FAIL'} {result.rule}: {result.found}")
     differences = against_profile(params, profile)
+    hidden = hidden_groups(params, profile) if args.profile else {}
+    for switch, wanted in hidden.items():
+        # Said once, as the group: its parameters are not a line each under "profile".
+        differences = [line for line in differences if not any(line.startswith(f"{name} is not in the file") for name in wanted)]
+        behind = f" (the profile sets {', '.join(wanted)})" if wanted else ""
+        value = f"{params[switch]:g}" if switch in params else "not set"
+        print(f"FAIL hidden: {switch} is {value} and the rest of {HIDDEN_GROUPS[switch]}* is not in the file{behind}: "
+              "the group is hidden until its switch is set and the flight controller rebooted. "
+              "To show it: reboot the flight controller, refresh the parameters, load the file again and save a new dump")  # fmt: skip
     if args.profile and not any(_RC.match(name) for name in params):
         # A dump is the whole aircraft: with no RCn_OPTION in it, the radio's switches were not looked at.
         differences.append("the file has no RCn_OPTION lines: it is not a whole dump of the aircraft's parameters, and the radio's switches cannot be checked")
     for line in differences:
         print(f"FAIL profile: {line}")
-    passed = all(result.passed for result in results) and not differences
+    passed = all(result.passed for result in results) and not differences and not hidden
     print(f"{'PASS' if passed else 'FAIL'}: {args.file} ({len(params)} parameters)")
     return 0 if passed else 1
 

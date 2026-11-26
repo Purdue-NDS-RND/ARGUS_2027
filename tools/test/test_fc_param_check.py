@@ -86,7 +86,8 @@ def test_each_rule_fails_on_what_it_is_for(change, rule):
 def test_an_aircrafts_dump_is_held_to_the_profile_and_to_the_rules(tmp_path, capsys):
     """On the bench: the parameters read back from the flight controller are checked against the committed profile."""
     dump = tmp_path / "aircraft.param"
-    everything = {**profile(), "RC7_OPTION": 0.0, "RC8_OPTION": 0.0, "WPNAV_SPEED": 500.0}
+    # (FLOW_FXSCALER: an aircraft with FLOW_TYPE set and rebooted shows the rest of FLOW_; with FLOW_TYPE alone the dump would be one saved too early.)
+    everything = {**profile(), "RC7_OPTION": 0.0, "RC8_OPTION": 0.0, "WPNAV_SPEED": 500.0, "FLOW_FXSCALER": 0.0}
     dump.write_text("".join(f"{name},{value:g}\n" for name, value in everything.items()))
     assert tool.main([str(dump), "--profile", str(PROFILE)]) == 0
     capsys.readouterr()
@@ -99,12 +100,13 @@ def test_an_aircrafts_dump_is_held_to_the_profile_and_to_the_rules(tmp_path, cap
     assert "EK3_SRC2_VELXY is 3, the profile has 5" in out and "GPS2_TYPE is not in the file" in out and "RC7_OPTION is 19 (gripper)" in out and "FAIL" in out
     assert tool.main([str(tmp_path / "missing.param")]) == 2
     # The same aircraft, saved by QGroundControl: read, and passed.
-    everything = {**profile(), "RC7_OPTION": 0.0, "RC8_OPTION": 0.0}
+    everything = {**profile(), "RC7_OPTION": 0.0, "RC8_OPTION": 0.0, "FLOW_FXSCALER": 0.0}
     dump.write_text("# Vehicle-Id Component-Id Name Value Type\n" + "".join(f"1\t1\t{name}\t{value:.18f}\t9\n" for name, value in everything.items()))
     assert tool.main([str(dump), "--profile", str(PROFILE)]) == 0
     capsys.readouterr()
     # A file with none of the radio's options is not a whole dump: the switches were not looked at, and it does not pass as one.
-    assert tool.main([str(PROFILE), "--profile", str(PROFILE)]) == 1 and "not a whole dump" in capsys.readouterr().out
+    out = (tool.main([str(PROFILE), "--profile", str(PROFILE)]), capsys.readouterr().out)
+    assert out[0] == 1 and "not a whole dump" in out[1] and "FAIL hidden: FLOW_TYPE is 5 and the rest of FLOW_* is not in the file" in out[1]
 
 
 def test_the_sims_recovery_parameters_and_the_aircrafts_agree_where_they_are_the_same_setting():
@@ -252,3 +254,93 @@ def test_an_aircraft_dump_is_held_to_the_baseline_with_its_rules(tmp_path, capsy
     assert tool.main([str(dump), "--rules", "baseline", "--profile", str(BASELINE)]) == 1
     out = capsys.readouterr().out
     assert "FAIL gcs_failsafe" in out and "FAIL profile: FS_GCS_ENABLE is 0, the profile has 1" in out
+
+
+# --- the rangefinder's range and port, and groups a first load leaves hidden --------------------------------------
+
+
+def test_the_rangefinder_is_given_the_range_it_has_outdoors_and_a_port_marked_for_the_lead():
+    """ArduPilot's TFmini page gives about 6 m outdoors; 12 m is the indoor figure. And a TFmini with no serial
+    port set for it reads nothing: the port's lines are in the file, with the port marked as the lead's to confirm."""
+    values = baseline()
+    assert values["RNGFND1_MAX_CM"] == 600 and values["RNGFND1_MIN_CM"] == 30 and values["RNGFND1_TYPE"] == 20
+    assert tool.read_params(PROFILE)["RNGFND1_MAX_CM"] == 600  # one aircraft, one rangefinder: the recovery profile says the same
+    ports = sorted(name for name in values if name.startswith("SERIAL"))
+    assert ports == ["SERIAL4_BAUD", "SERIAL4_PROTOCOL"] and (values["SERIAL4_PROTOCOL"], values["SERIAL4_BAUD"]) == (tool.SERIAL_PROTOCOL_RANGEFINDER, 115) == (9, 115)
+    text = BASELINE.read_text()
+    block = text[text.index("# --- The rangefinder") : text.index("SERIAL4_BAUD,115")]
+    assert "PORT TO CONFIRM (lead)" in block and "6 m outdoors" in block
+    # The port chosen as the working one had nothing wired to it in 2026: the second GPS's, configured and not fitted.
+    flown = tool.read_params(COMP_2026)
+    assert (flown["SERIAL4_PROTOCOL"], flown["GPS2_TYPE"]) == (5, 2) and values["GPS2_TYPE"] == 0
+    # The rule: a serial rangefinder with no port given to rangefinders is not a rangefinder.
+    assert baseline_failed({**values, "SERIAL4_PROTOCOL": 5}) == {"rangefinder"}
+    assert baseline_failed({**{k: v for k, v in values.items() if not k.startswith("SERIAL")}, "SERIAL2_PROTOCOL": 9, "SERIAL2_BAUD": 115}) == set()  # another port will do
+    assert baseline_failed({**values, "SERIAL4_BAUD": 57}) == {"rangefinder"}  # the TFmini talks at 115200
+    assert baseline_failed({**{k: v for k, v in values.items() if not k.startswith("SERIAL")}, "RNGFND1_TYPE": 1}) == set()  # an analog one needs no port
+
+
+def as_dump(tmp_path, params):
+    dump = tmp_path / "aircraft.param"
+    dump.write_text("".join(f"{name},{value:g}\n" for name, value in sorted(params.items())))
+    return dump
+
+
+def test_a_dump_saved_after_one_load_names_the_groups_still_hidden(tmp_path, capsys):
+    """GRIP_ENABLE, RNGFND1_TYPE, SPRAY_ENABLE (and FLOW_TYPE, PLND_ENABLED, SCR_ENABLE) hide the rest of their groups
+    until they are set and the flight controller is rebooted: the first load sets the switch and nothing behind it."""
+    flown = tool.read_params(COMP_2026)
+    assert tool.HIDDEN_GROUPS == {"GRIP_ENABLE": "GRIP_", "RNGFND1_TYPE": "RNGFND1_", "FLOW_TYPE": "FLOW_", "PLND_ENABLED": "PLND_", "SCR_ENABLE": "SCR_", "SPRAY_ENABLE": "SPRAY_"}
+    for switch, prefix in tool.HIDDEN_GROUPS.items():  # as the 2026 aircraft shows: each switch 0, and nothing else of its group
+        assert flown[switch] == 0 and [name for name in flown if name.startswith(prefix)] == [switch], switch
+    # The first load, as a ground station does it: only the parameters the flight controller already shows are written.
+    first = {**flown, **{name: value for name, value in baseline().items() if name in flown}}
+    assert tool.hidden_groups(first, baseline()) == {
+        "GRIP_ENABLE": ["GRIP_GRAB", "GRIP_NEUTRAL", "GRIP_RELEASE", "GRIP_TYPE"],
+        "RNGFND1_TYPE": ["RNGFND1_MAX_CM", "RNGFND1_MIN_CM", "RNGFND1_ORIENT"],
+        "SPRAY_ENABLE": ["SPRAY_PUMP_MIN", "SPRAY_SPEED_MIN"],
+    }
+    assert tool.main([str(as_dump(tmp_path, first)), "--rules", "baseline", "--profile", str(BASELINE)]) == 1
+    out = capsys.readouterr().out
+    for line in (
+        "FAIL hidden: GRIP_ENABLE is 1 and the rest of GRIP_* is not in the file (the profile sets GRIP_GRAB, GRIP_NEUTRAL, GRIP_RELEASE, GRIP_TYPE)",
+        "FAIL hidden: RNGFND1_TYPE is 20 and the rest of RNGFND1_* is not in the file (the profile sets RNGFND1_MAX_CM, RNGFND1_MIN_CM, RNGFND1_ORIENT)",
+        "FAIL hidden: SPRAY_ENABLE is 1 and the rest of SPRAY_* is not in the file (the profile sets SPRAY_PUMP_MIN, SPRAY_SPEED_MIN)",
+    ):
+        assert line in out, line
+    assert "reboot the flight controller, refresh the parameters, load the file again and save a new dump" in out
+    assert "FAIL profile: GRIP_TYPE is not in the file" not in out  # said once, as the group, not a line a parameter
+    assert out.strip().splitlines()[-1].startswith("FAIL: ")
+    # The second load, after the reboot and the refresh: nothing hidden, and PASS.
+    second = {**flown, **baseline()}
+    assert tool.hidden_groups(second, baseline()) == {}
+    assert tool.main([str(as_dump(tmp_path, second)), "--rules", "baseline", "--profile", str(BASELINE)]) == 0
+    assert "hidden" not in capsys.readouterr().out
+    # Not loaded at all: the switch is still 0, and the group is named with that.
+    assert tool.main([str(as_dump(tmp_path, flown)), "--rules", "baseline", "--profile", str(BASELINE)]) == 1
+    assert "FAIL hidden: GRIP_ENABLE is 0 and the rest of GRIP_* is not in the file" in capsys.readouterr().out
+
+
+def test_a_switch_that_is_on_with_nothing_behind_it_is_named_whatever_the_profile(tmp_path, capsys):
+    """The watchdog's SCR_ENABLE, the flow sensor's FLOW_TYPE and precision landing's PLND_ENABLED are not the baseline's: a dump
+    with one of them on and nothing else of its group was saved before the reboot and the refresh, and is not the aircraft."""
+    loaded = {**tool.read_params(COMP_2026), **baseline()}
+    for switch, value in (("SCR_ENABLE", 1), ("PLND_ENABLED", 1), ("FLOW_TYPE", 5)):
+        assert tool.hidden_groups({**loaded, switch: value}, baseline()) == {switch: []}
+        assert tool.main([str(as_dump(tmp_path, {**loaded, switch: value})), "--rules", "baseline", "--profile", str(BASELINE)]) == 1
+        assert f"FAIL hidden: {switch} is {value} and the rest of {tool.HIDDEN_GROUPS[switch]}* is not in the file" in capsys.readouterr().out
+    assert tool.hidden_groups({**loaded, "SCR_ENABLE": 1, "SCR_HEAP_SIZE": 204800}, baseline()) == {}
+    assert tool.hidden_groups(loaded, baseline()) == {}  # each of them 0, and nothing asked of its group: nothing to say
+    # A profile by itself is not a dump: the recovery profile sets FLOW_TYPE and nothing else of FLOW_, and is not asked.
+    assert tool.main([str(PROFILE)]) == 0 and "hidden" not in capsys.readouterr().out
+
+
+def test_the_readme_gives_the_load_as_two_passes():
+    text = (REPO / "platform" / "fcu" / "README.md").read_text()
+    steps = text[text.index("## On the bench") :]
+    for word in ("Load it again", "Refresh the parameters", "Reboot the flight controller", "fc_param_check.py <dump> --rules baseline --profile platform/fcu/argus_2027.param", "FAIL hidden"):
+        assert word in steps, word
+    for switch in tool.HIDDEN_GROUPS:
+        assert f"`{switch}`" in steps, switch
+    assert "35 parameters" in text
+

@@ -821,8 +821,8 @@ def test_a_failsafe_scenario_starts_sitl_on_the_baseline_and_is_flown_by_the_fai
     # SITL starts with the baseline's own values: every parameter of the baseline that SITL can take.
     sitl = {line.split()[0]: float(line.split()[1]) for line in (run / "sitl.parm").read_text().splitlines()}
     baseline = baseline_params()
-    not_for_sitl = {name for name in baseline if name.startswith(("FENCE_", "RNGFND1_"))}  # the site's upload sets the fence; SITL's rangefinder is its own
-    assert not_for_sitl == {"FENCE_ENABLE", "FENCE_TYPE", "FENCE_ACTION", "FENCE_ALT_MAX", "FENCE_MARGIN", "RNGFND1_TYPE", "RNGFND1_ORIENT", "RNGFND1_MIN_CM", "RNGFND1_MAX_CM"}
+    not_for_sitl = {name for name in baseline if name.startswith(("FENCE_", "RNGFND1_", "SERIAL"))}  # the site's upload sets the fence; SITL's rangefinder is its own, and so are its serial ports
+    assert not_for_sitl == {"FENCE_ENABLE", "FENCE_TYPE", "FENCE_ACTION", "FENCE_ALT_MAX", "FENCE_MARGIN", "RNGFND1_TYPE", "RNGFND1_ORIENT", "RNGFND1_MIN_CM", "RNGFND1_MAX_CM", "SERIAL4_PROTOCOL", "SERIAL4_BAUD"}
     for name in sorted(set(baseline) - not_for_sitl):
         assert sitl.get(name) == baseline[name], f"{file}: sitl_params has {name} {sitl.get(name)}, the baseline has {baseline[name]}"
     # A battery above the low line from the start: SITL's own 12.6 V would trip the failsafe on the ground.
