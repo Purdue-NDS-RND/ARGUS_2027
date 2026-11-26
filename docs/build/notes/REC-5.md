@@ -60,3 +60,7 @@ Six flow flights and what each showed: `docs/results/2026-11-24-flow-odometry-an
 - The near field runs on the downward camera in the sim, not on the flow camera the spec hands off to (the sim's is mono). It wants a coloured bucket on the mat, reports nothing under about 0.7 m (the crossing no longer fits the picture), and cannot tell green grass from an arm by colour (the crossing's four arms are what it goes by).
 - No sim scenario now shows the mission refusing to descend blind; two unit tests of the flight hold it (named in `recovery/pickup_detector`).
 - There is no replay tool for the spec's field pass (a flight's samples against GPS velocity): `sim/flow_check.py` needs Gazebo's poses.
+
+## After the build (2026-11-25): the OPTICAL_FLOW message
+
+- `send_optical_flow` stays off. The message as built does not match ArduPilot 4.6.3's MAVLink flow backend (`AP_OpticalFlow_MAV`): it reads only the int16 `flow_x` and `flow_y`, `quality` and `sensor_id`, scales by the time between messages, takes the body rates from its own gyro, and ignores `flow_comp_m`, `flow_rate` and `ground_distance`, which are the fields this node fills; MAVROS negates y and casts to int16 on the way. The message has to be re-derived for that reader and accepted by SITL with `FLOW_TYPE 5` before REC-6 may ask for source set 2 ("Decisions", "Needs a person").

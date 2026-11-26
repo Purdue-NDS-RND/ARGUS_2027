@@ -55,3 +55,9 @@ spec-auditor, two rounds: INCOMPLETE, as a PARTIAL row is. Round one found two d
 - A step that stays cannot be seen once it has stayed ten seconds: the mission then flies on GPS again.
 - Only the recovery mission asks the monitor. The other missions fly on GPS as before.
 - Left open by the flight-safety review's second round (concerns, recorded for the lead): "fed" is the companion saying it sends flow, not the flight controller saying it gets it; once on set 2, a flow that stops changes nothing; a mission that ends UNTRUSTED leaves the flight controller on set 2 with only a log line, and its one command for set 1 at the end is not repeated.
+
+## After the build (2026-11-25): the GPS step, read again
+
+- The sim note that the flight controller's estimate did not follow the 10 m step was wrong in its reason. The flight's own log shows both EKF3 cores rejecting the step for about 10 s and then resetting onto it. The vehicle did not move because the sim's flight controller navigates on `AHRS_EKF_TYPE 10` (the simulator's true state), not on EKF3. `docs/results/2026-11-25-gps-step-and-the-sim-estimator.md`.
+- So no sim flight so far shows what the aircraft's navigation does on source set 1 with a bad GPS, or on set 2. On the aircraft a step that stays moves the estimate after about 10 s.
+- By the lead's decision of 25 November: "fed" must come from the flight controller's own flow quality or innovations before source set 2 may be asked for, not from the companion saying it sends flow; and REC-5's OPTICAL_FLOW has to be re-derived and accepted by SITL with `FLOW_TYPE 5` first ("Decisions", "Needs a person").
