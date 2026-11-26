@@ -61,3 +61,7 @@ The spec's "Recovery uses `abort_rtl_mode: LAND`" was replaced by the lead's not
 What REC-7 was written to avoid, an RTL refused for want of a position and asked for again for ever, does not come back: without a position the mission names LAND. The two places where the build is not the note's letter are under "Decisions" and "Needs a person" for the lead. The older results files (`docs/results/2026-11-21-recovery-return.md`, `2026-11-22-recovery-mission.md`, `2026-11-22-gate-G5.md`) describe the abort as it was when those flights were made.
 
 Sim and reviews: `docs/results/2026-11-23-recovery-abort.md` and the same section of `docs/build/notes/REC-2.md`.
+
+## After the build (2026-11-25)
+
+The lead accepted the abort as built (RTL until the gripper first closes; LAND after that, and whenever there is no position or no trusted GPS), and `docs/build/FEATURES.md` now says it in its three places: decision 14, REC-7's last line and gate G5's pass line (`sim/scenarios/gates.yaml` with it). "Decisions", 25 November.

@@ -355,7 +355,7 @@ SHIPPED_RULE_CASES = {
     ("G5", "the bucket is brought back in at least 8 of every 10"): ([run(base_points=15.2)] * 8 + [run(base_points=0.0)] * 2, [run(base_points=15.2)] * 7 + [run(base_points=0.0)] * 3),
     ("G5", "no release above 1.83 m"): ([run(released_high=False)], [run(released_high=True)]),
     ("G5", "the judge's release limit is 1.83 m"): ([run(settings={"max_release_height_m": 1.83})], [run(settings={"max_release_height_m": 3.0})]),
-    ("G5", "every flight ends safely (a failure climbs and returns)"): ([run(ended_safely=True)], [run(ended_safely=False)]),
+    ("G5", "every flight ends safely (a failure comes home by RTL before the gripper first closes, and lands otherwise)"): ([run(ended_safely=True)], [run(ended_safely=False)]),
     ("G6", "every waypoint of every flight passed within tolerance"): ([wp("waypoint_navigation"), wp("time_trial")], [wp("waypoint_navigation"), wp("time_trial", hit=6)]),
     ("G6", "five waypoint navigation flights"): ([wp("waypoint_navigation")] * 5, [wp("waypoint_navigation")] * 4 + [wp("time_trial")]),
     ("G6", "five time trial flights"): ([wp("time_trial")] * 5, [wp("time_trial")] * 4 + [wp("waypoint_navigation")]),

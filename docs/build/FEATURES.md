@@ -50,7 +50,7 @@ P0 is needed to compete well; P1 adds points or margin; P2 is cut first. [Build 
 | 11 | Ring-fit bullseye centre finder below 4 m | At 2.4 m the target fills the frame and a box centre is poor | CEN-13 | New |
 | 12 | Delivery descends on the estimator to touchdown at 0.12 m/s; no GPS column | 2026 spent 80 s on a GPS column from 11 m | CEN-05 | New |
 | 13 | Recovery without trusted GPS sends `OPTICAL_FLOW` (external navigation as the alternative) and switches EKF sources from the companion, never by RC | Speed-only input cannot hold position in ArduPilot 4.6.3; an RC switch is human input and voids the bonus | REC-5, REC-6 | New, replaces the speed-only plan |
-| 14 | Recovery never releases on a carrying fault: it lands with the bucket; its abort mode is LAND | The rules allow landing with the bucket; a refused RTL is retried forever today | REC-2, REC-7 | New |
+| 14 | Recovery never releases on a carrying fault: it lands with the bucket. Its abort is RTL until the gripper first closes, and LAND after that and whenever there is no position or no trusted GPS | The rules allow landing with the bucket; an RTL that cannot be flown is refused and retried forever today; an RTL after the release would come down on the bucket | REC-2, REC-7 | New |
 | 15 | Time trial as an AUTO mission with GUIDED fallback; route optimiser and flying start behind flags | Both depend on organiser rulings | PLT-13 | New |
 | 16 | Flag profiles are enable-lists outside `src/*/config` | Keeps the tuning gate intact | FND-08, PLT-07 | Earlier |
 | 17 | Dataset class names equal the detection contract names | One vocabulary from labels to judges | DAT-01, FND-02 | New |
@@ -416,7 +416,7 @@ Recovery is new for 2027 and has no 2026 code to build on. The drone flies to gi
 ### REC-7 Return and set-down
 
 - Return target is `takeoff`, a published `latlon`, or a `marker`. With GPS trusted it flies a global setpoint; untrusted, a local one in the EKF frame (drift about 3 to 5% of distance flown). Within 10 m, optional visual homing: a 0.8 m AprilTag at takeoff if teams may place one (P1), or keyframes saved during the takeoff climb matched by ORB and a homography (P2).
-- Recovery uses `abort_rtl_mode: LAND`, because today a refused RTL is retried forever.
+- The recovery abort (the lead's rule of 23 November 2026, as built): RTL until the gripper first closes; LAND from then on for the rest of the mission, whether or not the bucket is on the hook; and LAND whenever there is no position or no trusted GPS (no pose, no GPS fix, or `recovery_gps_untrusted` on), because an RTL that cannot be flown is refused and today a refused RTL is retried forever. `abort_rtl_mode` stays `RTL` in the params file, as in 2026: the mission names LAND to the executor while it holds, and only LAND can be named.
 
 ### REC-5 and REC-6 Flying without trusted GPS (P1)
 
@@ -719,7 +719,7 @@ Every mission: single flight, geofence breaches and failsafes reported. Localisa
 | G2 | Drop | Median ≤ 0.15 m calm and ≤ 0.30 m strong, max ≤ 1.0 m; no release or descent below 1.83 m |
 | G3 | Delivery | Median ≤ 0.5 m; release ≤ 1.83 m; impulse under the limit |
 | G4 | Localisation | ≥ 95% listed and IDs correct; error median ≤ 1.0 m, p95 ≤ 2.0 m; never below 7.62 m; CSV before landing |
-| G5 | Recovery | ≥ 8/10 with up to 8 m coordinate error and a 5 m glitch mid-descent; no release above 1.83 m; every failure ends in a climb and RTL |
+| G5 | Recovery | ≥ 8/10 with up to 8 m coordinate error and a 5 m glitch mid-descent; no release above 1.83 m; every failure ends in the recovery abort (RTL before the gripper first closes, a landing after it or without a position or trusted GPS) |
 | G6 | GPS missions | Waypoint within 1 m and time trial within 4 m, 5/5 including moderate wind |
 | G7 | Field replay | Deterministic `core` replay; detector meets the DAT-05 promotion rule |
 | G8 | Readiness (May 5) | G0 to G6 green on main within 7 days of the deadline, plus one real flight |
