@@ -49,3 +49,9 @@ The two outputs, what the sim does not show (the time sync reads 0.0 ms on the s
 - The engine check has no registry to check against (DAT-04 is on hold): it compares a file's sha256 with one given on the command line.
 - Nothing calls the preflight yet: the `go` command (PLT-07) does, and blocks the start on NO-GO.
 - `preflight_checks.sh` (2026: installed configs against source) is untouched and is not one of the eleven checks.
+
+## After the build (2026-11-25)
+
+- A twelfth check, `actuators` (`drone_utils/preflight.py`, `_actuators` and `sequence_actuators`): the preflight reads what the sequence's missions command (`package_drop` the sprayer, `package_delivery` and `package_recovery` the gripper; a drop or delivery with `fake_drop: true` nothing) and is NO-GO when the flight controller reports `SPRAY_ENABLE` not 1 or no `SERVOn_FUNCTION 22` for a drop, or `GRIP_ENABLE` not 1 for a delivery or a recovery. The reason: ArduPilot 4.6.3 acknowledges `MAV_CMD_DO_SPRAYER` with the sprayer disabled, so the mission cannot tell. The settings are read from where the parameters are (`--fc-url`, MAVROS's param plugin, or the dump), and only when the sequence commands an actuator. A sequence that was not read, or settings that were not, are NO-GO.
+- Evidence: `pytest src/drone_utils/test/test_preflight.py` -> 78 passed (67 of them failed before the check existed). The 2026 aircraft's own settings (`SPRAY_ENABLE 0`, `GRIP_ENABLE 0`) refuse `package_drop_live.yaml` and `package_delivery_live.yaml` and let `waypoint_navigation_live.yaml` go.
+- Not verified: the read through MAVROS's param plugin (it needs ROS; the MAVLink and dump paths are tested), and the check against the real flight controller.

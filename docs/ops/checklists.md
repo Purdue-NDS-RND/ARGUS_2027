@@ -48,6 +48,8 @@ Read aloud, one line at a time, by the operator; the safety pilot answers. A lin
   - NO-GO: Change the pack. Never override: a pack that starts low does not finish a slot.
 - [ ] **profile**: The flag profile fits the sequence: every flag declared, every dependency met.
   - NO-GO: Fix the profile or pick the sequence it was written for; `tools/go.py --dry-run` shows the same refusal.
+- [ ] **actuators**: What the sequence commands is switched on in the flight controller: for a drop the sprayer (`SPRAY_ENABLE 1`) with its pump on an output (`SERVOn_FUNCTION 22`), for a delivery or a recovery the gripper (`GRIP_ENABLE 1`). A mission with `fake_drop: true` commands nothing.
+  - NO-GO: Load the baseline twice, with a reboot between (`platform/fcu/README.md`). Do not override: the flight controller acknowledges the release with the actuator off, and nothing moves.
 
 An override (`--override "<reason>"`) is the lead's decision and is written with its reason and the operator's name in the preflight's log. The team's rule is that `fence`, `ekf` and `battery` are never overridden; the command does not enforce that, the people do.
 

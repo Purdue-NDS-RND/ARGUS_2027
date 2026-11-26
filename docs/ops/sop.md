@@ -36,7 +36,7 @@ How the team flies a slot. The checklists (`checklists.md`) are the lines read a
        --camera <topic>=<rate> --param-dump <today's dump> --clock-source <ground laptop> --record <log folder>/<attempt>
    ```
 
-   The preflight's checks, in order: `params`, `fence`, `gps`, `ekf`, `rangefinder`, `cameras`, `engine`, `timesync`, `disk`, `battery`, `profile`. Each is a line of the checklist.
+   The preflight's checks, in order: `params`, `fence`, `gps`, `ekf`, `rangefinder`, `cameras`, `engine`, `timesync`, `disk`, `battery`, `profile`, `actuators`. Each is a line of the checklist.
    A flight that uses a trained model adds `--engine <file>`: without it the `engine` check compares nothing.
 4. On `GO` the aircraft arms and flies the sequence. From arming to disarming nobody touches the transmitter's sticks or the ground station: any input is found by the audit and loses the bonus.
 5. The safety pilot takes over at any doubt. A takeover is never wrong.

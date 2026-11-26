@@ -1,4 +1,4 @@
-"""The preflight go/no-go (PLT-10): eleven checks over one snapshot of the aircraft. No ROS imports.
+"""The preflight go/no-go (PLT-10): twelve checks over one snapshot of the aircraft. No ROS imports.
 
     GO      every check passed
     NO-GO   one did not, or could not be made: the start is blocked
@@ -7,7 +7,7 @@ A check that has nothing to read is NO-GO: a preflight that could not look
 is not a preflight that found nothing wrong. NO-GO can be overridden by
 hand, with a reason, and the override is written to a log.
 
-The checks, in the spec's order:
+The checks, the spec's eleven in its order and then the actuators:
 
   params        the flight controller's parameters are the baseline's: the
                 values read from it (or a dump saved today) hold to
@@ -26,6 +26,12 @@ The checks, in the spec's order:
   disk          room for the flight's logs
   battery       enough voltage a cell to start
   profile       the flag profile reads, fits the sequence, and is the one asked for
+  actuators     what the sequence's missions command is switched on in the
+                flight controller: the sprayer and its pump's output for a
+                drop (MAV_CMD_DO_SPRAYER is acknowledged with the sprayer
+                disabled, and then nothing moves), the gripper for a
+                delivery or a recovery. A mission with fake_drop commands
+                nothing
 
 `run_checks` is the rule. The node that fills the `Snapshot`
 (preflight_node.py) and the `go` command (PLT-07) are the callers.
@@ -42,7 +48,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 GO, NO_GO = "GO", "NO-GO"
-CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")
+CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile", "actuators")
 # For each check: what GO means, in a person's words with the limit's own name in braces (filled from Limits), and
 # what to do about a NO-GO. The field documents (tools/ops_documents.py: the checklist, the SOP) are written from
 # these and from CHECKS, so that the paper and the command cannot say different things.
@@ -62,6 +68,8 @@ GUIDE = {
     "disk": ("{min_free_gb:g} GB or more free where the logs go.", "Move old attempts off the disk (they are bundled: `attempts/`), not delete them on the field."),
     "battery": ("{min_cell_v:g} V a cell or more, resting, on a {cells}-cell pack.", "Change the pack. Never override: a pack that starts low does not finish a slot."),
     "profile": ("The flag profile fits the sequence: every flag declared, every dependency met.", "Fix the profile or pick the sequence it was written for; `tools/go.py --dry-run` shows the same refusal."),
+    "actuators": ("What the sequence commands is switched on in the flight controller: for a drop the sprayer (`SPRAY_ENABLE 1`) with its pump on an output (`SERVOn_FUNCTION 22`), for a delivery or a recovery the gripper (`GRIP_ENABLE 1`). A mission with `fake_drop: true` commands nothing.",
+                  "Load the baseline twice, with a reboot between (`platform/fcu/README.md`). Do not override: the flight controller acknowledges the release with the actuator off, and nothing moves."),  # fmt: skip
 }
 
 
@@ -77,6 +85,14 @@ SENSOR_GEOFENCE = 0x100000
 SENSOR_PREARM_CHECK = 0x10000000
 SENSOR_LASER_POSITION = 0x100  # the downward rangefinder: healthy only while it has data
 MIN_FENCE_POINTS = 3  # an inclusion polygon has three corners at least
+# What each mission type commands (mission_context.py): the drop sends MAV_CMD_DO_SPRAYER, the delivery and the
+# recovery MAV_CMD_DO_GRIPPER. ArduPilot 4.6.3 acknowledges the sprayer's command with SPRAY_ENABLE 0.
+MISSION_ACTUATORS = {"package_drop": "sprayer", "package_delivery": "gripper", "package_recovery": "gripper"}
+FAKE_DROP_MISSIONS = ("package_drop", "package_delivery")  # the missions whose `fake_drop: true` commands no actuator
+SPRAYER_PUMP_FUNCTION = 22  # SERVOn_FUNCTION
+SERVO_OUTPUTS = 16
+SERVO_FUNCTIONS = tuple(f"SERVO{n}_FUNCTION" for n in range(1, SERVO_OUTPUTS + 1))
+ACTUATOR_PARAMS = ("SPRAY_ENABLE", "GRIP_ENABLE", *SERVO_FUNCTIONS)  # read from the flight controller when a sequence commands an actuator
 GPS_FIX_3D = 3  # GPS_RAW_INT.fix_type: 3 is a 3D fix, 4 to 6 are better ones
 
 
@@ -139,6 +155,10 @@ class Snapshot:
     # profile: (reads and fits, the flags it turns on or the problem); None: not checked
     profile: Optional[Tuple[bool, str]] = None
     profile_name: Optional[str] = None
+    # actuators: what the sequence's missions command, {"sprayer": [mission names], "gripper": [...]} (None: no
+    # sequence was read), and the flight controller's own ACTUATOR_PARAMS (None: not read; a value None: not answered)
+    sequence_actuators: Optional[Dict[str, List[str]]] = None
+    actuator_params: Optional[Dict[str, Optional[float]]] = None
 
 
 @dataclass(frozen=True)
@@ -298,12 +318,46 @@ def _profile(s: Snapshot, _limits: Limits) -> Check:
     return Check("profile", True, f"{s.profile_name or 'profile'}: {text or 'every flag off (the 2026 code)'}")
 
 
+def _actuators(s: Snapshot, _limits: Limits) -> Check:
+    if s.sequence_actuators is None:
+        return Check("actuators", False, "no sequence was read: what the flight commands (the sprayer for a drop, the gripper for a delivery or a recovery) is not known")
+    sprayer, gripper = s.sequence_actuators.get("sprayer") or [], s.sequence_actuators.get("gripper") or []
+    if not sprayer and not gripper:
+        return Check("actuators", True, "the sequence commands neither the sprayer nor the gripper")
+    if s.actuator_params is None:
+        return Check("actuators", False, "the sprayer's and the gripper's settings were not read from the flight controller (no link to read them and no dump given)")
+    have, found = s.actuator_params, []
+    if sprayer:
+        who = f"{', '.join(sprayer)} commands the sprayer"
+        enabled = have.get("SPRAY_ENABLE")
+        if enabled is None:
+            return Check("actuators", False, f"{who} and SPRAY_ENABLE was not read from the flight controller")
+        if enabled != 1:
+            return Check("actuators", False, f"{who} and the flight controller reports SPRAY_ENABLE {enabled:g}: the drop's MAV_CMD_DO_SPRAYER would be acknowledged and nothing would move")
+        read = {name: have[name] for name in SERVO_FUNCTIONS if have.get(name) is not None}
+        outputs = [name[len("SERVO") : -len("_FUNCTION")] for name, value in read.items() if value == SPRAYER_PUMP_FUNCTION]
+        if not read:
+            return Check("actuators", False, f"{who} and no SERVOn_FUNCTION was read from the flight controller: the pump's output cannot be seen")
+        if not outputs:
+            return Check("actuators", False, f"{who} and the flight controller reports no SERVOn_FUNCTION {SPRAYER_PUMP_FUNCTION} (the sprayer's pump) on any of its {len(read)} outputs read: nothing would move")
+        found.append(f"the sprayer is on (SPRAY_ENABLE 1, its pump on output {', '.join(outputs)}) for {', '.join(sprayer)}")
+    if gripper:
+        who = f"{', '.join(gripper)} commands the gripper"
+        enabled = have.get("GRIP_ENABLE")
+        if enabled is None:
+            return Check("actuators", False, f"{who} and GRIP_ENABLE was not read from the flight controller")
+        if enabled != 1:
+            return Check("actuators", False, f"{who} and the flight controller reports GRIP_ENABLE {enabled:g}: the gripper's commands would do nothing")
+        found.append(f"the gripper is on (GRIP_ENABLE 1) for {', '.join(gripper)}")
+    return Check("actuators", True, "; ".join(found))
+
+
 _RULES = {"params": _params, "fence": _fence, "gps": _gps, "ekf": _ekf, "rangefinder": _rangefinder, "cameras": _cameras, "engine": _engine,
-          "timesync": _timesync, "disk": _disk, "battery": _battery, "profile": _profile}  # fmt: skip
+          "timesync": _timesync, "disk": _disk, "battery": _battery, "profile": _profile, "actuators": _actuators}  # fmt: skip
 
 
 def run_checks(snapshot: Snapshot, limits: Limits = Limits()) -> List[Check]:
-    """Every check, in the spec's order."""
+    """Every check, in CHECKS' order."""
     return [_RULES[name](snapshot, limits) for name in CHECKS]
 
 
@@ -407,6 +461,35 @@ def check_profile(profile_path, sequence_path) -> Tuple[bool, str]:
         return False, str(problem)
     # What will be on in flight: the profile's flags and any the sequence file itself has true.
     return True, ",".join(flag for flag, value in flown.items() if value is True)
+
+
+def sequence_actuators(sequence_path) -> Dict[str, List[str]]:
+    """What a sequence's missions command: {"sprayer": [mission names], "gripper": [mission names]}, a key only
+    when a mission needs it. A drop or a delivery with `fake_drop: true` commands nothing.
+
+    OSError when the file cannot be read, ValueError when it is not a sequence.
+    """
+    import yaml
+
+    try:
+        data = yaml.safe_load(Path(sequence_path).read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as problem:
+        raise ValueError(f"{sequence_path}: {problem}") from None
+    sequence = data.get("mission_sequence", data) if isinstance(data, dict) else None
+    missions = sequence.get("missions") if isinstance(sequence, dict) else None
+    if not isinstance(missions, list):
+        raise ValueError(f"{sequence_path}: no missions in it")
+    needed: Dict[str, List[str]] = {}
+    for mission in missions:
+        if not isinstance(mission, dict):
+            continue
+        kind = str(mission.get("type", "")).strip().lower()
+        actuator = MISSION_ACTUATORS.get(kind)
+        config = mission.get("config") if isinstance(mission.get("config"), dict) else {}
+        if actuator is None or (kind in FAKE_DROP_MISSIONS and bool(config.get("fake_drop", False))):
+            continue
+        needed.setdefault(actuator, []).append(str(mission.get("name") or kind))
+    return needed
 
 
 def timesync_steps_ms(estimated_offsets_ns: List[int]) -> Tuple[Optional[float], Optional[float]]:

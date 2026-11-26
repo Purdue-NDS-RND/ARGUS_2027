@@ -150,7 +150,7 @@ def _mapping(data: dict, key: str, where: str) -> dict:
     return value
 
 
-PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile")  # drone_utils/preflight.py CHECKS
+PREFLIGHT_CHECKS = ("params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile", "actuators")  # drone_utils/preflight.py CHECKS
 GO_DETECTORS = ("none", "target_cv")
 PROFILES = Path(__file__).resolve().parents[2] / "profiles"
 ATTEMPT_PORT = 14556  # and one for pulling the flight controller's log after the landing (PLT-12)

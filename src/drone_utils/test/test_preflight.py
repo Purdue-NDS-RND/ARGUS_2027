@@ -32,6 +32,8 @@ def good(**changes) -> Snapshot:
         disk_free_gb=412.0, log_dir="/mnt/argus-logs",
         battery_v=24.9, battery_age_s=0.4,
         profile=(True, "use_frame_time_pose,use_target_estimator"), profile_name="delivery_2027",
+        sequence_actuators={"sprayer": ["package_drop"], "gripper": ["package_delivery"]},
+        actuator_params={"SPRAY_ENABLE": 1.0, "GRIP_ENABLE": 1.0, "SERVO7_FUNCTION": 28.0, "SERVO8_FUNCTION": 22.0, **{f"SERVO{n}_FUNCTION": 0.0 for n in (5, 6, 9)}},
     )  # fmt: skip
     return dataclasses.replace(base, **changes)
 
@@ -40,9 +42,9 @@ def failed(snapshot, limits=Limits()):
     return [check.name for check in pf.run_checks(snapshot, limits) if not check.go]
 
 
-def test_the_checks_are_the_specs_eleven_in_its_order():
+def test_the_checks_are_the_specs_eleven_in_its_order_and_then_the_actuators():
     checks = pf.run_checks(good())
-    assert [check.name for check in checks] == ["params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile"]
+    assert [check.name for check in checks] == ["params", "fence", "gps", "ekf", "rangefinder", "cameras", "engine", "timesync", "disk", "battery", "profile", "actuators"]
     assert pf.CHECKS == tuple(check.name for check in checks)
 
 
@@ -52,7 +54,8 @@ def test_a_ready_aircraft_is_go():
     result = pf.verdict(checks)
     assert result.go and result.clean and result.line == "GO" and result.failed == ()
     lines = pf.report_lines(checks, result)
-    assert len(lines) == 12 and lines[-1] == "GO" and lines[0].startswith("[   GO] params")
+    assert len(lines) == 13 and lines[-1] == "GO" and lines[0].startswith("[   GO] params")
+    assert lines[11] == "[   GO] actuators    the sprayer is on (SPRAY_ENABLE 1, its pump on output 8) for package_drop; the gripper is on (GRIP_ENABLE 1) for package_delivery"
     assert "sha256 abababababab" in lines[0] and "HDOP 0.90" in lines[2] and "24.9 V, 4.15 V a cell" in lines[9]
 
 
@@ -110,6 +113,14 @@ def test_an_aircraft_nothing_was_read_from_fails_every_check_but_the_engine_it_d
         ({"battery_age_s": 9.0}, "battery", "no battery reading"),
         ({"profile": None}, "profile", "no flag profile was checked"),
         ({"profile": (False, "drop_release_gates requires centre_on_estimator")}, "profile", "requires centre_on_estimator"),
+        ({"sequence_actuators": None}, "actuators", "no sequence was read"),
+        ({"actuator_params": None}, "actuators", "were not read from the flight controller"),
+        ({"actuator_params": {"SPRAY_ENABLE": 0.0, "GRIP_ENABLE": 1.0, "SERVO8_FUNCTION": 22.0}}, "actuators", "SPRAY_ENABLE 0: the drop's MAV_CMD_DO_SPRAYER would be acknowledged and nothing would move"),
+        ({"actuator_params": {"SPRAY_ENABLE": None, "GRIP_ENABLE": 1.0, "SERVO8_FUNCTION": 22.0}}, "actuators", "SPRAY_ENABLE was not read"),
+        ({"actuator_params": {"SPRAY_ENABLE": 1.0, "GRIP_ENABLE": 1.0, "SERVO7_FUNCTION": 28.0, "SERVO8_FUNCTION": 0.0}}, "actuators", "no SERVOn_FUNCTION 22"),
+        ({"actuator_params": {"SPRAY_ENABLE": 1.0, "GRIP_ENABLE": 1.0}}, "actuators", "no SERVOn_FUNCTION was read"),
+        ({"actuator_params": {"SPRAY_ENABLE": 1.0, "GRIP_ENABLE": 0.0, "SERVO8_FUNCTION": 22.0}}, "actuators", "package_delivery commands the gripper and the flight controller reports GRIP_ENABLE 0"),
+        ({"actuator_params": {"SPRAY_ENABLE": 1.0, "SERVO8_FUNCTION": 22.0}}, "actuators", "GRIP_ENABLE was not read"),
     ],
 )
 def test_one_thing_wrong_fails_its_check_and_only_its_check(changes, check, word):
@@ -158,7 +169,7 @@ def test_every_preflight_is_logged_and_an_override_with_who_and_why(tmp_path):
     pf.append_log(log, pf.log_record(pf.run_checks(good()), pf.verdict(pf.run_checks(good())), "2027-06-04T15:20:00Z"))
     first, second = [json.loads(line) for line in log.read_text().splitlines()]
     assert first["verdict"] == "NO-GO OVERRIDDEN" and first["failed"] == ["gps"] and first["override"] == {"by": "lead", "reason": "apron"}
-    assert first["profile"] == "delivery_2027" and len(first["checks"]) == 11 and first["checks"][2]["go"] is False
+    assert first["profile"] == "delivery_2027" and len(first["checks"]) == 12 and first["checks"][2]["go"] is False
     assert second["verdict"] == "GO" and "override" not in second
     blocked = pf.log_record(checks, pf.verdict(checks), "2027-06-04T15:01:00Z")
     assert blocked["verdict"] == "NO-GO" and "override" not in blocked
@@ -259,7 +270,7 @@ def test_cameras_are_named_as_topic_and_rate():
 def test_the_offline_side_fills_the_parameters_from_a_dump_the_disk_the_engine_and_the_profile(tmp_path):
     (tmp_path / "logs").mkdir()
     dump = tmp_path / "aircraft.param"
-    dump.write_text("FENCE_ENABLE,1\nFS_OPTIONS,16\nSOMETHING,3\n")
+    dump.write_text("FENCE_ENABLE,1\nFS_OPTIONS,16\nSOMETHING,3\nGRIP_ENABLE,1\n")  # the sequence is a delivery that lets go: the gripper must be on
     engine = tmp_path / "yolo.engine"
     engine.write_bytes(b"engine")
     import hashlib
@@ -367,10 +378,10 @@ def test_a_preflight_that_could_not_look_is_no_go_printed_and_logged_and_cannot_
     out = capsys.readouterr()
     assert code == 2 and "TOPIC=HZ" in out.err
     lines = out.out.strip().splitlines()
-    assert len(lines) == 12 and all(line.startswith("[NO-GO]") and "could not run" in line for line in lines[:11])
+    assert len(lines) == 13 and all(line.startswith("[NO-GO]") and "could not run" in line for line in lines[:12])
     assert lines[-1].startswith("NO-GO: params, fence") and "OVERRIDDEN" not in out.out
     record = json.loads((tmp_path / "logs" / "preflight.jsonl").read_text().splitlines()[-1])
-    assert record["verdict"] == "NO-GO" and len(record["failed"]) == 11 and "override" not in record
+    assert record["verdict"] == "NO-GO" and len(record["failed"]) == 12 and "override" not in record
 
 
 def test_nothing_is_asked_of_a_flight_controller_that_is_armed_or_whose_state_is_not_known():
@@ -402,3 +413,115 @@ def test_a_pymavlink_that_is_not_installed_is_looked_for_in_the_users_packages_a
     with pytest.raises(ImportError):
         node._mavutil()
     assert sys.path[-1] == site.getusersitepackages()  # looked for there, after everything else
+
+
+# --- the actuators a sequence commands, against what the flight controller reports --------------------------------
+
+SEQUENCES = REPO / "src" / "drone_mission_demo" / "config" / "sequences"
+SERVOS_OFF = {f"SERVO{n}_FUNCTION": 0.0 for n in range(1, 17)}
+
+
+def actuators(needed, params):
+    return next(check for check in pf.run_checks(good(sequence_actuators=needed, actuator_params=params)) if check.name == "actuators")
+
+
+def test_what_a_sequence_commands_is_read_from_its_missions():
+    """A drop commands the sprayer's pump (MAV_CMD_DO_SPRAYER), a delivery and a recovery the gripper; a mission with fake_drop commands nothing."""
+    assert pf.sequence_actuators(SEQUENCES / "package_drop_live.yaml") == {"sprayer": ["package_drop"]}
+    assert pf.sequence_actuators(SEQUENCES / "final_waypoint_drop.yaml") == {"sprayer": ["package_drop"]}
+    assert pf.sequence_actuators(SEQUENCES / "package_delivery_live.yaml") == {"gripper": ["package_delivery"]}
+    assert pf.sequence_actuators(SEQUENCES / "final_curcuit_delivery.yaml") == {"gripper": ["package_delivery"]}
+    assert pf.sequence_actuators(SEQUENCES / "sim_package_recovery.yaml") == {"gripper": ["package_recovery"]}
+    for quiet in ("package_drop_demo.yaml", "package_delivery_demo.yaml", "sim_package_drop_live.yaml", "sim_package_delivery_live.yaml", "waypoint_navigation_live.yaml", "square_only.yaml"):
+        assert pf.sequence_actuators(SEQUENCES / quiet) == {}, quiet
+    # Every committed sequence reads, and names only the two actuators.
+    for file in sorted(SEQUENCES.glob("*.yaml")):
+        assert set(pf.sequence_actuators(file)) <= {"sprayer", "gripper"}, file.name
+    # The mission types are the registered ones.
+    assert pf.MISSION_ACTUATORS == {"package_drop": "sprayer", "package_delivery": "gripper", "package_recovery": "gripper"}
+    for mission_type in pf.MISSION_ACTUATORS:
+        assert f'@register_mission("{mission_type}")' in (REPO / "src" / "drone_mission_demo" / "drone_mission_demo" / "missions" / f"{mission_type}_mission.py").read_text()
+
+
+def test_a_sequence_written_out_is_read_the_same(tmp_path):
+    sequence = tmp_path / "both.yaml"
+    sequence.write_text(
+        "mission_sequence:\n  missions:\n    - {type: takeoff, name: up}\n    - {type: package_drop, name: first drop, config: {fake_drop: false}}\n"
+        "    - {type: package_drop, name: rehearsal, config: {fake_drop: true}}\n    - {type: package_drop, config: {}}\n    - {type: package_delivery, name: set down}\n    - {type: package_recovery, name: bucket, config: {fake_drop: true}}\n"
+    )
+    # fake_drop is false unless it is said; a mission with no name goes by its type; recovery has no fake_drop.
+    assert pf.sequence_actuators(sequence) == {"sprayer": ["first drop", "package_drop"], "gripper": ["set down", "bucket"]}
+    sequence.write_text("mission_sequence: [not, a, mapping]\n")
+    with pytest.raises(ValueError, match="no missions"):
+        pf.sequence_actuators(sequence)
+    with pytest.raises(OSError):
+        pf.sequence_actuators(tmp_path / "none.yaml")
+
+
+def test_a_drop_is_refused_with_the_sprayer_off_or_on_no_output():
+    drop = {"sprayer": ["package_drop"]}
+    assert actuators(drop, {**SERVOS_OFF, "SPRAY_ENABLE": 1.0, "SERVO6_FUNCTION": 22.0}).go  # whichever output the mechanical team gives it
+    off = actuators(drop, {**SERVOS_OFF, "SPRAY_ENABLE": 0.0, "SERVO8_FUNCTION": 22.0})  # as the aircraft flew in 2026
+    assert not off.go and "package_drop commands the sprayer and the flight controller reports SPRAY_ENABLE 0" in off.detail
+    nowhere = actuators(drop, {**SERVOS_OFF, "SPRAY_ENABLE": 1.0})
+    assert not nowhere.go and "reports no SERVOn_FUNCTION 22 (the sprayer's pump) on any of its 16 outputs read" in nowhere.detail
+    # The gripper being off is no matter to a drop, and the sprayer none to a delivery or a recovery.
+    assert actuators(drop, {**SERVOS_OFF, "SPRAY_ENABLE": 1.0, "SERVO8_FUNCTION": 22.0, "GRIP_ENABLE": 0.0}).go
+    for mission in ("package_delivery", "package_recovery"):
+        assert actuators({"gripper": [mission]}, {**SERVOS_OFF, "SPRAY_ENABLE": 0.0, "GRIP_ENABLE": 1.0}).go
+
+
+def test_a_delivery_or_a_recovery_is_refused_with_the_gripper_off():
+    for mission in ("package_delivery", "package_recovery"):
+        off = actuators({"gripper": [mission]}, {**SERVOS_OFF, "SPRAY_ENABLE": 1.0, "SERVO8_FUNCTION": 22.0, "GRIP_ENABLE": 0.0})
+        assert not off.go and f"{mission} commands the gripper and the flight controller reports GRIP_ENABLE 0" in off.detail
+        assert not pf.verdict(pf.run_checks(good(sequence_actuators={"gripper": [mission]}, actuator_params={"GRIP_ENABLE": 0.0}))).go
+
+
+def test_a_sequence_that_commands_nothing_needs_nothing_read():
+    quiet = actuators({}, None)
+    assert quiet.go and quiet.detail == "the sequence commands neither the sprayer nor the gripper"
+    assert actuators({}, {"SPRAY_ENABLE": 0.0, "GRIP_ENABLE": 0.0}).go  # the 2026 aircraft, on a waypoint flight
+
+
+def test_the_actuators_settings_come_from_where_the_parameters_do(tmp_path, monkeypatch, capsys):
+    (tmp_path / "logs").mkdir()
+    dump = tmp_path / "aircraft.param"
+    drop, delivery, waypoints = (str(SEQUENCES / name) for name in ("package_drop_live.yaml", "package_delivery_live.yaml", "waypoint_navigation_live.yaml"))
+    blank = dict(params_problems=None, params_source=None, baseline_sha256=None, sequence_actuators=None, actuator_params=None)
+    # From a dump: the 2026 aircraft's own settings refuse a drop and a delivery, and let a waypoint flight go.
+    dump.write_text("FENCE_ENABLE,1\nFS_OPTIONS,16\nSPRAY_ENABLE,0\nGRIP_ENABLE,0\nSERVO7_FUNCTION,0\nSERVO8_FUNCTION,0\n")
+    for sequence, word in ((drop, "SPRAY_ENABLE 0"), (delivery, "GRIP_ENABLE 0")):
+        snapshot = node.fill_offline(good(**blank), arguments(tmp_path, "--param-dump", str(dump), "--sequence", sequence))
+        refused = [c for c in pf.run_checks(snapshot, Limits(min_free_gb=0.0)) if not c.go]
+        assert [c.name for c in refused] == ["actuators"] and word in refused[0].detail
+    snapshot = node.fill_offline(good(**blank), arguments(tmp_path, "--param-dump", str(dump), "--sequence", waypoints))
+    assert snapshot.sequence_actuators == {} and [c.name for c in pf.run_checks(snapshot, Limits(min_free_gb=0.0)) if not c.go] == []
+    # With the baseline's sprayer and gripper loaded, both go.
+    dump.write_text("FENCE_ENABLE,1\nFS_OPTIONS,16\nSPRAY_ENABLE,1\nGRIP_ENABLE,1\nSERVO7_FUNCTION,28\nSERVO8_FUNCTION,22\n")
+    for sequence in (drop, delivery):
+        snapshot = node.fill_offline(good(**blank), arguments(tmp_path, "--param-dump", str(dump), "--sequence", sequence))
+        assert [c.name for c in pf.run_checks(snapshot, Limits(min_free_gb=0.0)) if not c.go] == []
+    # Over MAVLink: the same names are asked of the flight controller itself, with the baseline's.
+    asked = []
+
+    def from_fc(url, names, timeout_s=10.0):
+        asked.append((url, list(names)))
+        return {name: {"FENCE_ENABLE": 1.0, "FS_OPTIONS": 16.0, "FENCE_TOTAL": 5.0, "SPRAY_ENABLE": 0.0, "GRIP_ENABLE": 1.0}.get(name, 0.0) for name in names}
+
+    monkeypatch.setattr(node, "params_from_fc", from_fc)
+    args = arguments(tmp_path, "--fc-url", "udpin:127.0.0.1:14555", "--sequence", drop, "--min-free-gb", "0.0")
+    snapshot = node.fill_offline(good(**blank), args)
+    assert len(asked) == 1 and set(asked[0][1]) == {"FENCE_ENABLE", "FS_OPTIONS", "FENCE_TOTAL", "SPRAY_ENABLE", "GRIP_ENABLE", *SERVOS_OFF}
+    assert snapshot.params_problems == [] and snapshot.fence_points == 5 and snapshot.actuator_params["SPRAY_ENABLE"] == 0.0
+    # And the command itself says NO-GO and exits 1.
+    assert node.run(args, snapshot) == 1
+    out = capsys.readouterr().out
+    assert "[NO-GO] actuators" in out and out.strip().splitlines()[-1] == "NO-GO: actuators"
+    # A sequence that commands nothing asks the flight controller for nothing more than before.
+    asked.clear()
+    node.fill_offline(good(**blank), arguments(tmp_path, "--fc-url", "udpin:127.0.0.1:14555", "--sequence", waypoints))
+    assert set(asked[0][1]) == {"FENCE_ENABLE", "FS_OPTIONS", "FENCE_TOTAL"}
+    # A sequence that cannot be read: the check says so, and nothing is raised.
+    snapshot = node.fill_offline(good(**blank), arguments(tmp_path, "--param-dump", str(dump), "--sequence", str(tmp_path / "none.yaml")))
+    assert snapshot.sequence_actuators is None and "actuators" in [c.name for c in pf.run_checks(snapshot) if not c.go]

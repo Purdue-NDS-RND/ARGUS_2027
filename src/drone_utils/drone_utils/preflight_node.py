@@ -25,7 +25,9 @@ This file is the thin side: it fills a `Snapshot` and hands it to the rules
 and, for the parameters, the first of: `--fc-url` (MAVLink, with pymavlink:
 the sim's tools port), MAVROS's param plugin if this MAVROS has it loaded,
 or `--param-dump` (the ground station's file, saved today). With none of the
-three the parameter check is NO-GO.
+three the parameter check is NO-GO. When the sequence commands the sprayer
+or the gripper, their own settings (SPRAY_ENABLE, GRIP_ENABLE, every
+SERVOn_FUNCTION) are read from the same place, for the actuators check.
 """
 
 from __future__ import annotations
@@ -134,6 +136,16 @@ def params_from_fc(url: str, names: List[str], timeout_s: float = 10.0) -> Dict[
             if name in values:
                 values[name] = float(message.param_value)
     return values
+
+
+def commanded(args) -> Optional[Dict[str, List[str]]]:
+    """What the sequence to be flown commands (preflight.sequence_actuators); None with no sequence, or one that does not read."""
+    if not args.sequence:
+        return None
+    try:
+        return pf.sequence_actuators(args.sequence)
+    except (OSError, ValueError):
+        return None  # the profile check says what is wrong with the file; the actuators check says it was not read
 
 
 def listen(args, cameras: Dict[str, float]) -> pf.Snapshot:
@@ -246,6 +258,14 @@ def listen(args, cameras: Dict[str, float]) -> pf.Snapshot:
             for name, value in zip(names, result.values):
                 have[name] = float(value.double_value) if value.type == 3 else float(value.integer_value) if value.type == 2 else None
             snapshot.params_source, snapshot.params_problems = "flight controller (MAVROS)", pf.compare_params(have, baseline)
+        if commanded(args):
+            asked = param_client.call_async(GetParameters.Request(names=list(pf.ACTUATOR_PARAMS)))
+            rclpy.spin_until_future_complete(node, asked, timeout_sec=5.0)
+            if asked.result() is not None and len(asked.result().values) == len(pf.ACTUATOR_PARAMS):
+                snapshot.actuator_params = {
+                    name: float(value.double_value) if value.type == 3 else float(value.integer_value) if value.type == 2 else None
+                    for name, value in zip(pf.ACTUATOR_PARAMS, asked.result().values)
+                }
         count = param_client.call_async(GetParameters.Request(names=[FENCE_POINTS]))
         rclpy.spin_until_future_complete(node, count, timeout_sec=2.0)
         if count.result() is not None and count.result().values and count.result().values[0].type == 2:
@@ -257,13 +277,19 @@ def listen(args, cameras: Dict[str, float]) -> pf.Snapshot:
 
 def fill_offline(snapshot: pf.Snapshot, args) -> pf.Snapshot:
     """The parts of the snapshot that need no ROS: parameters from MAVLink or a dump, the disk, the clock, the engine, the profile."""
+    if args.sequence:
+        snapshot.sequence_actuators = commanded(args)
+    # The actuators' own settings are read only when the sequence commands one, from where the parameters come.
+    actuators = pf.ACTUATOR_PARAMS if snapshot.sequence_actuators else ()
     if args.baseline:
         snapshot.baseline_sha256 = pf.sha256_of(args.baseline)
         baseline = pf.read_param_file(args.baseline)
         if args.fc_url:
-            have = params_from_fc(args.fc_url, sorted({*baseline, FENCE_POINTS}))
+            have = params_from_fc(args.fc_url, sorted({*baseline, FENCE_POINTS, *actuators}))
             snapshot.params_source, snapshot.params_problems = "flight controller", pf.compare_params(have, baseline)
             snapshot.fence_points = None if have.get(FENCE_POINTS) is None else int(have[FENCE_POINTS])
+            if actuators:
+                snapshot.actuator_params = {name: have.get(name) for name in actuators}
         elif snapshot.params_problems is None and args.param_dump:
             dump = Path(args.param_dump)
             dumped = pf.read_param_file(dump)
@@ -271,6 +297,12 @@ def fill_offline(snapshot: pf.Snapshot, args) -> pf.Snapshot:
             snapshot.params_age_h = (time.time() - dump.stat().st_mtime) / 3600.0
             snapshot.params_problems = pf.compare_params(dumped, baseline)
             snapshot.fence_points = None if FENCE_POINTS not in dumped else int(dumped[FENCE_POINTS])
+    if actuators and snapshot.actuator_params is None:
+        if args.fc_url:
+            snapshot.actuator_params = dict(params_from_fc(args.fc_url, list(actuators)))
+        elif args.param_dump:
+            dumped = pf.read_param_file(args.param_dump)
+            snapshot.actuator_params = {name: dumped.get(name) for name in actuators}
     if args.log_dir:
         snapshot.log_dir = str(args.log_dir)
         try:
