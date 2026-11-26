@@ -80,7 +80,9 @@ def test_a_rangefinder_height_that_is_off_fails_the_run():
     fly(checker, descent(), range_bias_m=0.3)
     report = checker.report()
     assert report["passed"] is False
-    assert any("0.30 m from the true height at the 95th percentile" in problem and "limit 0.1 m" in problem for problem in report["problems"])
+    assert any("m from the true height at the 95th percentile" in problem and "limit 0.1 m" in problem for problem in report["problems"])
+    # 0.30 m at the stamp; 0.275 m against the truth over the reading's 50 ms, in which a 0.5 m/s descent covers 0.025 m.
+    assert report["rangefinder"]["p95_at_stamp_m"] == pytest.approx(0.30, abs=0.002) and report["rangefinder"]["p95_m"] == pytest.approx(0.275, abs=0.002)
 
 
 def test_falling_back_to_the_barometer_where_the_rangefinder_should_work_fails_the_run():
@@ -227,3 +229,110 @@ def test_heights_during_a_scenarios_rangefinder_fault_are_counted_and_not_judged
     assert known["passed"] and known["during_a_rangefinder_fault"] == 270 and known["rangefinder"]["count"] == known["samples"] - 270
     assert any("rangefinder fault: 270 heights, not judged" in line for line in height_check.summary_lines(known))
     assert "checker.report(fault_windows(run_dir))" in (SIM / "height_check.py").read_text()
+
+
+# --- a reading is a little old when it is stamped ------------------------------------------------------------
+
+
+def fly_aged(checker, heights, age_s, start_s=10.0):
+    """As fly(), but each rangefinder reading is the true height `age_s` before the stamp it carries.
+
+    That is the sim's rangefinder as MAVROS gives it, and the aircraft's: ArduPilot reads the sensor at 20 Hz and a
+    reading goes out in the next DISTANCE_SENSOR message, stamped when it is sent. In nine recorded flights the age
+    was a constant of the flight, between 0 and 40 ms (docs/results/2026-11-25-height-check-reading-age.md).
+    """
+    checker.on_truth(start_s - 1.0, (0.0, 0.0, 0.2), LEVEL)
+
+    def height_at(t_s):
+        place = min(len(heights) - 1.0, max(0.0, (t_s - start_s) * 30.0))
+        low = int(place)
+        high = min(len(heights) - 1, low + 1)
+        return heights[low] + (place - low) * (heights[high] - heights[low])
+
+    for index, height in enumerate(heights):
+        t_s = start_s + index / 30.0
+        checker.on_truth(t_s, (0.0, 0.0, 0.2 + height), LEVEL)
+        stamp_ns = int(round(t_s * S))
+        checker.on_range(stamp_ns, height_at(t_s - age_s), 0.0, 1000.0)
+        checker.on_pose(stamp_ns, (0.0, 0.0, height), LEVEL, t_s)
+    checker.on_truth(start_s + len(heights) / 30.0, (0.0, 0.0, 0.2 + heights[-1]), LEVEL)
+
+
+def drop_flight(climb_mps=2.5):
+    """A drop's heights at 30 Hz: up to 11 m at the climb rate, 3 s there, down to 2 m at 0.35 m/s, 5 s there, and up again."""
+    heights = [0.3]
+    while heights[-1] < 11.0:
+        heights.append(heights[-1] + climb_mps / 30.0)
+    heights += [11.0] * 90
+    while heights[-1] > 2.0:
+        heights.append(heights[-1] - 0.35 / 30.0)
+    heights += [2.0] * 150
+    while heights[-1] < 11.0:
+        heights.append(heights[-1] + climb_mps / 30.0)
+    return heights
+
+
+def test_a_reading_one_period_old_in_a_fast_climb_is_the_readings_age_not_the_estimators_error():
+    """Gate G2, 25 November: 0.10 m at the 95th percentile in drop flights, every one of them in the two 2.5 m/s climbs,
+    where a reading 40 ms old is 0.10 m behind. The same heights against the truth at the moment the sensor read are right."""
+    assert height_check.READING_PERIOD_S == 0.05  # ArduPilot's rangefinder is read at 20 Hz
+    checker = height_check.Checker()
+    fly_aged(checker, drop_flight(), age_s=0.042)
+    report = checker.report()
+    assert report["passed"], report["problems"]
+    rangefinder = report["rangefinder"]
+    # At the stamp the climbs read 0.105 m low, and the climbs are over a twentieth of the flight; against the truth over the reading's period they read right.
+    assert rangefinder["p95_at_stamp_m"] == pytest.approx(0.105, abs=0.005) and rangefinder["p95_at_stamp_m"] > height_check.RANGE_LIMIT_M
+    assert rangefinder["p95_m"] < 0.01 and rangefinder["reading_period_s"] == 0.05
+    assert rangefinder["max_m"] < 0.12  # a few heights where a climb ends: the estimator's ground is the middle of five readings, two of them still the climb's
+    text = " ".join(height_check.summary_lines(report))
+    assert "p95 0.00 m" in text and "p95 0.11 m against the truth at the stamp alone, a reading being up to 50 ms old then" in text
+
+
+def test_a_hover_and_a_slow_descent_get_nothing_from_the_readings_age():
+    """Where the release gate, the set-down and the cone descent use the height, a reading's age is worth under 0.02 m: an error of 0.12 m there fails as before."""
+    for heights in ([6.0] * 600, descent(top=10.0, bottom=1.0)):
+        checker = height_check.Checker()
+        fly(checker, heights, range_bias_m=0.12)
+        report = checker.report()
+        assert not report["passed"] and "from the true height at the 95th percentile" in report["problems"][0], report
+        assert report["rangefinder"]["p95_m"] >= 0.10
+
+
+def test_a_reading_older_than_one_period_or_ahead_of_the_truth_still_fails():
+    old = height_check.Checker()
+    fly_aged(old, drop_flight(), age_s=0.12)  # 0.30 m behind in the climbs: 0.175 m more than one period explains
+    report = old.report()
+    assert not report["passed"] and report["rangefinder"]["p95_m"] == pytest.approx(0.175, abs=0.01)
+    ahead = height_check.Checker()
+    fly_aged(ahead, drop_flight(), age_s=-0.048)  # a height that leads the truth: nothing a sensor's age explains
+    report = ahead.report()
+    assert not report["passed"] and report["rangefinder"]["p95_m"] == pytest.approx(0.12, abs=0.01)
+
+
+def test_a_recorded_flight_is_judged_again_from_its_bag_and_its_trace(tmp_path, capsys):
+    """`height_check.py --bag <run folder>`: the same estimator and the same rules, on the poses and readings the flight's bag holds."""
+    from replay.bag import write_bag
+    from replay_flight import MS, pose_record, range_record
+
+    run = tmp_path / "run"
+    run.mkdir()
+    heights = drop_flight()
+    records, trace = [], [{"t": 9.0, "pose": "vehicle", "e": 0.0, "n": 0.0, "u": 0.2, "yaw": 0.0}]
+    for index, height in enumerate(heights):
+        ns = 10 * S + index * (S // 30)
+        aged = heights[max(0, index - 1)] + (heights[index] - heights[max(0, index - 1)]) * (1.0 - 0.042 * 30.0)  # 42 ms old
+        records += [pose_record(ns, up=height), range_record(ns, range_m=aged)]
+        trace.append({"t": ns / S, "pose": "vehicle", "e": 0.0, "n": 0.0, "u": 0.2 + height, "yaw": 0.0})
+        trace.append({"t": ns / S, "pose": "parcel", "e": 0.0, "n": 0.0, "u": 0.0})
+    trace.append({"t": 10.0 + len(heights) / 30.0, "pose": "vehicle", "e": 0.0, "n": 0.0, "u": 0.2 + heights[-1], "yaw": 0.0})
+    write_bag(run / "bag", records)
+    (run / "trace.jsonl").write_text("".join(json.dumps(row) + "\n" for row in trace))
+    assert MS == 1_000_000
+    report = height_check.replay(run)
+    assert report["passed"] and report["rangefinder"]["p95_at_stamp_m"] == pytest.approx(0.105, abs=0.005) and report["rangefinder"]["count"] > 1000
+    assert report["from"] == "bag" and not (run / "height_check.json").exists()  # the flight's own report is not written over
+    assert height_check.main(["--bag", str(run)]) == 0
+    out = capsys.readouterr().out
+    assert "height check: PASS" in out and "from the bag" in out and "the trace has no tilt" in out
+    assert height_check.main(["--bag", str(tmp_path / "nowhere")]) == 2

@@ -2,6 +2,7 @@
 """Check the height estimator against the true height in a flight (CEN-03). Runs inside the sim container.
 
   python3 sim/height_check.py <run folder>
+  python3 sim/height_check.py --bag <run folder>     # a recorded flight again, from its bag and its trace; no ROS
 
 The runner starts this beside every flight whose scenario turns
 `use_height_estimator` on. It runs the estimator itself
@@ -17,7 +18,10 @@ The run passes when
   - where the truth says the rangefinder should work (0.5 to 11 m up, tilted
     10 degrees or less), at least 90% of the heights came from it;
   - the heights that came from the rangefinder are within 0.10 m of the truth
-    at the 95th percentile (the line SIM-05 holds the rangefinder itself to);
+    at the 95th percentile (the line SIM-05 holds the rangefinder itself to).
+    The truth a height is held to is the true height over the 50 ms before
+    its stamp, not at the stamp alone: a rangefinder reading is already up
+    to one reading period old when it is stamped (see READING_PERIOD_S);
   - no height came from the rangefinder above 12.5 m, beyond the sensor's
     12 m range, or while the truth says the vehicle was tilted over 17
     degrees (the estimator's limit is 15, by the flight controller's
@@ -27,6 +31,13 @@ A flight that never comes into the rangefinder's band has nothing to judge
 and passes; the report says so. The barometer heights' error is reported and
 not judged: it is the flight controller's height estimate, not ours. The run
 folder gets height_check.json.
+
+`--bag` judges a flight that was recorded (`--record`, or a scenario flown as
+an attempt) a second time: the same estimator is given the poses and the
+rangefinder readings in the run folder's bag, and the truth is the vehicle's
+height in the run's trace.jsonl. The trace has no tilt, so the two rules that
+read the true tilt are not judged there. It prints the report and writes
+nothing.
 """
 
 from __future__ import annotations
@@ -50,6 +61,14 @@ FLAG = "use_height_estimator"
 POSE_TOPIC = "/mavros/local_position/pose"
 RANGEFINDER_TOPIC = "/mavros/rangefinder/rangefinder"
 RANGE_LIMIT_M = 0.10  # heights from the rangefinder against the truth, 95th percentile
+# A reading's age at its stamp. ArduPilot reads its rangefinder at 20 Hz and sends the newest reading in the next
+# DISTANCE_SENSOR message, which MAVROS stamps by when it was sent: the reading is then between nothing and one
+# period old, by how the two happen to line up in that boot. In nine recorded sim flights the age was a constant of
+# the flight between 0 and 40 ms, and the raw readings carried it, not the estimator
+# (docs/results/2026-11-25-height-check-reading-age.md). In a hover it is worth nothing, in a 0.35 m/s descent under
+# 0.02 m, and in the 2.5 m/s climbs of a take-off and a relaunch up to 0.10 m, which is the whole line. So a height is
+# held to the true height anywhere in the period before its stamp. The line itself is not moved.
+READING_PERIOD_S = 0.05
 IN_BAND_M = (0.5, 11.0)  # true heights at which the rangefinder must be the source...
 IN_BAND_MAX_TILT_DEG = 10.0  # ...while the vehicle is tilted no more than this
 IN_BAND_MIN_SHARE = 0.9
@@ -130,6 +149,7 @@ def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight
     purpose (fault_windows): samples in them are counted and not judged.
     """
     by_source: dict = {"rangefinder": [], "baro": []}
+    at_stamp: List[float] = []  # the rangefinder heights against the truth at their stamps alone: reported, not judged
     reasons: dict = {}
     in_band = in_band_rangefinder = above = above_rangefinder = judged = unknown_source = tilted = tilted_rangefinder = in_fault = 0
     for t_s, value_m, source, reason in samples:
@@ -143,7 +163,14 @@ def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight
         if source not in by_source:
             unknown_source += 1
             continue
-        by_source[source].append(abs(value_m - state["height_m"]))
+        if source == "rangefinder":
+            # Against the true height over the reading's period: nothing if the height is one the vehicle had in it.
+            at_stamp.append(abs(value_m - state["height_m"]))
+            before = truth.at(t_s - READING_PERIOD_S)
+            low, high = sorted((state["height_m"], state["height_m"] if before is None else before["height_m"]))
+            by_source[source].append(0.0 if low <= value_m <= high else min(abs(value_m - low), abs(value_m - high)))
+        else:
+            by_source[source].append(abs(value_m - state["height_m"]))
         if source == "baro":
             kind = reason_kind(reason)
             reasons[kind] = reasons.get(kind, 0) + 1
@@ -175,6 +202,7 @@ def build_report(samples: List[Tuple[float, float, str, str]], truth: TrueHeight
     if tilted_rangefinder:
         problems.append(f"{tilted_rangefinder} heights came from the rangefinder while the vehicle was tilted over {TILTED_OVER_DEG:g} degrees")
     rangefinder.update(limit_m=RANGE_LIMIT_M, passed=rangefinder["count"] >= MIN_SAMPLES and rangefinder["p95_m"] <= RANGE_LIMIT_M)
+    rangefinder.update(reading_period_s=READING_PERIOD_S, p95_at_stamp_m=_spread(at_stamp)["p95_m"])
     baro["reasons"] = dict(sorted(reasons.items()))
     return {
         "passed": not problems,
@@ -206,6 +234,7 @@ def summary_lines(report: dict) -> List[str]:
         lines.append(
             f"rangefinder source: {'PASS' if rangefinder.get('passed') else 'FAIL'}, median {rangefinder['median_m']:.2f} m, p95 {rangefinder['p95_m']:.2f} m "
             f"over {rangefinder['count']} heights (limit {rangefinder.get('limit_m', RANGE_LIMIT_M):g} m)"
+            + ("" if rangefinder.get("p95_at_stamp_m") is None else f"; p95 {rangefinder['p95_at_stamp_m']:.2f} m against the truth at the stamp alone, a reading being up to {1000.0 * READING_PERIOD_S:.0f} ms old then")
         )
     else:
         lines.append(f"rangefinder source: {rangefinder.get('count', 0)} heights, nothing to judge")
@@ -318,12 +347,51 @@ def listen(run_dir: Path) -> dict:
     return write()
 
 
+def replay(run_dir) -> dict:
+    """The verdict on a recorded flight: the run folder's bag through the estimator, against the vehicle's heights in its trace.jsonl. No ROS.
+
+    Raises OSError or ValueError when the folder has no bag or no trace that can be read.
+    """
+    from replay import topics
+    from replay.bag import read_topics
+    from replay.cdr import stamp_ns
+
+    run_dir = Path(run_dir)
+    checker = Checker()
+    for line in (run_dir / "trace.jsonl").read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("pose") == "vehicle":
+            checker.on_truth(float(row["t"]), (row["e"], row["n"], row["u"]), (0.0, 0.0, 0.0, 1.0))  # the trace keeps no tilt
+    for record in read_topics(run_dir / "bag", [topics.POSE, topics.RANGEFINDER]):
+        message = record.decode()
+        ns = stamp_ns(message.header)
+        if record.topic == topics.RANGEFINDER:
+            checker.on_range(ns, message.range, message.min_range, message.max_range)
+        else:
+            position, orientation = message.pose.position, message.pose.orientation
+            checker.on_pose(ns, (position.x, position.y, position.z), (orientation.x, orientation.y, orientation.z, orientation.w), ns * 1.0e-9)
+    report = checker.report(fault_windows(run_dir))
+    report["from"] = "bag"
+    return report
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1:
+    if len(argv) == 2 and argv[0] == "--bag":
+        try:
+            report = replay(Path(argv[1]))
+        except (OSError, ValueError) as problem:
+            print(f"height check: {problem}", file=sys.stderr)
+            return 2
+        print("height estimator against the true height, from the bag (stamps on the sim's clock are needed: a flight on sim time; the trace has no tilt, so the tilt rules are not judged):")
+    elif len(argv) != 1:
         print(__doc__)
         return 2
-    report = listen(Path(argv[0]))
+    else:
+        report = listen(Path(argv[0]))
     for line in summary_lines(report):
         print(f"height estimator against the true height: {line}")
     for problem in report["problems"]:

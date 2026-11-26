@@ -64,3 +64,9 @@ Deviation: SITL's rangefinder is type 1, not 100 (SIM-05's decision).
 - Until a stuck reading has lasted 0.2 m of climb or descent the height can be wrong by as much: CEN-04's release gates should not rest on the height alone over that distance.
 - No mission reads the height yet: CEN-04 (release height by source) and CEN-05 do. The executor's own estimator has not been read in a flight; the sim check runs a second copy on the same topics.
 - `ground_below_home_m` has no value for the competition field yet (Needs a person).
+
+## After the build (2026-11-25): the side check's 0.10 m in drop flights
+
+- In gate G2 the check beside the flight read 0.10 m at the 95th percentile in drop flights. The cause is not the estimator and not the final align: a rangefinder reading is up to about 40 ms old when it is stamped (a constant of each flight, from how ArduPilot's 20 Hz read lines up with its message stream), and a drop's 2.5 m/s climbs are about a tenth of its rangefinder heights. The raw readings carry the same error. In a hover and in the 0.35 m/s descent it is under 0.02 m. `docs/results/2026-11-25-height-check-reading-age.md`.
+- `sim/height_check.py` now holds a rangefinder height to the true height anywhere in the 50 ms before its stamp (`READING_PERIOD_S`); the 0.10 m line is unchanged, and the error at the stamp alone is still reported. `python3 sim/height_check.py --bag <run folder>` judges a recorded flight again without ROS. The estimator itself is not changed.
+- Not done: nothing measures the reading's age on the aircraft, and the estimator does not correct for it (the age is not known in flight).
