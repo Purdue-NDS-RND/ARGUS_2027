@@ -348,7 +348,8 @@ def test_the_warp_through_the_lens_asks_the_camera_model_for_a_coarse_grid_not_f
 
 
 def test_only_numbered_markers_are_read_and_a_frame_has_a_limit_of_crops_and_of_time():
-    read = reader()
+    # The limit of crops is counted, not timed: with a budget no machine spends, however busy, only the count can leave a crop unread.
+    read = reader(budget_s=3600.0)
     crop, _ = marker(3)
     detection = lambda class_id, score=0.9: SimpleNamespace(class_id=class_id, score=score)  # noqa: E731
     crops = [SimpleNamespace(image=crop.image, origin=(0, 0), detection=detection("boundary_marker")), SimpleNamespace(image=crop.image, origin=(0, 0), detection=detection("marker"))]
@@ -358,7 +359,8 @@ def test_only_numbered_markers_are_read_and_a_frame_has_a_limit_of_crops_and_of_
     assert dr.MAX_CROPS_PER_FRAME == 6
     many = [SimpleNamespace(image=crop.image, origin=(0, 0), detection=detection("marker", 0.5 + 0.05 * index)) for index in range(8)]
     readings = read.read_all(many)
-    assert [r.digit for r in readings] == [None, None, 3, 3, 3, 3, 3, 3] and "more markers in the frame" in readings[0].reason
+    assert [r.digit for r in readings] == [None, None, 3, 3, 3, 3, 3, 3] and read.skipped_count == 2
+    assert all(f"more markers in the frame than the {dr.MAX_CROPS_PER_FRAME} that are read" in r.reason for r in readings[:2])
     # A box far bigger than a marker is from the survey's height is not worked on at all.
     huge = SimpleNamespace(image=np.zeros((dr.MAX_CROP_SIDE_PX + 1, 300, 3), dtype=np.uint8), origin=(0, 0), detection=detection("marker"))
     assert "too big to be a marker" in read.read(huge).reason and dr.MAX_CROP_SIDE_PX == 512
@@ -367,6 +369,8 @@ def test_only_numbered_markers_are_read_and_a_frame_has_a_limit_of_crops_and_of_
     readings = hurried.read_all(many[:3])
     assert [r.digit for r in readings] == [None, None, 3] and hurried.skipped_count == 2  # the most confident box is always read
     assert all("no time left" in r.reason for r in readings[:2])
+    # The time a frame gets when nobody says otherwise is asserted as a number, not by racing the clock.
+    assert dr.READ_BUDGET_S == 0.03 and reader().budget_s == 0.03 and dr.DigitReader(dr.TemplateDigitClassifier()).budget_s == 0.03
 
 
 def test_one_crop_whose_reading_raises_costs_only_its_own_reading():

@@ -74,15 +74,25 @@ def test_the_round_is_nearest_first_inside_the_bounds_and_within_the_time_left()
     assert [visit.track_id for visit in visits] == [2] and left_out == ["track 1 (digit not read (20 sightings)): the straight way to it leaves the search area"]
 
 
-def test_a_tracker_full_of_tracks_is_weighed_and_flown_only_so_far_and_quickly():
-    """The round is planned inside one 20 Hz tick: 200 false tracks must not stall it."""
+def _least_cpu_s(run, repeats=5):
+    """The least processor time of several runs. A busy machine makes the wall clock say anything it likes about
+    this code; the processor time the code itself used, at its least over a few runs, it barely moves."""
     import time
 
+    least = float("inf")
+    for _ in range(repeats):
+        started = time.process_time()
+        run()
+        least = min(least, time.process_time() - started)
+    return least
+
+
+def test_a_tracker_full_of_tracks_is_weighed_and_flown_only_so_far_and_quickly():
+    """The round is planned inside one 20 Hz tick: 200 false tracks must not stall it."""
     many = [track(index, 5.0 + (index % 19) * 5.0, 5.0 + (index // 19) * 8.0, digit=-1 if index % 2 else 3, sightings=1 + index % 5) for index in range(200)]
-    started = time.perf_counter()
     visits, left_out = rv.choose(many, (10.0, 50.0), 3600.0, 5.0, FENCED)
-    took = time.perf_counter() - started
-    assert len(visits) == rv.MAX_VISITS == 20 and took < 0.05
+    assert len(visits) == rv.MAX_VISITS == 20
+    assert _least_cpu_s(lambda: rv.choose(many, (10.0, 50.0), 3600.0, 5.0, FENCED)) < 0.05
     assert f"{200 - rv.MAX_CANDIDATES} more uncertain track(s): only {rv.MAX_CANDIDATES} are weighed" in left_out
     assert all(visit.why.startswith("digit") for visit in visits)  # the unread are weighed first
     assert sum("more than 20 visits" in line for line in left_out) == rv.MAX_CANDIDATES - rv.MAX_VISITS

@@ -287,20 +287,28 @@ def test_a_jump_is_not_judged_without_a_velocity_and_a_clock_apart_from_the_stam
     assert "no GPS position for 1 s" not in health.rating(20.0).reasons and "no GPS position for 1 s" in health.rating(21.5).reasons
 
 
-def test_the_rating_costs_little_at_the_flow_cameras_rate():
-    """The flight-safety review: the rating runs in the 50 ms tick. Ninety flow samples a second for six seconds, ten fixes a second."""
+def _least_cpu_s(run, repeats=5):
+    """The least processor time of several runs. A busy machine makes the wall clock say anything it likes about
+    this code; the processor time the code itself used, at its least over a few runs, it barely moves."""
     import time
 
+    least = float("inf")
+    for _ in range(repeats):
+        started = time.process_time()
+        run()
+        least = min(least, time.process_time() - started)
+    return least
+
+
+def test_the_rating_costs_little_at_the_flow_cameras_rate():
+    """The flight-safety review: the rating runs in the 50 ms tick. Ninety flow samples a second for six seconds, ten fixes a second."""
     health = gh.GpsHealth()
     for step in range(540):
         health.add_vision(step / 90.0, 0.5, 0.0, 200)
     for step in range(60):
         health.add_gps(step / 10.0, 0.05 * step, 0.0, 0.5, 0.0)
     health.rating(5.9)
-    started = time.perf_counter()
-    for _ in range(20):
-        health.rating(5.9)
-    assert (time.perf_counter() - started) / 20 < 0.005
+    assert _least_cpu_s(lambda: health.rating(5.9), repeats=20) < 0.005
 
 
 def test_the_estimators_variance_is_suspect_over_its_line_and_the_command_number_is_the_one_sent():

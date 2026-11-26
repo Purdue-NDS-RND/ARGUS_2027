@@ -205,11 +205,22 @@ def test_a_plan_can_start_from_the_corner_nearest_where_the_vehicle_is():
         cp.plan(SQUARE, THIRTY_FT, CAMERA_4K, start=(float("nan"), 0.0))
 
 
+def _least_cpu_s(run, repeats=5):
+    """The least processor time of several runs. A busy machine makes the wall clock say anything it likes about
+    this code; the processor time the code itself used, at its least over a few runs, it barely moves."""
+    import time
+
+    least = float("inf")
+    for _ in range(repeats):
+        started = time.process_time()
+        run()
+        least = min(least, time.process_time() - started)
+    return least
+
+
 def test_the_boundary_check_of_many_points_at_once_is_the_check_of_each():
     """LOC-3 plans inside an executor tick: the points along a track are checked together, and must get the answers
     they got one at a time."""
-    import time
-
     rng = np.random.default_rng(7)
     boundary = cp._polygon([(-50.0, -40.0), (120.0, -40.0), (120.0, 90.0), (60.0, 90.0), (60.0, 30.0), (40.0, 30.0), (40.0, 90.0), (-50.0, 90.0)])
     points = rng.uniform((-70.0, -60.0), (140.0, 110.0), size=(4000, 2))
@@ -220,6 +231,7 @@ def test_the_boundary_check_of_many_points_at_once_is_the_check_of_each():
     assert cp._edge_distances(points[:50], boundary) == pytest.approx([cp._edge_distance(point, boundary) for point in points[:50]])
     # A 300 x 200 m area inside a boundary is planned in well under a tenth of a second on a desktop (it took half a second walked in Python).
     camera = SimpleNamespace(width=1280, height=720, fx=778.33, fy=778.33)  # the sim's survey camera, as far as the planner reads it
-    started = time.perf_counter()
-    plan = cp.plan([(20.0, 10.0), (320.0, 10.0), (320.0, 210.0), (20.0, 210.0)], 10.668, camera, boundary=[(-50.0, -50.0), (390.0, -50.0), (390.0, 290.0), (-50.0, 290.0)], start=(0.0, 0.0))
-    assert plan.tracks >= 10 and plan.boundary_checked and time.perf_counter() - started < 0.25
+    planned = lambda: cp.plan([(20.0, 10.0), (320.0, 10.0), (320.0, 210.0), (20.0, 210.0)], 10.668, camera, boundary=[(-50.0, -50.0), (390.0, -50.0), (390.0, 290.0), (-50.0, 290.0)], start=(0.0, 0.0))  # noqa: E731
+    plan = planned()
+    assert plan.tracks >= 10 and plan.boundary_checked
+    assert _least_cpu_s(planned, repeats=3) < 0.25

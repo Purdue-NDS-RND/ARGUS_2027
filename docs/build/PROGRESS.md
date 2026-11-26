@@ -460,6 +460,7 @@ Choices the specs did not settle, with the reason. Newest first.
 
 One line per finished feature, gate run or stop, newest first: `- YYYY-MM-DD <ID> DONE: <one line>`, `- YYYY-MM-DD G0: PASS ...`, `- STOP YYYY-MM-DD: <what is needed>`.
 
+- 2026-11-25 LOC-6 FIX: the timed tests no longer race the wall clock. `test_digit_reader.py`'s limit of crops is asserted with a budget nothing spends, the time rule with `budget_s=0`, and the 0.03 s default as a number; the timing lines of `test_coverage_planner`, `test_gps_route`, `test_revisit`, `test_green_x`, `test_ring_fit` and `test_gps_health` measure the least processor time of several runs, apart from what the code returns. `test_ring_fit`'s line goes from 0.06 s to 0.25 s (it was 2.6 times an idle desktop's 23 ms and failed at 0.061 s on a busy one). Before: the digit reader's test failed 3 runs in 3 and the ring fit's 1 in 3 with 16 busy processes on 8 cores; after: 0 in 9 with 24 and 32.
 - 2026-11-25 G0
 - 2026-11-25 G2
 - 2026-11-25 SIM-12

@@ -180,18 +180,28 @@ def test_a_shadow_or_a_hook_over_the_crossing_is_not_a_bucket():
     assert (gx.BUCKET_MIN_SOLIDITY, gx.BUCKET_MAX_ELONGATION) == (0.6, 2.0)
 
 
+def _least_cpu_s(run, repeats=5):
+    """The least processor time of several runs. A busy machine makes the wall clock say anything it likes about
+    this code; the processor time the code itself used, at its least over a few runs, it barely moves."""
+    import time
+
+    least = float("inf")
+    for _ in range(repeats):
+        started = time.process_time()
+        run()
+        least = min(least, time.process_time() - started)
+    return least
+
+
 def test_the_closing_of_the_white_is_bounded_however_pale_the_picture():
     """A picture that is mostly pale ground, or the mat from close in, closes the white over a wide gap: done on a
     quarter-size mask, and the X is still found where it is."""
-    import time
-
     image, truth = x_mat(4.0, rotation_deg=30.0, offset=(20.0, -10.0))
     found = gx.detect(image).x
     assert found is not None and math.hypot(found.cx - truth["center_px"][0], found.cy - truth["center_px"][1]) <= max(2.0, 0.01 * span_px(4.0))
     pale = np.full((720, 1280, 3), 235, dtype=np.uint8)  # sunlit concrete, edge to edge
-    started = time.perf_counter()
-    assert gx.detect(pale).x is None
-    assert time.perf_counter() - started < 0.5 and gx.QUARTER_CLOSE_OVER_PX == 41
+    assert gx.detect(pale).x is None and gx.QUARTER_CLOSE_OVER_PX == 41
+    assert _least_cpu_s(lambda: gx.detect(pale), repeats=3) < 0.5  # processor time over every thread OpenCV uses, so no less than the wall clock's on an idle machine
 
 
 # --- the near field (REC-5, the hand-off under 3 m): the mat fills the picture and the bucket is found by itself ---
